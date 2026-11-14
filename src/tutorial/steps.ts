@@ -157,13 +157,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Map cards change the island',
     body: [
       'After moving you may play ONE card. Teal cards are Map cards.',
-      `Tap “${CARD_INFO.build_bridge.name}”, then tap the dashed, unbuilt bridge next to the Dragon Hoard.`,
-      'Careful — map changes help every kingdom, not just yours.',
+      `Tap “${CARD_INFO.build_bridge.name}”, then tap the glowing river square just below your Knight.`,
+      'Walkers cannot cross water or mountains. Map cards reshape them — and the changes help every kingdom, not just yours.',
     ],
-    after: 'A new shortcut to the centre! Break Bridge and Block Path can cut routes too.',
+    after: 'A new shortcut across the river! Carve Tunnel, Raise Mountain and Dig Canal reshape the island too; Boats and Gliders cross it.',
     setup: () => {
       const s = tutorialBase();
-      place(s, ch(TUTORIAL_YOU, 'knight'), 'i1');
+      place(s, ch(TUTORIAL_YOU, 'knight'), 'm0');
       actionPhase(s);
       giveCard(s, 'build_bridge');
       return s;
@@ -171,7 +171,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowed: ['playCard'],
     allowCard: 'build_bridge',
     done: (_p, _n, e) => playedCard(e, 'build_bridge'),
-    coach: () => ({ ui: ['[data-card="build_bridge"]'], board: ['conn:i1-x'] }),
+    coach: () => ({ ui: ['[data-card="build_bridge"]'], board: ['p8-3'] }),
   },
   {
     id: 'power-card',

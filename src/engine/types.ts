@@ -8,12 +8,17 @@ export type CardCategory = 'map' | 'power' | 'special';
 export type CardType =
   | 'build_bridge'
   | 'break_bridge'
+  | 'carve_tunnel'
+  | 'raise_mountain'
+  | 'dig_canal'
   | 'block_path'
   | 'portal'
   | 'trap'
   | 'speed_boost'
   | 'shield'
   | 'attack_boost'
+  | 'boat'
+  | 'glider'
   | 'teleport'
   | 'royal_guard'
   | 'swap'
@@ -26,6 +31,23 @@ export type CardType =
 
 export type SpaceType = 'castle' | 'treasure' | 'normal' | 'card' | 'portal' | 'portalSite';
 
+/**
+ * What a square is made of. Land terrains can be walked on and stood on.
+ * Water (river, lake, ocean) needs a boat; mountains need a glider (or a tunnel).
+ */
+export type Terrain =
+  | 'grass'
+  | 'forest'
+  | 'plateau'
+  | 'mountain'
+  | 'river'
+  | 'lake'
+  | 'ocean'
+  | 'bridge'
+  | 'tunnel'
+  | 'harbor'
+  | 'airfield';
+
 export interface BoardSpace {
   id: string;
   type: SpaceType;
@@ -33,6 +55,10 @@ export interface BoardSpace {
   y: number;
   /** For castles: seat index 0..3 that owns it. */
   seat?: number;
+  /** Starting terrain. Defaults to grass. */
+  terrain?: Terrain;
+  /** King's road squares: map cards may never reshape them. */
+  road?: boolean;
 }
 
 /** permanent: always open. bridge: buildable/breakable. blockable: can be blocked temporarily. */
@@ -69,7 +95,7 @@ export interface CardInstance {
   type: CardType;
 }
 
-export type PowerEffect = { type: 'shield' } | { type: 'attack_boost' };
+export type PowerEffect = { type: 'shield' } | { type: 'attack_boost' } | { type: 'boat' } | { type: 'glider' };
 
 export interface Character {
   id: string;
@@ -182,6 +208,7 @@ export type GameEvent =
   | { type: 'pickedUp'; characterId: string; treasureId: string }
   | { type: 'banked'; characterId: string; playerId: string; treasureId: string }
   | { type: 'cardPlayed'; playerId: string; card: CardType }
+  | { type: 'terrainChanged'; space: string; from: Terrain; to: Terrain }
   | { type: 'cardDrawn'; playerId: string }
   | { type: 'turnStarted'; playerId: string; turn: number }
   | { type: 'gameOver'; result: MatchResult };
@@ -196,6 +223,8 @@ export interface PublicState {
   treasures: Treasure[];
   /** Open/closed state of every bridge connection. */
   bridges: Record<string, boolean>;
+  /** Current terrain of every square; map cards reshape it. */
+  terrain: Record<string, Terrain>;
   blocks: Block[];
   tempPortals: TempPortal[];
   traps: Trap[];

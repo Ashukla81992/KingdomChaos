@@ -77,6 +77,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     characters,
     treasures: graph.treasureSpaces.map((s) => ({ id: `t-${s}`, home: s, space: s, carriedBy: null })),
     bridges,
+    terrain: Object.fromEntries(board.spaces.map((s) => [s.id, s.terrain ?? 'grass'])),
     blocks: [],
     tempPortals: [],
     traps: [],

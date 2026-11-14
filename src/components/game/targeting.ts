@@ -2,6 +2,10 @@ import {
   CHARACTER_INFO,
   distancesFrom,
   getGraph,
+  isLand,
+  isWater,
+  TERRAIN_INFO,
+  terrainOf,
   type CardTarget,
   type CardType,
   type MoveOption,
@@ -24,7 +28,7 @@ export const TARGET_STEPS: Record<CardTarget['kind'], Step[]> = {
     { field: 'space', pick: 'space', prompt: 'Tap an empty portal site (dotted pink ring).' },
     { field: 'linkedTo', pick: 'space', prompt: 'Tap the fixed portal to link it to.' },
   ],
-  space: [{ field: 'space', pick: 'space', prompt: 'Tap a highlighted empty space.' }],
+  space: [{ field: 'space', pick: 'space', prompt: 'Tap a highlighted square on the map.' }],
   character: [{ field: 'characterId', pick: 'character', prompt: 'Tap one of your highlighted characters.' }],
   characterPath: [
     { field: 'characterId', pick: 'character', prompt: 'Tap the character to boost.' },
@@ -73,6 +77,11 @@ export function describeRoute(view: PlayerView, o: MoveOption): string {
     return `${owner}'s ${CHARACTER_INFO[c.kind].name}`;
   };
   const bits = [`${o.path.length - 1} step${o.path.length === 2 ? '' : 's'}`];
+  const over = o.path.slice(1, -1).map((s) => terrainOf(view, s));
+  if (over.some(isWater)) bits.push('sails across water');
+  if (over.includes('mountain')) bits.push('flies over the mountains');
+  if (o.path.some((s, i) => i > 0 && terrainOf(view, s) === 'airfield' && terrainOf(view, o.path[i - 1]) === 'airfield'))
+    bits.push('takes a flight');
   if (o.usesPortal) bits.push('through a portal');
   if (o.passedOpponents.length) bits.push(`slips past ${o.passedOpponents.length} opponent${o.passedOpponents.length > 1 ? 's' : ''}`);
   if (o.captures.length) bits.push(`captures ${o.captures.map(name).join(' & ')}`);
@@ -92,11 +101,14 @@ export function explainSpace(view: PlayerView, characterId: string, spaceId: str
   const castle = view.castles[spaceId];
   if (sp.type === 'castle' && (!castle || castle.owner !== mover.owner)) return 'Only a castle’s own kingdom may enter it.';
   if (spaceId === mover.space) return 'Your character is already here.';
+  const terrain = terrainOf(view, spaceId);
+  if (!isLand(terrain))
+    return `${TERRAIN_INFO[terrain].name}: characters can never stop here. ${TERRAIN_INFO[terrain].rule}`;
   const occupant = Object.values(view.characters).find((c) => c.space === spaceId && sp.type !== 'castle');
   if (occupant?.owner === mover.owner) return 'You can pass through your own characters, but not stop on them.';
   if (occupant?.immune) return 'That character is Immune and cannot be captured.';
   const d = distancesFrom(view, mover.space, { allowCastles: [view.players.find((p) => p.id === mover.owner)!.castle] })[spaceId];
   if (d === undefined) return 'No open route reaches that space right now.';
   if (d > steps) return `Too far — that space is ${d} steps away and you can move ${steps}.`;
-  return 'An opponent, a blocked path or an unbuilt bridge is in the way on every route.';
+  return 'An opponent, a blocked path, water or a mountain is in the way on every route.';
 }

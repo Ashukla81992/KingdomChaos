@@ -1,6 +1,7 @@
-import { movementTraits, type MovementTraits } from './abilities';
+import { movementTraits, NO_TRAITS, type MovementTraits } from './abilities';
 import { getGraph, otherEnd } from './board';
-import type { BoardConnection, Character, PublicState } from './types';
+import { isLand, isWater } from './terrain';
+import type { BoardConnection, Character, PublicState, Terrain } from './types';
 
 export function isConnectionOpen(state: PublicState, c: BoardConnection): boolean {
   if (c.kind === 'bridge') return !!state.bridges[c.id];
@@ -8,11 +9,32 @@ export function isConnectionOpen(state: PublicState, c: BoardConnection): boolea
   return true;
 }
 
-export type StepVia = 'path' | 'witchPortal' | 'tempPortal';
+export function terrainOf(state: PublicState, spaceId: string): Terrain {
+  return state.terrain?.[spaceId] ?? getGraph(state.boardId).space[spaceId]?.terrain ?? 'grass';
+}
+
+/** Can a character with these traits pass over this square (not necessarily stop on it)? */
+export function canCross(t: Terrain, traits: Pick<MovementTraits, 'sail' | 'fly'>): boolean {
+  if (isLand(t)) return true;
+  if (isWater(t)) return traits.sail || traits.fly;
+  return traits.fly;
+}
+
+export type StepVia = 'path' | 'witchPortal' | 'tempPortal' | 'flight';
 
 export interface Step {
   to: string;
   via: StepVia;
+}
+
+const airfieldCache = new Map<string, string[]>();
+function airfields(boardId: string): string[] {
+  let list = airfieldCache.get(boardId);
+  if (!list) {
+    list = getGraph(boardId).board.spaces.filter((s) => s.terrain === 'airfield').map((s) => s.id);
+    airfieldCache.set(boardId, list);
+  }
+  return list;
 }
 
 export function neighbors(state: PublicState, spaceId: string, traits: MovementTraits): Step[] {
@@ -20,6 +42,10 @@ export function neighbors(state: PublicState, spaceId: string, traits: MovementT
   const out: Step[] = [];
   for (const c of graph.adjacency[spaceId] ?? []) {
     if (isConnectionOpen(state, c)) out.push({ to: otherEnd(c, spaceId), via: 'path' });
+  }
+  const fields = airfields(state.boardId);
+  if (fields.includes(spaceId) && terrainOf(state, spaceId) === 'airfield') {
+    for (const f of fields) if (f !== spaceId && terrainOf(state, f) === 'airfield') out.push({ to: f, via: 'flight' });
   }
   const [p1, p2] = graph.board.fixedPortals;
   if (traits.useFixedPortalLink && (spaceId === p1 || spaceId === p2)) {
@@ -92,7 +118,9 @@ export function enumerateMoves(
   const mover = state.characters[characterId];
   if (!mover || maxSteps <= 0) return [];
   const graph = getGraph(state.boardId);
-  const traits = movementTraits(mover, regular);
+  const base = movementTraits(mover, regular);
+  const traits: MovementTraits = { ...base, sail: base.sail || terrainOf(state, mover.space) === 'harbor' };
+  const terrain = (id: string) => terrainOf(state, id);
   const occupant: Record<string, Character> = {};
   for (const c of Object.values(state.characters)) {
     if (c.id !== mover.id && graph.space[c.space]?.type !== 'castle') occupant[c.space] = c;
@@ -121,6 +149,7 @@ export function enumerateMoves(
     const captured = new Set(f.captures);
     for (let k = f.path.length - 2; k >= 1; k--) {
       const s = f.path[k];
+      if (!isLand(terrain(s))) continue;
       const o = occupant[s];
       if (!o || captured.has(o.id) || castleOwner(state, s) === mover.owner) return s;
     }
@@ -135,7 +164,15 @@ export function enumerateMoves(
       const vSpace = graph.space[v];
       if (!vSpace) continue;
       if (vSpace.type === 'castle' && castleOwner(state, v) !== mover.owner) continue;
-      const next: Frame = { ...f, path: [...f.path, v], usesPortal: f.usesPortal || step.via !== 'path' };
+      const t = terrain(v);
+      if (!canCross(t, traits)) continue;
+      const portal = step.via === 'witchPortal' || step.via === 'tempPortal';
+      const next: Frame = { ...f, path: [...f.path, v], usesPortal: f.usesPortal || portal };
+      if (!isLand(t)) {
+        // Sailing or flying over: can never stop here.
+        visit(v, next);
+        continue;
+      }
       const o = occupant[v];
       if (!o) {
         finish(next, v, null);
@@ -211,18 +248,18 @@ export function distinctRoutes(options: MoveOption[]): MoveOption[] {
   return out;
 }
 
-/** BFS distances over currently open paths (ignoring occupancy). Used by AI and connectivity checks. */
+/** BFS distances on foot over currently open paths and land (ignoring occupancy). Used by AI and connectivity checks. */
 export function distancesFrom(state: PublicState, from: string, opts: { allowCastles?: string[] } = {}): Record<string, number> {
   const graph = getGraph(state.boardId);
   const dist: Record<string, number> = { [from]: 0 };
   const queue = [from];
-  const noTraits: MovementTraits = { passThroughOpponents: false, captureAndContinue: false, useFixedPortalLink: false };
   while (queue.length) {
     const u = queue.shift()!;
-    for (const step of neighbors(state, u, noTraits)) {
+    for (const step of neighbors(state, u, NO_TRAITS)) {
       if (step.via !== 'path') continue;
       const v = step.to;
       if (dist[v] !== undefined) continue;
+      if (!isLand(terrainOf(state, v))) continue;
       if (graph.space[v].type === 'castle' && !(opts.allowCastles ?? []).includes(v)) continue;
       dist[v] = dist[u] + 1;
       queue.push(v);

@@ -2,17 +2,24 @@
 
 import { Minus, Play, Plus } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { EmblemBadge } from '@/components/art/art';
 import { GameScreen } from '@/components/game/GameScreen';
+import { TimerChoice } from '@/components/TimerChoice';
 import { MenuShell } from '@/components/MenuShell';
 import { ISLE_OF_EMBERS, ROOM_CONFIG, type GameState } from '@/engine';
 import { seatTheme } from '@/lib/seats';
+import { savedTimers, saveTimers } from '@/lib/storage';
 import { useLocalGame, type LocalSetup } from '@/lib/useLocalGame';
 
 export default function HotseatPage() {
   const router = useRouter();
   const [names, setNames] = useState(['Player 1', 'Player 2']);
+  const [timers, setTimers] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTimers(savedTimers());
+  }, []);
   const [setup, setSetup] = useState<LocalSetup | null>(null);
   const [revealedTurn, setRevealedTurn] = useState<number | null>(null);
   const viewer = useCallback((s: GameState) => s.turn.playerId, []);
@@ -37,7 +44,9 @@ export default function HotseatPage() {
               <h2 id="pass-title" className="mt-3 text-2xl font-bold">
                 Pass the device to {current.name}
               </h2>
-              <p className="mt-1 text-[#4a5374]">Hands stay hidden until {current.name} is ready. The turn timer is already running.</p>
+              <p className="mt-1 text-[#4a5374]">
+                Hands stay hidden until {current.name} is ready.{view.config.turnDurationMs > 0 ? ' The turn timer is already running.' : ' There is no timer.'}
+              </p>
               <button className="btn btn-primary mt-4 w-full text-lg" onClick={() => setRevealedTurn(view.turn.number)} autoFocus>
                 I&apos;m {current.name} — show my turn
               </button>
@@ -50,9 +59,11 @@ export default function HotseatPage() {
 
   const start = (e: React.FormEvent) => {
     e.preventDefault();
+    saveTimers(timers);
     setSetup({
       mode: 'hotseat',
       players: names.map((n, i) => ({ id: `p${i + 1}`, name: n.trim().slice(0, ROOM_CONFIG.maxNameLength) || `Player ${i + 1}` })),
+      config: timers ? undefined : { matchDurationMs: 0, turnDurationMs: 0 },
     });
   };
 
@@ -77,6 +88,7 @@ export default function HotseatPage() {
             <Plus size={18} aria-hidden="true" /> Add player
           </button>
         </div>
+        <TimerChoice value={timers} onChange={setTimers} />
         <button className="btn btn-primary w-full text-lg" type="submit">
           <Play size={20} aria-hidden="true" /> Start game
         </button>

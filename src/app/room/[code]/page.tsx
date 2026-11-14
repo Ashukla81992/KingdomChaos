@@ -9,7 +9,8 @@ import { RealtimeNotice } from '@/components/RealtimeNotice';
 import { realtimeAvailable } from '@/lib/realtime';
 import type { Presence } from '@/components/game/Panels';
 import { MenuShell } from '@/components/MenuShell';
-import { recordMatch } from '@/lib/storage';
+import { TimerChoice } from '@/components/TimerChoice';
+import { recordMatch, savedTimers, saveTimers } from '@/lib/storage';
 import { useRoom } from '@/lib/socket';
 
 export default function RoomPage() {
@@ -30,6 +31,11 @@ function RoomLive() {
   const { room, view, connection, error, send, leave, clockSkew, socket } = useRoom(code);
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [timers, setTimers] = useState(false);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTimers(savedTimers());
+  }, []);
 
   const presence = useMemo(() => {
     const p: Record<string, Presence> = {};
@@ -113,7 +119,8 @@ function RoomLive() {
 
   const start = () => {
     setStartError(null);
-    socket.current?.emit('room:start', (r) => !r.ok && setStartError(r.error));
+    saveTimers(timers);
+    socket.current?.emit('room:start', { timers }, (r) => !r.ok && setStartError(r.error));
   };
 
   return (
@@ -164,6 +171,11 @@ function RoomLive() {
               </li>
             ))}
           </ul>
+          {isHost && (
+            <div className="mt-4">
+              <TimerChoice value={timers} onChange={setTimers} />
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-2">
             <button className={`btn ${me?.ready ? 'btn-green' : 'btn-ghost'}`} aria-pressed={!!me?.ready} onClick={() => socket.current?.emit('room:ready', { ready: !me?.ready })}>
               <Check size={18} aria-hidden="true" /> {me?.ready ? 'Ready!' : "I'm ready"}

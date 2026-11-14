@@ -1,6 +1,7 @@
 export * from './types';
 export * from './config';
 export * from './board';
+export * from './terrain';
 export * from './rulesText';
 export * from './abilities';
 export * from './movement';

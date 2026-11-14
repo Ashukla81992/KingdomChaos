@@ -1,4 +1,5 @@
-import { legalTargets } from './cards';
+import { getGraph, otherEnd } from './board';
+import { legalTargets, previewCard } from './cards';
 import { distancesFrom, enumerateMoves, type MoveOption } from './movement';
 import { legalMovesForTurn } from './queries';
 import type { CardInstance, CardTarget, Character, GameAction, PlayerView, PublicState } from './types';
@@ -153,8 +154,29 @@ function evaluateCard(view: PlayerView, ctx: Ctx, card: CardInstance, rand: () =
       );
       return pick(t, 15);
     }
+    case 'boat':
+    case 'glider': {
+      // Worth it when the power opens a strictly better move than walking.
+      const scored = targets.map((t) => {
+        if (t.kind !== 'character') return { target: t, score: -1 };
+        const c = state.characters[t.characterId];
+        if (c.recovering) return { target: t, score: -1 };
+        const walk = Math.max(0, ...enumerateMoves(state, c.id, 6, true).map((m) => scoreMove(state, me, m, ctx)));
+        const boosted: PublicState = {
+          ...state,
+          characters: { ...state.characters, [c.id]: { ...c, power: { type: card.type as 'boat' | 'glider' } } },
+        };
+        const ride = Math.max(0, ...enumerateMoves(boosted, c.id, 6, true).map((m) => scoreMove(boosted, me, m, ctx)));
+        return { target: t, score: (ride - walk) * 0.6 };
+      });
+      const b = best(scored);
+      return b && b.score >= 12 ? { card, ...b } : null;
+    }
     case 'build_bridge':
     case 'break_bridge':
+    case 'carve_tunnel':
+    case 'raise_mountain':
+    case 'dig_canal':
     case 'block_path': {
       const value = (s: PublicState) => {
         const c = buildCtx(s, me);
@@ -167,13 +189,21 @@ function evaluateCard(view: PlayerView, ctx: Ctx, card: CardInstance, rand: () =
         return v;
       };
       const base = value(state);
-      const scored = targets.map((t) => {
-        if (t.kind !== 'connection') return { target: t, score: -1 };
-        const s: PublicState = { ...state, bridges: { ...state.bridges }, blocks: [...state.blocks] };
-        if (card.type === 'build_bridge') s.bridges[t.connectionId] = true;
-        else if (card.type === 'break_bridge') s.bridges[t.connectionId] = false;
-        else s.blocks.push({ connectionId: t.connectionId, owner: me });
-        return { target: t, score: (value(s) - base) * 6 };
+      // Only squares near the action matter; skip far-off reshapes to keep the AI quick.
+      const hot = [...mine, ...leadCarriers].map((c) => distancesFrom(state, c.space));
+      const graph = getGraph(state.boardId);
+      const near = (t: CardTarget) => {
+        const at =
+          t.kind === 'space'
+            ? graph.adjacency[t.space].map((c) => otherEnd(c, t.space))
+            : t.kind === 'connection'
+              ? [graph.connection[t.connectionId].a, graph.connection[t.connectionId].b]
+              : [];
+        return at.some((sp) => hot.some((h) => d(h, sp) <= 4));
+      };
+      const scored = targets.filter(near).slice(0, 40).map((t) => {
+        const s = previewCard(state, me, card.type, t);
+        return { target: t, score: s ? (value(s) - base) * 6 : -1 };
       });
       const b = best(scored);
       return b && b.score >= 10 ? { card, ...b } : null;

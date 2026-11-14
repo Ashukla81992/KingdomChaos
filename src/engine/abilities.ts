@@ -8,7 +8,19 @@ export interface MovementTraits {
   captureAndContinue: boolean;
   /** May travel between the two fixed portals for one step (Witch). */
   useFixedPortalLink: boolean;
+  /** May cross river, lake and ocean squares (Boat). Must still end on land. */
+  sail: boolean;
+  /** May cross water and mountain squares (Glider). Must still end on land. */
+  fly: boolean;
 }
+
+export const NO_TRAITS: MovementTraits = {
+  passThroughOpponents: false,
+  captureAndContinue: false,
+  useFixedPortalLink: false,
+  sail: false,
+  fly: false,
+};
 
 export interface AbilityDefinition {
   traits?: Partial<MovementTraits>;
@@ -36,10 +48,15 @@ export const ABILITIES: Record<CharacterKind, AbilityDefinition> = {
 /** Power effects that modify movement, applied only to regular (die) movement where noted. */
 const POWER_TRAITS: Partial<Record<PowerEffect['type'], { traits: Partial<MovementTraits>; regularOnly: boolean }>> = {
   attack_boost: { traits: { captureAndContinue: true }, regularOnly: true },
+  boat: { traits: { sail: true }, regularOnly: true },
+  glider: { traits: { fly: true }, regularOnly: true },
 };
 
+/** Powers used up by the character's next regular move. */
+export const ONE_MOVE_POWERS: ReadonlySet<PowerEffect['type']> = new Set(['attack_boost', 'boat', 'glider']);
+
 export function movementTraits(character: Character, regular: boolean): MovementTraits {
-  const base: MovementTraits = { passThroughOpponents: false, captureAndContinue: false, useFixedPortalLink: false };
+  const base: MovementTraits = { ...NO_TRAITS };
   Object.assign(base, ABILITIES[character.kind].traits);
   const power = character.power ? POWER_TRAITS[character.power.type] : undefined;
   if (power && (!power.regularOnly || regular)) {

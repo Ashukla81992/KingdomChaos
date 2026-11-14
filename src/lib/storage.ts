@@ -25,6 +25,15 @@ export const markTutorialDone = () => {
   } catch {}
 };
 
+const TIMERS_KEY = 'kc:timers';
+/** True only after the player has chosen timed games. Untimed is the default. */
+export const savedTimers = () => typeof window !== 'undefined' && window.localStorage.getItem(TIMERS_KEY) === '1';
+export const saveTimers = (on: boolean) => {
+  try {
+    window.localStorage.setItem(TIMERS_KEY, on ? '1' : '0');
+  } catch {}
+};
+
 const NAME_KEY = 'kc:name';
 export const savedName = () => (typeof window === 'undefined' ? '' : window.localStorage.getItem(NAME_KEY) ?? '');
 export const saveName = (n: string) => {

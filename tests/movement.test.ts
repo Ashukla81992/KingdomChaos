@@ -5,6 +5,7 @@ import {
   distancesFrom,
   enumerateMoves,
   getGraph,
+  isLand,
   ISLE_OF_EMBERS,
   legalMovesForTurn,
 } from '@/engine';
@@ -107,12 +108,10 @@ describe('movement rules', () => {
     expect(opts.find((o) => o.target === 'r1')!.captures).toEqual([ch(B, 'king')]);
   });
 
-  it('blocked connections and unbuilt bridges cannot be crossed', () => {
+  it('blocked connections cannot be crossed', () => {
     const s = setup();
     place(s, ch(A, 'king'), 'i1');
-    expect(enumerateMoves(s, ch(A, 'king'), 1, true).some((o) => o.target === 'x')).toBe(false); // bridge i1-x unbuilt
-    s.bridges['i1-x'] = true;
-    expect(enumerateMoves(s, ch(A, 'king'), 1, true).some((o) => o.target === 'x')).toBe(true);
+    expect(enumerateMoves(s, ch(A, 'king'), 1, true).some((o) => o.target === 'i0')).toBe(true);
     s.blocks.push({ connectionId: 'i0-i1', owner: B });
     expect(enumerateMoves(s, ch(A, 'king'), 1, true).some((o) => o.target === 'i0')).toBe(false);
   });

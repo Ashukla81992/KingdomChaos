@@ -1,7 +1,7 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { CircleHelp, Dice5, Hourglass, LogOut, Settings, Timer, Volume2, VolumeX, WifiOff } from 'lucide-react';
+import { CircleHelp, Dice5, Hourglass, LogOut, Settings, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CARD_INFO,
@@ -20,7 +20,7 @@ import {
 import { seatTheme } from '@/lib/seats';
 import { useSettings } from '@/lib/settings';
 import { Board, type BoardHighlights, type SpaceHighlight } from '../board/Board';
-import { EmblemBadge } from '../art/art';
+import { CharacterFigure, EmblemBadge } from '../art/art';
 import { RulesPanel } from '../RulesPanel';
 import { SettingsPanel } from '../SettingsPanel';
 import { Modal } from '../ui/Modal';
@@ -246,8 +246,13 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     if (myTurn && phase === 'move') {
       const ownHere = Object.values(view.characters).filter((c) => c.space === id && c.owner === me && movable.has(c.id));
       if (ownHere.length) return set({ selected: ownHere[0].id, inspect: ownHere[0].id });
-      return say('First tap one of your glowing characters.');
     }
+    const standing = Object.values(view.characters).filter((c) => c.space === id);
+    if (standing.length) {
+      const i = standing.findIndex((c) => c.id === cur.inspect);
+      return set({ inspect: standing[(i + 1) % standing.length].id });
+    }
+    if (myTurn && phase === 'move') return say('First tap one of your glowing characters.');
   };
 
   const onConnection = (id: string) => {
@@ -429,26 +434,6 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
         </div>
       )}
 
-      {inspectChar && (
-        <div className="mt-3 rounded-xl bg-white/80 p-2.5 text-sm" aria-live="polite">
-          <div className="font-display font-semibold">
-            {inspectChar.owner === me ? 'Your' : `${view.players.find((p) => p.id === inspectChar.owner)?.name}'s`} {CHARACTER_INFO[inspectChar.kind].name} ·{' '}
-            <span className="text-[#6a3fd0]">{CHARACTER_INFO[inspectChar.kind].abilityName}</span>
-          </div>
-          <p className="leading-snug text-[#3b4366]">{CHARACTER_INFO[inspectChar.kind].ability}</p>
-          <p className="mt-1 text-xs text-[#4a5374]">
-            {[
-              inspectChar.carrying && 'Carrying treasure.',
-              inspectChar.power?.type === 'shield' && 'Shield: blocks the next capture.',
-              inspectChar.power?.type === 'attack_boost' && 'Attack Boost: can capture while passing through on its next move.',
-              inspectChar.immune && 'Immune until its owner’s next turn.',
-              inspectChar.recovering && 'Recovering: cannot move during its owner’s next turn.',
-            ]
-              .filter(Boolean)
-              .join(' ') || 'No active effects.'}
-          </p>
-        </div>
-      )}
     </div>
   );
 
@@ -528,7 +513,32 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
         </aside>
 
         <section className="relative flex min-w-0 flex-col items-center" aria-label="Board">
-          <div className="relative aspect-square w-full max-w-[min(100%,calc(100dvh-90px))]" data-tutorial="board">
+          <div
+            className="mb-2 flex items-center gap-3 rounded-full px-4 py-2 text-white shadow-lg"
+            style={{ background: currentTheme.color }}
+            role="status"
+            aria-live="polite"
+          >
+            <EmblemBadge theme={currentTheme} size={32} />
+            <div className="leading-tight">
+              <div className="text-[11px] font-bold tracking-[0.14em] uppercase opacity-80">{myTurn ? 'Your turn' : 'Waiting'}</div>
+              <div className="font-display text-xl font-bold">{myTurn ? `You · ${currentTheme.kingdom}` : `${current.name} · ${currentTheme.kingdom}`}</div>
+            </div>
+            <div className="ml-1 flex items-center gap-1.5 border-l border-white/30 pl-3" aria-label="Turn order">
+              {view.players.map((p) => {
+                const on = p.id === view.turn.playerId;
+                return (
+                  <span
+                    key={p.id}
+                    title={p.name}
+                    className="rounded-full border-2 border-white/80"
+                    style={{ width: on ? 16 : 10, height: on ? 16 : 10, background: seatTheme(p.seat).color, opacity: on ? 1 : 0.55 }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+          <div className="relative aspect-square w-full max-w-[min(100%,calc(100dvh-130px))]" data-tutorial="board">
             <Board
               state={view}
               highlights={highlights}
@@ -539,6 +549,38 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
               onCharacter={onCharacter}
               onConnection={onConnection}
             />
+            {inspectChar && (
+              <div className="absolute top-3 left-3 z-10 w-[min(100%-1.5rem,280px)] rounded-2xl bg-white/95 p-3 text-sm shadow-[var(--shadow-pop)]" role="dialog" aria-label="Character">
+                <button type="button" className="absolute top-2 right-2 rounded-full p-1 text-[#4a5374] hover:bg-[#efe5cf]" aria-label="Close character details" onClick={() => set({ inspect: null })}>
+                  <X size={16} />
+                </button>
+                <div className="flex items-center gap-2 pr-6">
+                  <svg viewBox="-20 -60 40 64" width={36} height={52} aria-hidden="true">
+                    <CharacterFigure kind={inspectChar.kind} theme={seatTheme(view.players.find((p) => p.id === inspectChar.owner)?.seat ?? 0)} />
+                  </svg>
+                  <div>
+                    <div className="font-display font-semibold">
+                      {inspectChar.owner === me ? 'Your' : `${view.players.find((p) => p.id === inspectChar.owner)?.name}'s`} {CHARACTER_INFO[inspectChar.kind].name}
+                    </div>
+                    <div className="text-xs font-bold text-[#6a3fd0]">{CHARACTER_INFO[inspectChar.kind].abilityName}</div>
+                  </div>
+                </div>
+                <p className="mt-1.5 leading-snug text-[#3b4366]">{CHARACTER_INFO[inspectChar.kind].ability}</p>
+                <p className="mt-1 text-xs text-[#4a5374]">
+                  {[
+                    inspectChar.carrying && 'Carrying treasure.',
+                    inspectChar.power?.type === 'shield' && 'Shield: blocks the next capture.',
+                    inspectChar.power?.type === 'attack_boost' && 'Attack Boost: can capture while passing through on its next move.',
+                    inspectChar.power?.type === 'boat' && 'Boat: can sail across water on its next move.',
+                    inspectChar.power?.type === 'glider' && 'Glider: can fly over mountains and water on its next move.',
+                    inspectChar.immune && 'Immune until its owner’s next turn.',
+                    inspectChar.recovering && 'Recovering: cannot move during its owner’s next turn.',
+                  ]
+                    .filter(Boolean)
+                    .join(' ') || 'No active effects.'}
+                </p>
+              </div>
+            )}
             <AnimatePresence>
               {toast && (
                 <motion.div

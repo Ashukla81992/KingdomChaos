@@ -1,6 +1,6 @@
 'use client';
 
-import { Ban, Bandage, Bomb, Bot, Crown, Flame, Gem, Layers, Orbit, ShieldCheck, Snail, Star, Shield, Swords, Wifi, WifiOff } from 'lucide-react';
+import { Ban, Bandage, Bomb, Bot, Crown, Flame, Gem, Layers, Orbit, Plane, Sailboat, ShieldCheck, Snail, Star, Shield, Swords, Wifi, WifiOff } from 'lucide-react';
 import { CHARACTER_INFO, getGraph, type Character, type PlayerView } from '@/engine';
 import { seatTheme } from '@/lib/seats';
 import { CharacterFigure, EmblemBadge } from '../art/art';
@@ -17,6 +17,8 @@ function MiniCharacter({ c, seat, onClick }: { c: Character; seat: number; onCli
     c.carrying && 'carrying treasure',
     c.power?.type === 'shield' && 'Shield',
     c.power?.type === 'attack_boost' && 'Attack Boost',
+    c.power?.type === 'boat' && 'Boat',
+    c.power?.type === 'glider' && 'Glider',
     c.immune && 'Immune',
     c.recovering && 'recovering',
   ].filter(Boolean);
@@ -35,6 +37,8 @@ function MiniCharacter({ c, seat, onClick }: { c: Character; seat: number; onCli
         {c.carrying && <Gem size={13} className="rounded-full bg-[#c9fbff] p-[1px] text-[#0e5a7a]" aria-hidden="true" />}
         {c.power?.type === 'shield' && <Shield size={13} className="rounded-full bg-[#d6ebff] p-[1px] text-[#2b6fd6]" aria-hidden="true" />}
         {c.power?.type === 'attack_boost' && <Swords size={13} className="rounded-full bg-[#ffd9d9] p-[1px] text-[#c22]" aria-hidden="true" />}
+        {c.power?.type === 'boat' && <Sailboat size={13} className="rounded-full bg-[#d4f1ff] p-[1px] text-[#0b6aa2]" aria-hidden="true" />}
+        {c.power?.type === 'glider' && <Plane size={13} className="rounded-full bg-[#fff0d6] p-[1px] text-[#a35a00]" aria-hidden="true" />}
         {c.immune && <Star size={13} className="rounded-full bg-[#fff1b8] p-[1px] text-[#8a5a00]" aria-hidden="true" />}
         {c.recovering && <Bandage size={13} className="rounded-full bg-white p-[1px] text-[#e5484d]" aria-hidden="true" />}
       </span>
@@ -64,8 +68,8 @@ export function PlayersPanel({
         return (
           <li
             key={p.id}
-            className={`rounded-2xl border-2 p-2.5 transition ${active ? 'bg-white shadow-[var(--shadow-pop)]' : 'border-transparent bg-white/60'}`}
-            style={active ? { borderColor: theme.color } : undefined}
+            className={`rounded-2xl border-2 p-2.5 transition ${active ? 'shadow-[var(--shadow-pop)]' : 'border-transparent bg-white/60'}`}
+            style={active ? { borderColor: theme.color, background: theme.light } : undefined}
             aria-current={active ? 'true' : undefined}
           >
             <div className="flex items-center gap-2">
@@ -74,6 +78,11 @@ export function PlayersPanel({
                 <div className="font-display flex items-center gap-1.5 truncate font-semibold">
                   <span className="truncate">{p.name}</span>
                   {p.id === view.viewerId && <span className="rounded-full bg-[#1d2440] px-1.5 text-[10px] font-bold text-white">YOU</span>}
+                  {active && (
+                    <span className="rounded-full px-1.5 text-[10px] font-bold text-white" style={{ background: theme.color }}>
+                      PLAYING
+                    </span>
+                  )}
                   {p.isAI && <Bot size={14} aria-label="AI player" />}
                   {pr?.isHost && <Crown size={14} className="text-[#c48f1c]" aria-label="Host" />}
                 </div>
@@ -151,6 +160,8 @@ export function EffectsPanel({ view }: { view: PlayerView }) {
     const who = `${name(c.owner)}'s ${CHARACTER_INFO[c.kind].name}`;
     if (c.power?.type === 'shield') items.push({ icon: <Shield size={16} />, text: `${who}: Shield`, until: 'until it blocks a capture' });
     if (c.power?.type === 'attack_boost') items.push({ icon: <Swords size={16} />, text: `${who}: Attack Boost`, until: 'its next regular move' });
+    if (c.power?.type === 'boat') items.push({ icon: <Sailboat size={16} />, text: `${who}: Boat`, until: 'its next regular move' });
+    if (c.power?.type === 'glider') items.push({ icon: <Plane size={16} />, text: `${who}: Glider`, until: 'its next regular move' });
     if (c.immune) items.push({ icon: <Star size={16} />, text: `${who}: Immune`, until: `until ${name(c.owner)}'s next turn` });
     if (c.recovering) items.push({ icon: <Bandage size={16} />, text: `${who}: recovering`, until: `skips ${name(c.owner)}'s next turn` });
   }

@@ -21,7 +21,7 @@ describe('card play rules', () => {
     for (const id of ['A', 'B']) {
       expect(s.hands[id].map((c) => cardCategory(c.type)).sort()).toEqual(['map', 'power', 'special']);
     }
-    expect(s.deck.length).toBe(40 - 6);
+    expect(s.deck.length).toBe(50 - 6);
   });
 
   it('only after movement, once per turn, from own hand, with a valid target', () => {
@@ -105,21 +105,6 @@ describe('drawing', () => {
 });
 
 describe('map cards', () => {
-  it('Build Bridge opens an unbuilt bridge for everyone; Break Bridge closes it', () => {
-    let s = setup();
-    actionPhase(s, A);
-    const build = give(s, A, 'build_bridge');
-    s = play(s, A, build, { kind: 'connection', connectionId: 'i1-x' });
-    expect(s.bridges['i1-x']).toBe(true);
-    place(s, ch(B, 'king'), 'i1');
-    expect(enumerateMoves(s, ch(B, 'king'), 1, true).some((o) => o.target === 'x')).toBe(true);
-    actionPhase(s, B);
-    const brk = give(s, B, 'break_bridge');
-    expect(legalTargets(s, B, 'break_bridge').some((t) => t.kind === 'connection' && t.connectionId === 'r0-r1')).toBe(false);
-    s = play(s, B, brk, { kind: 'connection', connectionId: 'i1-x' });
-    expect(s.bridges['i1-x']).toBe(false);
-  });
-
   it('Block Path lasts until the owner’s next turn', () => {
     let s = setup();
     actionPhase(s, A);
@@ -185,7 +170,7 @@ describe('map cards', () => {
     actionPhase(s, A);
     const ids = legalTargets(s, A, 'block_path').map((t) => (t.kind === 'connection' ? t.connectionId : ''));
     expect(ids).toContain('i0-i1');
-    expect(ids.length).toBeGreaterThan(100);
+    expect(ids.length).toBeGreaterThan(20);
   });
 
   it('Portal links a site to a fixed portal for everyone, then fades', () => {
@@ -372,11 +357,11 @@ describe('special move cards', () => {
     s.castles.c0.damagedBy = B;
     carry(s, ch(A, 'knight'), 'm1');
     s.blocks.push({ connectionId: 'i0-i1', owner: B });
-    s.bridges['r3-r4'] = false;
+    s.terrain['p8-3'] = 'river';
     actionPhase(s, A);
     const targets = legalTargets(s, A, 'repair');
     expect(targets).toHaveLength(2);
-    expect(targets.some((t) => t.kind === 'connection' && t.connectionId === 'r3-r4')).toBe(false);
+    expect(targets.some((t) => t.kind === 'space')).toBe(false);
     s = play(s, A, give(s, A, 'repair'), { kind: 'none' });
     expect(s.castles.c0.damagedBy).toBeNull();
     expect(s.players[0].score).toBe(1);

@@ -1,4 +1,4 @@
-import { bankBonusDraws } from './abilities';
+import { bankBonusDraws, ONE_MOVE_POWERS } from './abilities';
 import { getGraph } from './board';
 import { CHARACTER_INFO } from './rulesText';
 import { castleOwner, treasuresAt, type MoveOption } from './movement';
@@ -82,7 +82,7 @@ export function applyMoveOption(ctx: Ctx, option: MoveOption, regular: boolean) 
   }
   const start = mover.space;
   mover.space = option.final;
-  if (regular && mover.power?.type === 'attack_boost') mover.power = null;
+  if (regular && mover.power && ONE_MOVE_POWERS.has(mover.power.type)) mover.power = null;
   ctx.events.push({ type: 'moved', characterId: mover.id, path: option.travelled, via: regular ? 'regular' : 'card' });
   if (option.final !== start) resolveArrival(ctx, mover, { regular });
 }

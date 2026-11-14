@@ -1,9 +1,10 @@
 import { acceptsPower } from './abilities';
 import { getGraph } from './board';
 import { CARD_INFO } from './rulesText';
-import { allCastlesReachTreasure, enumerateMoves, isSpaceFree } from './movement';
+import { allCastlesReachTreasure, enumerateMoves, isSpaceFree, terrainOf } from './movement';
 import { applyMoveOption, bankCarriersInCastle, charLabel, log, playerName, resolveArrival, type Ctx } from './resolve';
-import type { CardCategory, CardTarget, CardType, Character, PublicState } from './types';
+import { isLand } from './terrain';
+import type { CardCategory, CardTarget, CardType, Character, PublicState, Terrain } from './types';
 
 export interface CardDefinition {
   type: CardType;
@@ -11,6 +12,8 @@ export interface CardDefinition {
   /** Every legal target for `playerId` in the current state. Empty = card cannot be played. */
   targets(state: PublicState, playerId: string): CardTarget[];
   apply(ctx: Ctx, playerId: string, target: CardTarget): void;
+  /** Map cards: the map as it would look after playing (used by the AI). */
+  preview?(state: PublicState, playerId: string, target: CardTarget): PublicState;
 }
 
 export function targetKey(t: CardTarget): string {
@@ -41,9 +44,16 @@ const opponentsOf = (s: PublicState, pid: string) => s.players.filter((p) => p.i
 const conns = (s: PublicState) => getGraph(s.boardId).board.connections;
 const spaceType = (s: PublicState, id: string) => getGraph(s.boardId).space[id].type;
 
+const copyMap = (state: PublicState): PublicState => ({
+  ...state,
+  bridges: { ...state.bridges },
+  blocks: [...state.blocks],
+  terrain: { ...state.terrain },
+});
+
 /** Map changes must leave every castle with a route to treasure. */
 function keepsConnectivity(state: PublicState, mutate: (s: PublicState) => void): boolean {
-  const copy: PublicState = { ...state, bridges: { ...state.bridges }, blocks: [...state.blocks] };
+  const copy = copyMap(state);
   mutate(copy);
   return allCastlesReachTreasure(copy);
 }
@@ -51,46 +61,90 @@ function keepsConnectivity(state: PublicState, mutate: (s: PublicState) => void)
 const charTarget = (c: Character): CardTarget => ({ kind: 'character', characterId: c.id });
 const getChar = (ctx: Ctx, t: CardTarget) => ctx.state.characters[(t as { characterId: string }).characterId];
 
+/** Squares a map card may reshape: off the king's road, nothing standing or lying there. */
+function reshapeable(s: PublicState, id: string): boolean {
+  const sp = getGraph(s.boardId).space[id];
+  if (!sp || sp.road || (sp.type !== 'normal' && sp.type !== 'card')) return false;
+  return (
+    isSpaceFree(s, id) &&
+    !s.treasures.some((t) => t.space === id) &&
+    !s.traps.some((t) => t.space === id) &&
+    !s.tempPortals.some((p) => p.space === id || p.linkedTo === id)
+  );
+}
+
+/** A map card that turns one kind of square into another. */
+function reshapeCard(
+  type: CardType,
+  from: readonly Terrain[],
+  to: Terrain,
+  opts: { needsConnectivity: boolean; message: (who: string) => string },
+): CardDefinition {
+  const reshape = (s: PublicState, space: string) => {
+    const copy = copyMap(s);
+    copy.terrain[space] = to;
+    return copy;
+  };
+  return {
+    type,
+    category: 'map',
+    targets(s) {
+      const graph = getGraph(s.boardId);
+      return graph.board.spaces
+        .filter((sp) => from.includes(terrainOf(s, sp.id)) && reshapeable(s, sp.id))
+        .filter((sp) => !opts.needsConnectivity || keepsConnectivity(s, (x) => (x.terrain[sp.id] = to)))
+        .map((sp) => ({ kind: 'space', space: sp.id }));
+    },
+    apply(ctx, pid, t) {
+      if (t.kind !== 'space') return;
+      const fromTerrain = terrainOf(ctx.state, t.space);
+      ctx.state.terrain[t.space] = to;
+      ctx.events.push({ type: 'terrainChanged', space: t.space, from: fromTerrain, to });
+      log(ctx, opts.message(playerName(ctx.state, pid)), 'card', pid);
+    },
+    preview: (s, _pid, t) => (t.kind === 'space' ? reshape(s, t.space) : s),
+  };
+}
+
 export const CARDS: Record<CardType, CardDefinition> = {
-  build_bridge: {
-    type: 'build_bridge',
-    category: 'map',
-    targets: (s) =>
-      conns(s)
-        .filter((c) => c.kind === 'bridge' && !s.bridges[c.id])
-        .map((c) => ({ kind: 'connection', connectionId: c.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'connection') return;
-      ctx.state.bridges[t.connectionId] = true;
-      log(ctx, `${playerName(ctx.state, pid)} built a bridge.`, 'card', pid);
-    },
-  },
-  break_bridge: {
-    type: 'break_bridge',
-    category: 'map',
-    targets: (s) =>
-      conns(s)
-        .filter((c) => c.kind === 'bridge' && s.bridges[c.id])
-        .filter((c) => keepsConnectivity(s, (x) => (x.bridges[c.id] = false)))
-        .map((c) => ({ kind: 'connection', connectionId: c.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'connection') return;
-      ctx.state.bridges[t.connectionId] = false;
-      log(ctx, `${playerName(ctx.state, pid)} broke a bridge!`, 'card', pid);
-    },
-  },
+  build_bridge: reshapeCard('build_bridge', ['river'], 'bridge', {
+    needsConnectivity: false,
+    message: (who) => `${who} built a bridge across the river.`,
+  }),
+  break_bridge: reshapeCard('break_bridge', ['bridge'], 'river', {
+    needsConnectivity: true,
+    message: (who) => `${who} broke a bridge — it is river again!`,
+  }),
+  carve_tunnel: reshapeCard('carve_tunnel', ['mountain'], 'tunnel', {
+    needsConnectivity: false,
+    message: (who) => `${who} carved a tunnel through the mountain.`,
+  }),
+  raise_mountain: reshapeCard('raise_mountain', ['grass', 'forest', 'plateau', 'river'], 'mountain', {
+    needsConnectivity: true,
+    message: (who) => `${who} raised a mountain!`,
+  }),
+  dig_canal: reshapeCard('dig_canal', ['grass', 'forest', 'plateau'], 'river', {
+    needsConnectivity: true,
+    message: (who) => `${who} dug a canal and flooded the ground.`,
+  }),
   block_path: {
     type: 'block_path',
     category: 'map',
     targets: (s, pid) =>
       conns(s)
-        .filter((c) => c.kind === 'blockable' && !s.blocks.some((b) => b.connectionId === c.id))
+        .filter((c) => c.kind === 'blockable' && isLand(terrainOf(s, c.a)) && isLand(terrainOf(s, c.b)))
+        .filter((c) => !s.blocks.some((b) => b.connectionId === c.id))
         .filter((c) => keepsConnectivity(s, (x) => x.blocks.push({ connectionId: c.id, owner: pid })))
         .map((c) => ({ kind: 'connection', connectionId: c.id })),
     apply(ctx, pid, t) {
       if (t.kind !== 'connection') return;
       ctx.state.blocks.push({ connectionId: t.connectionId, owner: pid });
       log(ctx, `${playerName(ctx.state, pid)} blocked a path until their next turn.`, 'card', pid);
+    },
+    preview(s, pid, t) {
+      const copy = copyMap(s);
+      if (t.kind === 'connection') copy.blocks.push({ connectionId: t.connectionId, owner: pid });
+      return copy;
     },
   },
   portal: {
@@ -117,6 +171,7 @@ export const CARDS: Record<CardType, CardDefinition> = {
         .board.spaces.filter(
           (sp) =>
             sp.type === 'normal' &&
+            isLand(terrainOf(s, sp.id)) &&
             isSpaceFree(s, sp.id) &&
             !s.traps.some((t) => t.space === sp.id) &&
             !s.treasures.some((t) => t.space === sp.id),
@@ -172,6 +227,26 @@ export const CARDS: Record<CardType, CardDefinition> = {
       const c = getChar(ctx, t);
       c.power = { type: 'attack_boost' };
       log(ctx, `${charLabel(ctx.state, c)} is ready to charge (Attack Boost).`, 'card', pid);
+    },
+  },
+  boat: {
+    type: 'boat',
+    category: 'power',
+    targets: (s, pid) => own(s, pid).filter((c) => c.power?.type !== 'boat').map(charTarget),
+    apply(ctx, pid, t) {
+      const c = getChar(ctx, t);
+      c.power = { type: 'boat' };
+      log(ctx, `${charLabel(ctx.state, c)} boarded a Boat.`, 'card', pid);
+    },
+  },
+  glider: {
+    type: 'glider',
+    category: 'power',
+    targets: (s, pid) => own(s, pid).filter((c) => c.power?.type !== 'glider').map(charTarget),
+    apply(ctx, pid, t) {
+      const c = getChar(ctx, t);
+      c.power = { type: 'glider' };
+      log(ctx, `${charLabel(ctx.state, c)} strapped on a Glider.`, 'card', pid);
     },
   },
   teleport: {
@@ -292,6 +367,10 @@ export const CARDS: Record<CardType, CardDefinition> = {
 
 export function cardCategory(type: CardType): CardCategory {
   return CARD_INFO[type].category;
+}
+
+export function previewCard(state: PublicState, playerId: string, type: CardType, target: CardTarget): PublicState | null {
+  return CARDS[type].preview?.(state, playerId, target) ?? null;
 }
 
 export function legalTargets(state: PublicState, playerId: string, type: CardType): CardTarget[] {

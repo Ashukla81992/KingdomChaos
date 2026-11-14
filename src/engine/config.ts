@@ -25,21 +25,26 @@ export interface GameConfig {
 }
 
 /**
- * Initial deck: 40 cards. Movement and map cards are favoured over disruptive cards.
- * Map 15 · Character power 15 · Special move 10.
+ * Initial deck: 50 cards. Movement and map cards are favoured over disruptive cards.
+ * Map 20 · Character power 20 · Special move 10.
  */
 export const DEFAULT_DECK: Record<CardType, number> = {
   // Map cards
   build_bridge: 4,
-  break_bridge: 3,
-  block_path: 3,
+  break_bridge: 2,
+  carve_tunnel: 3,
+  raise_mountain: 2,
+  dig_canal: 2,
+  block_path: 2,
   portal: 3,
   trap: 2,
   // Character power cards
-  speed_boost: 5,
+  speed_boost: 4,
   shield: 3,
   attack_boost: 2,
-  teleport: 3,
+  boat: 4,
+  glider: 3,
+  teleport: 2,
   royal_guard: 2,
   // Special move cards
   swap: 2,

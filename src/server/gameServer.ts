@@ -304,7 +304,9 @@ export function attachGameServer(httpServer: HttpServer, options: GameServerOpti
       broadcastRoom(cur.room);
     });
 
-    socket.on('room:start', (ack) => {
+    socket.on('room:start', (payload: unknown, maybeAck?: unknown) => {
+      const ack = typeof payload === 'function' ? payload : maybeAck;
+      const timersOff = typeof payload === 'object' && payload !== null && (payload as { timers?: boolean }).timers === false;
       if (typeof ack !== 'function') return;
       const cur = current(socket);
       if (!cur) return ack({ ok: false, error: 'You are not in a room.' });
@@ -319,7 +321,7 @@ export function attachGameServer(httpServer: HttpServer, options: GameServerOpti
       room.runner = new GameRunner({
         players: room.members.map((m) => ({ id: m.id, name: m.name })),
         seed: randomInt(2 ** 31),
-        config: options.gameConfig,
+        config: timersOff ? { ...options.gameConfig, matchDurationMs: 0, turnDurationMs: 0 } : options.gameConfig,
         isConnected: (pid) => {
           const m = room.members.find((x) => x.id === pid);
           return !!m && !m.left && isConnected(m);

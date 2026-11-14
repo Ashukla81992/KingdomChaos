@@ -48,7 +48,7 @@ export interface ClientToServer {
   'room:resume': (p: { code: string; playerId: string; token: string }, ack: (r: Ack<{ session: SessionInfo }>) => void) => void;
   'room:leave': (ack?: (r: Ack) => void) => void;
   'room:ready': (p: { ready: boolean }) => void;
-  'room:start': (ack: (r: Ack) => void) => void;
+  'room:start': (p: { timers?: boolean } | ((r: Ack) => void), ack?: (r: Ack) => void) => void;
   'room:toLobby': (ack: (r: Ack) => void) => void;
   'game:action': (p: { action: GameAction; version: number }, ack: (r: Ack) => void) => void;
 }
