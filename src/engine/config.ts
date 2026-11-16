@@ -1,85 +1,120 @@
-import type { CardType } from './types';
+import type { CardType, DiscoveryType, GemKind } from './types';
 
-/**
- * Central balance values. Everything a playtester may want to tweak lives here.
- * Values are snapshotted into each GameState when a match is created.
- */
+/** Every balance number lives here so playtests can tune without touching rules code. */
 export interface GameConfig {
-  /** Match length in ms. 0 disables the match timer (tutorial). */
-  matchDurationMs: number;
-  /** Turn length in ms. 0 disables the turn timer (tutorial). */
-  turnDurationMs: number;
-  /** Shorter turn timer used while the current player is disconnected. */
-  disconnectedTurnMs: number;
-  treasuresToWin: number;
-  handLimit: number;
+  /** Different gem kinds a player must bank (1–4; the first N of Ruby, Sapphire, Emerald, Diamond). */
+  gemsRequired: number;
+  /** Movement cuts a player must make before their final path opens. */
+  cutsRequired: number;
+  /** A character must land exactly on the Crown Temple (overshooting moves are not allowed). */
+  exactTemple: boolean;
   dieSides: number;
-  /** Max regular movement for a player affected by Slow Down. */
+  /** Characters with a dragon companion move max(min, roll - penalty). */
+  dragonMovePenalty: number;
+  dragonMinMove: number;
+  /** Tame succeeds on this roll or higher. Dragon Feast lowers it. */
+  tameThreshold: number;
+  feastTameThreshold: number;
+  /** Dragon Slayer succeeds on this roll or higher. */
+  slayThreshold: number;
+  /** Monster defeated on this total or higher. */
+  monsterThreshold: number;
+  dragonFireRange: number;
+  knightBonus: number;
   slowDownMaxSteps: number;
-  speedBoostSteps: number;
-  /** Number of the trap owner's turn starts after which an unused trap expires. */
-  trapLifetimeRounds: number;
-  /** Delay before each AI action, so humans can follow along. */
+  magicBootsSteps: number;
+  handLimit: number;
+  /** Gems one character can carry at once. */
+  carryLimit: number;
+  /** 0 disables the match clock. */
+  matchDurationMs: number;
+  /** 0 disables the turn clock. */
+  turnDurationMs: number;
+  /** Physical-prototype style round limit. 0 disables it. */
+  roundLimit: number;
+  /** AI think time between actions. */
   aiActionDelayMs: number;
+  /** A disconnected player's turn is auto-resolved after this long. */
+  disconnectedTurnMs: number;
   deck: Record<CardType, number>;
+  /** Discovery deck: how many of each find (gems name their kind). */
+  discoveries: Partial<Record<Exclude<DiscoveryType, 'gem'>, number>> & { gems: Partial<Record<GemKind, number>> };
+  /** Spaces a discovered trap sends a character back along the road. */
+  discoveryTrapSteps: number;
+  /** A natural roll of this value earns one extra turn (0 disables). */
+  extraTurnRoll: number;
+  /** A movement cut earns one extra turn. */
+  extraTurnOnCut: boolean;
 }
 
-/**
- * Initial deck: 50 cards. Movement and map cards are favoured over disruptive cards.
- * Map 20 · Character power 20 · Special move 10.
- */
 export const DEFAULT_DECK: Record<CardType, number> = {
-  // Map cards
-  build_bridge: 4,
-  break_bridge: 2,
-  carve_tunnel: 3,
-  raise_mountain: 2,
-  dig_canal: 2,
-  block_path: 2,
-  portal: 3,
-  trap: 2,
-  // Character power cards
-  speed_boost: 4,
-  shield: 3,
-  attack_boost: 2,
-  boat: 4,
-  glider: 3,
-  teleport: 2,
-  royal_guard: 2,
-  // Special move cards
-  swap: 2,
-  immunity: 2,
-  slow_down: 2,
-  castle_attack: 2,
+  build_bridge: 2,
+  collapse_bridge: 1,
+  dig_tunnel: 2,
+  build_road: 2,
+  raise_mountain: 1,
+  create_river: 1,
+  landslide: 2,
   repair: 2,
+  shield: 3,
+  magic_boots: 3,
+  immunity: 2,
+  dragon_slayer: 2,
+  dragon_feast: 2,
+  swap: 2,
+  slow_down: 2,
+  dragon_roar: 2,
+  rescue: 2,
+  reveal_discovery: 2,
 };
 
 export const DEFAULT_CONFIG: GameConfig = {
-  matchDurationMs: 12 * 60 * 1000,
-  turnDurationMs: 30 * 1000,
-  disconnectedTurnMs: 8 * 1000,
-  treasuresToWin: 3,
-  handLimit: 4,
+  gemsRequired: 4,
+  cutsRequired: 1,
+  exactTemple: true,
   dieSides: 6,
+  dragonMovePenalty: 2,
+  dragonMinMove: 1,
+  tameThreshold: 5,
+  feastTameThreshold: 3,
+  slayThreshold: 4,
+  monsterThreshold: 4,
+  dragonFireRange: 3,
+  knightBonus: 1,
   slowDownMaxSteps: 2,
-  speedBoostSteps: 2,
-  trapLifetimeRounds: 2,
+  magicBootsSteps: 2,
+  handLimit: 4,
+  carryLimit: 2,
+  matchDurationMs: 15 * 60_000,
+  turnDurationMs: 45_000,
+  roundLimit: 0,
   aiActionDelayMs: 900,
+  disconnectedTurnMs: 10_000,
   deck: DEFAULT_DECK,
+  discoveries: { gems: { ruby: 1, sapphire: 1, emerald: 1, diamond: 1 }, map_card: 2, power_card: 2, special_card: 2, key: 2, trap: 2, route: 3 },
+  discoveryTrapSteps: 5,
+  extraTurnRoll: 6,
+  extraTurnOnCut: true,
 };
 
-/** Server-side room settings (not part of game rules). */
+/** Round limit used by the physical prototype (and offered digitally). */
+export const PHYSICAL_ROUNDS = 12;
+
+export type MatchPace = 'untimed' | 'clock' | 'rounds';
+
+/** Config overrides for a chosen match length. */
+export function paceConfig(pace: MatchPace): Partial<GameConfig> {
+  if (pace === 'clock') return {};
+  return { matchDurationMs: 0, turnDurationMs: 0, roundLimit: pace === 'rounds' ? PHYSICAL_ROUNDS : 0 };
+}
+
 export const ROOM_CONFIG = {
   minPlayers: 2,
   maxPlayers: 4,
-  /** How long a disconnected player keeps their lobby seat. In-match seats are kept for the whole match. */
-  lobbySeatGraceMs: 60 * 1000,
-  /** Host privileges move to another player after the host is disconnected this long. */
-  hostTransferGraceMs: 10 * 1000,
-  /** Rooms with nobody connected are deleted after this long. */
-  emptyRoomTtlMs: 5 * 60 * 1000,
   roomCodeLength: 5,
   maxNameLength: 16,
-  /** Max actions per socket per second. */
-  actionRateLimit: 15,
+  lobbySeatGraceMs: 60_000,
+  hostTransferGraceMs: 8_000,
+  emptyRoomTtlMs: 10 * 60_000,
+  actionRateLimit: 12,
 };

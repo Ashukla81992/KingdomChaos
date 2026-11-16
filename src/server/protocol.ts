@@ -1,6 +1,6 @@
 import { z } from 'zod';
-import { ROOM_CONFIG } from '../engine/config';
-import type { GameAction, PlayerView } from '../engine/types';
+import { ROOM_CONFIG, type MatchPace } from '../engine/config';
+import { GEM_KINDS, type GameAction, type PlayerView } from '../engine/types';
 
 /** Shared between the Socket.IO server and the browser client. */
 
@@ -48,7 +48,7 @@ export interface ClientToServer {
   'room:resume': (p: { code: string; playerId: string; token: string }, ack: (r: Ack<{ session: SessionInfo }>) => void) => void;
   'room:leave': (ack?: (r: Ack) => void) => void;
   'room:ready': (p: { ready: boolean }) => void;
-  'room:start': (p: { timers?: boolean } | ((r: Ack) => void), ack?: (r: Ack) => void) => void;
+  'room:start': (p: { timers?: boolean; pace?: MatchPace } | ((r: Ack) => void), ack?: (r: Ack) => void) => void;
   'room:toLobby': (ack: (r: Ack) => void) => void;
   'game:action': (p: { action: GameAction; version: number }, ack: (r: Ack) => void) => void;
 }
@@ -67,23 +67,32 @@ export const codeSchema = z
   .pipe(z.string().length(ROOM_CONFIG.roomCodeLength, 'Room codes have 5 characters.').regex(/^[A-Z0-9]+$/, 'Room codes use letters and digits only.'));
 
 const target = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('connection'), connectionId: id }),
-  z.object({ kind: z.literal('portal'), space: id, linkedTo: id }),
-  z.object({ kind: z.literal('space'), space: id }),
+  z.object({ kind: z.literal('edge'), edgeId: id }),
+  z.object({ kind: z.literal('node'), node: id }),
   z.object({ kind: z.literal('character'), characterId: id }),
-  z.object({ kind: z.literal('characterPath'), characterId: id, path: z.array(id).min(2).max(8) }),
-  z.object({ kind: z.literal('characterSpace'), characterId: id, space: id }),
-  z.object({ kind: z.literal('swap'), characterId: id, targetCharacterId: id }),
+  z.object({ kind: z.literal('path'), characterId: id, path: z.array(id).min(2).max(6) }),
+  z.object({ kind: z.literal('swap'), characterId: id, targetId: id }),
+  z.object({ kind: z.literal('dragonTo'), node: id }),
   z.object({ kind: z.literal('player'), playerId: id }),
-  z.object({ kind: z.literal('none') }),
 ]);
 
+const discard = id.nullable().optional();
+
 export const actionSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('release') }),
   z.object({ type: z.literal('roll') }),
-  z.object({ type: z.literal('move'), characterId: id, path: z.array(id).min(2).max(12) }),
-  z.object({ type: z.literal('playCard'), cardId: id, target }),
-  z.object({ type: z.literal('endTurn') }),
-  z.object({ type: z.literal('resolveDraw'), discardCardId: id.nullable() }),
+  z.object({ type: z.literal('move'), characterId: id, path: z.array(id).min(2).max(12), discardCardId: discard }),
+  z.object({ type: z.literal('skipMove') }),
+  z.object({ type: z.literal('skipAdventure') }),
+  z.object({ type: z.literal('enterDungeon'), characterId: id }),
+  z.object({ type: z.literal('leaveDungeon'), characterId: id }),
+  z.object({ type: z.literal('dig'), characterId: id, gem: z.enum(GEM_KINDS).optional(), discardCardId: discard }),
+  z.object({ type: z.literal('fightMonster'), characterId: id }),
+  z.object({ type: z.literal('tame'), characterId: id }),
+  z.object({ type: z.literal('dragonFire'), targetId: id }),
+  z.object({ type: z.literal('sail'), characterId: id }),
+  z.object({ type: z.literal('fly'), characterId: id, to: id }),
+  z.object({ type: z.literal('playCard'), cardId: id, target, discardCardId: discard }),
 ]);
 
 export const actionPayloadSchema = z.object({ action: actionSchema, version: z.number().int().nonnegative() });

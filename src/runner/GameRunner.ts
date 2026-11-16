@@ -22,7 +22,7 @@ export interface RunnerOptions extends Omit<CreateGameOptions, 'now'> {
 export type DispatchResult = { ok: true } | { ok: false; error: string };
 
 /**
- * Owns one match: applies actions through the pure engine, runs the match/turn clocks,
+ * Owns one match: applies actions through the pure engine, runs the match/turn/reaction clocks,
  * drives AI seats, and shortens turns of disconnected players so a match never stalls.
  * Runs unchanged on the server (online rooms) and in the browser (practice / hot-seat).
  */
@@ -70,28 +70,27 @@ export class GameRunner {
     this.schedule();
   }
 
-  private currentIsAI() {
-    return !!this.state.players.find((p) => p.id === this.state.turn.playerId)?.isAI;
+  private isAI(pid: string) {
+    return !!this.state.players.find((p) => p.id === pid)?.isAI;
   }
 
-  private currentIsAway() {
-    const pid = this.state.turn.playerId;
-    return !this.currentIsAI() && this.opts.isConnected ? !this.opts.isConnected(pid) : false;
+  private isAway(pid: string) {
+    return !this.isAI(pid) && this.opts.isConnected ? !this.opts.isConnected(pid) : false;
   }
 
   private schedule() {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.disposed || this.state.status !== 'playing') return;
-    const now = this.now();
     const s = this.state;
+    const actor = s.turn.playerId;
     const wakeups: number[] = [];
     if (s.endsAt !== null) wakeups.push(s.endsAt);
     if (s.turn.deadline !== null) wakeups.push(s.turn.deadline);
-    if (this.currentIsAI()) wakeups.push(this.lastProgressAt + s.config.aiActionDelayMs);
-    else if (this.currentIsAway()) wakeups.push(this.lastProgressAt + s.config.disconnectedTurnMs);
+    if (this.isAI(actor)) wakeups.push(this.lastProgressAt + s.config.aiActionDelayMs);
+    else if (this.isAway(actor)) wakeups.push(this.lastProgressAt + s.config.disconnectedTurnMs);
     if (!wakeups.length) return;
-    const delay = Math.max(0, Math.min(...wakeups) - now);
+    const delay = Math.max(0, Math.min(...wakeups) - this.now());
     this.timer = setTimeout(() => this.wake(), delay);
   }
 
@@ -102,15 +101,15 @@ export class GameRunner {
     const timed = tick(this.state, now);
     if (timed?.ok) return this.commit(timed.state, timed.events);
     const s = this.state;
-    if (this.currentIsAI() && now >= this.lastProgressAt + s.config.aiActionDelayMs) {
-      const pid = s.turn.playerId;
-      const action = chooseAiAction(toPlayerView(s, pid), this.opts.aiRandom);
-      const r = action ? applyAction(s, { playerId: pid, action }, now) : null;
+    const actor = s.turn.playerId;
+    if (this.isAI(actor) && now >= this.lastProgressAt + s.config.aiActionDelayMs) {
+      const action = chooseAiAction(toPlayerView(s, actor), this.opts.aiRandom);
+      const r = action ? applyAction(s, { playerId: actor, action }, now) : null;
       if (r?.ok) return this.commit(r.state, r.events);
       const forced = forceTimeout(s, now);
       if (forced.ok) return this.commit(forced.state, forced.events);
     }
-    if (this.currentIsAway() && now >= this.lastProgressAt + s.config.disconnectedTurnMs) {
+    if (this.isAway(actor) && now >= this.lastProgressAt + s.config.disconnectedTurnMs) {
       const forced = forceTimeout(s, now);
       if (forced.ok) return this.commit(forced.state, forced.events);
     }

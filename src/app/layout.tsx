@@ -5,8 +5,8 @@ import './globals.css';
 import { SettingsProvider } from '@/lib/settings';
 
 export const metadata: Metadata = {
-  title: 'Kingdom Chaos',
-  description: 'Race your King, Queen, Witch and Knight to grab treasure and bring it home — a quick, chaotic fantasy board game for 2–4 players.',
+  title: 'Kingdom Chaos: Crown Quest',
+  description: 'A Ludo-inspired fantasy board game for 2–4 players: bank four gems, make a cut, touch all four house plates and claim the Crown Temple.',
 };
 
 export const viewport: Viewport = {

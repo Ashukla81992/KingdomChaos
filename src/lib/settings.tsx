@@ -8,9 +8,11 @@ export interface Settings {
   volume: number;
   muted: boolean;
   motion: 'system' | 'reduced' | 'full';
+  /** Shortens camera moves and the die tumble. */
+  pace: 'normal' | 'fast';
 }
 
-const DEFAULTS: Settings = { volume: 0.4, muted: false, motion: 'system' };
+const DEFAULTS: Settings = { volume: 0.4, muted: false, motion: 'system', pace: 'normal' };
 const KEY = 'kc:settings';
 
 interface SettingsCtx {

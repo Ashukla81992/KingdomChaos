@@ -51,7 +51,7 @@ function Face({ n, half }: { n: number; half: number }) {
 }
 
 /** A 3D CSS die that tumbles to `value` each time `rollId` changes. */
-export function Die({ value, rollId, size = 64, reducedMotion }: { value: number | null; rollId: number; size?: number; reducedMotion: boolean }) {
+export function Die({ value, rollId, size = 64, reducedMotion, fast }: { value: number | null; rollId: number; size?: number; reducedMotion: boolean; fast?: boolean }) {
   const half = size / 2;
   const spins = useRef(0);
   const [rot, setRot] = useState({ x: -18, y: 24 });
@@ -67,7 +67,7 @@ export function Die({ value, rollId, size = 64, reducedMotion }: { value: number
         className="absolute inset-0"
         style={{ transformStyle: 'preserve-3d' }}
         animate={{ rotateX: rot.x, rotateY: rot.y }}
-        transition={{ duration: reducedMotion ? 0 : 0.9, ease: [0.2, 0.8, 0.25, 1] }}
+        transition={{ duration: reducedMotion ? 0 : fast ? 0.35 : 0.9, ease: [0.2, 0.8, 0.25, 1] }}
       >
         {[1, 2, 3, 4, 5, 6].map((n) => (
           <Face key={n} n={n} half={half} />

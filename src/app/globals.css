@@ -223,6 +223,37 @@ svg :focus-visible {
   animation: kc-wave 4s linear infinite;
 }
 
+.kc-flow {
+  animation: kc-dash 1.4s linear infinite;
+}
+@keyframes kc-flash {
+  0% {
+    opacity: 1;
+    stroke-width: 7px;
+  }
+  100% {
+    opacity: 0;
+    stroke-width: 1px;
+  }
+}
+.kc-flash {
+  animation: kc-flash 0.9s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kc-spin,
+  .kc-pulse,
+  .kc-flow,
+  .kc-rise,
+  .kc-flash,
+  .kc-float,
+  .kc-bob,
+  .kc-wave,
+  .kc-dash {
+    animation: none !important;
+  }
+}
+
 [data-motion='reduced'] *,
 [data-motion='reduced'] *::before,
 [data-motion='reduced'] *::after {

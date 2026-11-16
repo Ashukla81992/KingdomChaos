@@ -48,7 +48,7 @@ export default function MainMenu() {
           </Link>
         </div>
       </nav>
-      <p className="mt-8 max-w-md text-center text-sm text-[#4a5374]">2–4 players · about 10–15 minutes · no account needed</p>
+      <p className="mt-8 max-w-md text-center text-sm text-[#4a5374]">2–4 players · no account needed</p>
       <RulesPanel open={rules} onClose={() => setRules(false)} />
       <SettingsPanel open={settings} onClose={() => setSettings(false)} />
     </main>

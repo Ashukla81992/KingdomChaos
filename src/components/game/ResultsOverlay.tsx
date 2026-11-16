@@ -6,6 +6,7 @@ import type { PlayerView } from '@/engine';
 import { seatTheme } from '@/lib/seats';
 import { useSettings } from '@/lib/settings';
 import { EmblemBadge } from '../art/art';
+import { GEM_KINDS, GemIcon } from '../art/gems';
 import { formatClock } from './useNow';
 
 interface Btn {
@@ -19,15 +20,15 @@ export function ResultsOverlay({ view, primary, secondary }: { view: PlayerView;
   const winners = view.players.filter((p) => r.winners.includes(p.id));
   const shared = winners.length > 1;
   const youWon = !!view.viewerId && r.winners.includes(view.viewerId);
-  const ranked = [...view.players].sort(
-    (a, b) => r.finalScores[b.id].banked - r.finalScores[a.id].banked || r.finalScores[b.id].carried - r.finalScores[a.id].carried,
-  );
+  const ranked = [...view.players].sort((a, b) => r.finalGems[b.id] - r.finalGems[a.id]);
   const tie =
-    r.tieBreak === 'carried'
-      ? 'Tied on banked treasure — decided by treasure still being carried.'
+    r.tieBreak === 'cut'
+      ? 'Tied on gems — decided by who made a cut.'
       : r.tieBreak === 'shared'
-        ? 'Tied on banked and carried treasure — the victory is shared!'
-        : null;
+          ? 'Still tied — the victory is shared.'
+          : null;
+  const reason =
+    r.reason === 'temple' ? 'Four gems banked, a cut made, all four house plates touched, and an exact landing on the Crown Temple.' : r.reason === 'rounds' ? `The ${r.rounds}-round limit was reached.` : 'The match clock ran out.';
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#1d2440]/55 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="results-title">
       <motion.div
@@ -61,15 +62,15 @@ export function ResultsOverlay({ view, primary, secondary }: { view: PlayerView;
           ))}
         </div>
         <p className="mt-2 text-sm text-[#4a5374]">
-          {r.reason === 'treasures' ? `First to bank ${view.config.treasuresToWin} treasures.` : 'The match clock ran out.'} {tie}
+          {reason} {tie}
         </p>
         <table className="mt-4 w-full text-left text-sm">
           <thead>
             <tr className="text-xs text-[#4a5374] uppercase">
               <th className="py-1">Kingdom</th>
-              <th className="py-1 text-center">Banked</th>
-              <th className="py-1 text-center">Carried</th>
-              <th className="py-1 text-center">Captures</th>
+              <th className="py-1 text-center">Gems</th>
+              <th className="py-1 text-center">Cut</th>
+              <th className="py-1 text-center">Defeated</th>
               <th className="py-1 text-center">Cards</th>
             </tr>
           </thead>
@@ -79,9 +80,15 @@ export function ResultsOverlay({ view, primary, secondary }: { view: PlayerView;
                 <td className="flex items-center gap-1.5 py-1.5 pl-1 font-semibold">
                   <EmblemBadge theme={seatTheme(p.seat)} size={20} /> {p.name}
                 </td>
-                <td className="text-center font-bold">{r.finalScores[p.id].banked}</td>
-                <td className="text-center">{r.finalScores[p.id].carried}</td>
-                <td className="text-center">{view.stats[p.id].captures}</td>
+                <td className="text-center" aria-label={`${r.finalGems[p.id]} of 4 gems`}>
+                  <span className="inline-flex gap-0.5">
+                    {GEM_KINDS.map((k) => (
+                      <GemIcon key={k} kind={k} size={16} empty={!p.gems.includes(k)} />
+                    ))}
+                  </span>
+                </td>
+                <td className="text-center font-bold">{p.cut ? '✓' : '—'}</td>
+                <td className="text-center">{view.stats[p.id].defeated}</td>
                 <td className="text-center">{view.stats[p.id].cardsPlayed}</td>
               </tr>
             ))}

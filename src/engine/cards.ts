@@ -1,378 +1,349 @@
-import { acceptsPower } from './abilities';
-import { getGraph } from './board';
-import { CARD_INFO } from './rulesText';
-import { allCastlesReachTreasure, enumerateMoves, isSpaceFree, terrainOf } from './movement';
-import { applyMoveOption, bankCarriersInCastle, charLabel, log, playerName, resolveArrival, type Ctx } from './resolve';
-import { isLand } from './terrain';
-import type { CardCategory, CardTarget, CardType, Character, PublicState, Terrain } from './types';
+import { getBoard } from './board';
+import { edgeBlocked, keepsEveryoneConnected, nodeName, walkingDistances } from './graph';
+import {
+  CARD_CATEGORY,
+  gemsOf,
+  gemList,
+  arrive,
+  bankAtHome,
+  charLabel,
+  companionOf,
+  dragonBlocks,
+  dragonNode,
+  drawDiscovery,
+  enumerateMoves,
+  isCompanion,
+  isProtected,
+  log,
+  playerName,
+  playerOf,
+  relocate,
+  resetLap,
+  retreat,
+  roll,
+  structureName,
+  walk,
+  type Ctx,
+} from './rules';
+import type { BoardState, CardCategory, CardTarget, CardType, EdgeDef, GameState } from './types';
 
-export interface CardDefinition {
-  type: CardType;
+export interface CardDef {
   category: CardCategory;
-  /** Every legal target for `playerId` in the current state. Empty = card cannot be played. */
-  targets(state: PublicState, playerId: string): CardTarget[];
-  apply(ctx: Ctx, playerId: string, target: CardTarget): void;
-  /** Map cards: the map as it would look after playing (used by the AI). */
-  preview?(state: PublicState, playerId: string, target: CardTarget): PublicState;
+  /** Lists every legal target right now (empty → the card cannot be played). */
+  targets: (s: BoardState, playerId: string) => CardTarget[];
+  apply: (ctx: Ctx, playerId: string, target: CardTarget, discardCardId?: string | null) => void;
 }
+
+export const cardCategory = (t: CardType) => CARD_CATEGORY[t];
 
 export function targetKey(t: CardTarget): string {
   switch (t.kind) {
-    case 'connection':
-      return `connection:${t.connectionId}`;
-    case 'portal':
-      return `portal:${t.space}>${t.linkedTo}`;
-    case 'space':
-      return `space:${t.space}`;
+    case 'edge':
+      return `e:${t.edgeId}`;
+    case 'node':
+      return `n:${t.node}`;
     case 'character':
-      return `character:${t.characterId}`;
-    case 'characterPath':
-      return `characterPath:${t.characterId}:${t.path.join('>')}`;
-    case 'characterSpace':
-      return `characterSpace:${t.characterId}:${t.space}`;
+      return `c:${t.characterId}`;
+    case 'path':
+      return `p:${t.characterId}:${t.path.join('>')}`;
     case 'swap':
-      return `swap:${t.characterId}:${t.targetCharacterId}`;
+      return `s:${t.characterId}:${t.targetId}`;
+    case 'dragonTo':
+      return `d:${t.node}`;
     case 'player':
-      return `player:${t.playerId}`;
-    case 'none':
-      return 'none';
+      return `pl:${t.playerId}`;
   }
 }
 
-const own = (s: PublicState, pid: string) => Object.values(s.characters).filter((c) => c.owner === pid);
-const opponentsOf = (s: PublicState, pid: string) => s.players.filter((p) => p.id !== pid);
-const conns = (s: PublicState) => getGraph(s.boardId).board.connections;
-const spaceType = (s: PublicState, id: string) => getGraph(s.boardId).space[id].type;
+const own = (s: BoardState, pid: string) => Object.values(s.characters).filter((c) => c.owner === pid);
+const lane = (s: BoardState, node: string) => getBoard(s.boardId).nodes[node].lane;
+const onRoad = (s: BoardState, node: string) => lane(s, node) === 'circuit' || lane(s, node) === 'side';
+const occupied = (s: BoardState, node: string) => Object.values(s.characters).some((c) => c.node === node);
 
-const copyMap = (state: PublicState): PublicState => ({
-  ...state,
-  bridges: { ...state.bridges },
-  blocks: [...state.blocks],
-  terrain: { ...state.terrain },
-});
-
-/** Map changes must leave every castle with a route to treasure. */
-function keepsConnectivity(state: PublicState, mutate: (s: PublicState) => void): boolean {
-  const copy = copyMap(state);
-  mutate(copy);
-  return allCastlesReachTreasure(copy);
+/** One representative edge per structure gate. */
+function gateEdges(s: BoardState, structure: EdgeDef['structure'], open: boolean): EdgeDef[] {
+  const seen = new Set<string>();
+  const out: EdgeDef[] = [];
+  for (const e of getBoard(s.boardId).board.edges) {
+    if (e.kind !== 'buildable' || e.structure !== structure || !e.gate || seen.has(e.gate)) continue;
+    seen.add(e.gate);
+    if (!!s.bridges[e.gate] === open) out.push(e);
+  }
+  return out;
 }
 
-const charTarget = (c: Character): CardTarget => ({ kind: 'character', characterId: c.id });
-const getChar = (ctx: Ctx, t: CardTarget) => ctx.state.characters[(t as { characterId: string }).characterId];
+const setGate = (s: BoardState, gate: string, open: boolean) => ({ ...s.bridges, [gate]: open });
 
-/** Squares a map card may reshape: off the king's road, nothing standing or lying there. */
-function reshapeable(s: PublicState, id: string): boolean {
-  const sp = getGraph(s.boardId).space[id];
-  if (!sp || sp.road || (sp.type !== 'normal' && sp.type !== 'card')) return false;
-  return (
-    isSpaceFree(s, id) &&
-    !s.treasures.some((t) => t.space === id) &&
-    !s.traps.some((t) => t.space === id) &&
-    !s.tempPortals.some((p) => p.space === id || p.linkedTo === id)
-  );
+function openGate(ctx: Ctx, edgeId: string, verb: string) {
+  const s = ctx.state;
+  const e = getBoard(s.boardId).edges[edgeId];
+  s.bridges[e.gate!] = true;
+  ctx.events.push({ type: 'edgeChanged', edgeId });
+  log(ctx, `The ${structureName(e)} is ${verb} — every house may use it.`, 'info');
 }
 
-/** A map card that turns one kind of square into another. */
-function reshapeCard(
-  type: CardType,
-  from: readonly Terrain[],
-  to: Terrain,
-  opts: { needsConnectivity: boolean; message: (who: string) => string },
-): CardDefinition {
-  const reshape = (s: PublicState, space: string) => {
-    const copy = copyMap(s);
-    copy.terrain[space] = to;
-    return copy;
-  };
-  return {
-    type,
-    category: 'map',
-    targets(s) {
-      const graph = getGraph(s.boardId);
-      return graph.board.spaces
-        .filter((sp) => from.includes(terrainOf(s, sp.id)) && reshapeable(s, sp.id))
-        .filter((sp) => !opts.needsConnectivity || keepsConnectivity(s, (x) => (x.terrain[sp.id] = to)))
-        .map((sp) => ({ kind: 'space', space: sp.id }));
-    },
-    apply(ctx, pid, t) {
-      if (t.kind !== 'space') return;
-      const fromTerrain = terrainOf(ctx.state, t.space);
-      ctx.state.terrain[t.space] = to;
-      ctx.events.push({ type: 'terrainChanged', space: t.space, from: fromTerrain, to });
-      log(ctx, opts.message(playerName(ctx.state, pid)), 'card', pid);
-    },
-    preview: (s, _pid, t) => (t.kind === 'space' ? reshape(s, t.space) : s),
+const edgeTargets = (edges: EdgeDef[]): CardTarget[] => edges.map((e) => ({ kind: 'edge', edgeId: e.id }));
+
+function terrainTargets(s: BoardState): CardTarget[] {
+  return getBoard(s.boardId)
+    .board.nodes.filter((n) => n.terrainSite && !s.transforms[n.id] && !occupied(s, n.id))
+    .filter((n) => keepsEveryoneConnected(s, { transforms: { ...s.transforms, [n.id]: 'mountain' } }))
+    .map((n) => ({ kind: 'node', node: n.id }));
+}
+
+function transform(kind: 'mountain' | 'river') {
+  return (ctx: Ctx, pid: string, t: CardTarget) => {
+    if (t.kind !== 'node') return;
+    ctx.state.transforms[t.node] = kind;
+    ctx.events.push({ type: 'edgeChanged', edgeId: t.node });
+    log(ctx, `${playerName(ctx.state, pid)} ${kind === 'mountain' ? 'raises a mountain' : 'floods a river'} at ${nodeName(ctx.state.boardId, t.node)} — the road there is closed.`, 'info', pid);
   };
 }
 
-export const CARDS: Record<CardType, CardDefinition> = {
-  build_bridge: reshapeCard('build_bridge', ['river'], 'bridge', {
-    needsConnectivity: false,
-    message: (who) => `${who} built a bridge across the river.`,
-  }),
-  break_bridge: reshapeCard('break_bridge', ['bridge'], 'river', {
-    needsConnectivity: true,
-    message: (who) => `${who} broke a bridge — it is river again!`,
-  }),
-  carve_tunnel: reshapeCard('carve_tunnel', ['mountain'], 'tunnel', {
-    needsConnectivity: false,
-    message: (who) => `${who} carved a tunnel through the mountain.`,
-  }),
-  raise_mountain: reshapeCard('raise_mountain', ['grass', 'forest', 'plateau', 'river'], 'mountain', {
-    needsConnectivity: true,
-    message: (who) => `${who} raised a mountain!`,
-  }),
-  dig_canal: reshapeCard('dig_canal', ['grass', 'forest', 'plateau'], 'river', {
-    needsConnectivity: true,
-    message: (who) => `${who} dug a canal and flooded the ground.`,
-  }),
-  block_path: {
-    type: 'block_path',
+export const CARDS: Record<CardType, CardDef> = {
+  // ------------------------------------------------------------ map
+  build_bridge: {
+    category: 'map',
+    targets: (s) => edgeTargets(gateEdges(s, 'bridge', false)),
+    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'rebuilt and open'),
+  },
+  collapse_bridge: {
+    category: 'map',
+    targets: (s) => edgeTargets(gateEdges(s, 'bridge', true).filter((e) => !occupied(s, e.a) && !occupied(s, e.b) && keepsEveryoneConnected(s, { bridges: setGate(s, e.gate!, false) }))),
+    apply: (ctx, _pid, t) => {
+      if (t.kind !== 'edge') return;
+      const e = getBoard(ctx.state.boardId).edges[t.edgeId];
+      ctx.state.bridges[e.gate!] = false;
+      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+      log(ctx, `The ${e.name ?? 'bridge'} collapses!`, 'bad');
+    },
+  },
+  dig_tunnel: {
+    category: 'map',
+    targets: (s) => edgeTargets(gateEdges(s, 'tunnel', false)),
+    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'dug through and open'),
+  },
+  build_road: {
+    category: 'map',
+    targets: (s) => edgeTargets(gateEdges(s, 'road', false)),
+    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'paved and open'),
+  },
+  raise_mountain: { category: 'map', targets: terrainTargets, apply: transform('mountain') },
+  create_river: { category: 'map', targets: terrainTargets, apply: transform('river') },
+  landslide: {
     category: 'map',
     targets: (s, pid) =>
-      conns(s)
-        .filter((c) => c.kind === 'blockable' && isLand(terrainOf(s, c.a)) && isLand(terrainOf(s, c.b)))
-        .filter((c) => !s.blocks.some((b) => b.connectionId === c.id))
-        .filter((c) => keepsConnectivity(s, (x) => x.blocks.push({ connectionId: c.id, owner: pid })))
-        .map((c) => ({ kind: 'connection', connectionId: c.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'connection') return;
-      ctx.state.blocks.push({ connectionId: t.connectionId, owner: pid });
-      log(ctx, `${playerName(ctx.state, pid)} blocked a path until their next turn.`, 'card', pid);
-    },
-    preview(s, pid, t) {
-      const copy = copyMap(s);
-      if (t.kind === 'connection') copy.blocks.push({ connectionId: t.connectionId, owner: pid });
-      return copy;
-    },
-  },
-  portal: {
-    type: 'portal',
-    category: 'map',
-    targets(s) {
-      const graph = getGraph(s.boardId);
-      const sites = graph.board.spaces.filter(
-        (sp) => sp.type === 'portalSite' && isSpaceFree(s, sp.id) && !s.tempPortals.some((p) => p.space === sp.id),
-      );
-      return sites.flatMap((sp) => graph.board.fixedPortals.map((fp) => ({ kind: 'portal' as const, space: sp.id, linkedTo: fp })));
-    },
-    apply(ctx, pid, t) {
-      if (t.kind !== 'portal') return;
-      ctx.state.tempPortals.push({ space: t.space, linkedTo: t.linkedTo, owner: pid });
-      log(ctx, `${playerName(ctx.state, pid)} opened a temporary portal.`, 'card', pid);
-    },
-  },
-  trap: {
-    type: 'trap',
-    category: 'map',
-    targets: (s) =>
-      getGraph(s.boardId)
-        .board.spaces.filter(
-          (sp) =>
-            sp.type === 'normal' &&
-            isLand(terrainOf(s, sp.id)) &&
-            isSpaceFree(s, sp.id) &&
-            !s.traps.some((t) => t.space === sp.id) &&
-            !s.treasures.some((t) => t.space === sp.id),
-        )
-        .map((sp) => ({ kind: 'space', space: sp.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'space') return;
-      ctx.state.traps.push({ space: t.space, owner: pid, roundsLeft: ctx.state.config.trapLifetimeRounds });
-      log(ctx, `${playerName(ctx.state, pid)} set a trap.`, 'card', pid);
-    },
-  },
-  speed_boost: {
-    type: 'speed_boost',
-    category: 'power',
-    targets: (s, pid) =>
-      own(s, pid)
-        .filter((c) => !c.recovering)
-        .flatMap((c) =>
-          enumerateMoves(s, c.id, s.config.speedBoostSteps, false).map((m) => ({
-            kind: 'characterPath' as const,
-            characterId: c.id,
-            path: m.path,
-          })),
-        ),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'characterPath') return;
-      const option = enumerateMoves(ctx.state, t.characterId, ctx.state.config.speedBoostSteps, false).find(
-        (m) => m.path.join('>') === t.path.join('>'),
-      );
-      if (!option) return;
-      log(ctx, `${charLabel(ctx.state, ctx.state.characters[t.characterId])} used Speed Boost.`, 'card', pid);
-      applyMoveOption(ctx, option, false);
-    },
-  },
-  shield: {
-    type: 'shield',
-    category: 'power',
-    targets: (s, pid) => own(s, pid).filter((c) => c.power?.type !== 'shield').map(charTarget),
-    apply(ctx, pid, t) {
-      const c = getChar(ctx, t);
-      c.power = { type: 'shield' };
-      log(ctx, `${charLabel(ctx.state, c)} raised a Shield.`, 'card', pid);
-    },
-  },
-  attack_boost: {
-    type: 'attack_boost',
-    category: 'power',
-    targets: (s, pid) =>
-      own(s, pid)
-        .filter((c) => c.power?.type !== 'attack_boost' && acceptsPower(c.kind, 'attack_boost'))
-        .map(charTarget),
-    apply(ctx, pid, t) {
-      const c = getChar(ctx, t);
-      c.power = { type: 'attack_boost' };
-      log(ctx, `${charLabel(ctx.state, c)} is ready to charge (Attack Boost).`, 'card', pid);
-    },
-  },
-  boat: {
-    type: 'boat',
-    category: 'power',
-    targets: (s, pid) => own(s, pid).filter((c) => c.power?.type !== 'boat').map(charTarget),
-    apply(ctx, pid, t) {
-      const c = getChar(ctx, t);
-      c.power = { type: 'boat' };
-      log(ctx, `${charLabel(ctx.state, c)} boarded a Boat.`, 'card', pid);
-    },
-  },
-  glider: {
-    type: 'glider',
-    category: 'power',
-    targets: (s, pid) => own(s, pid).filter((c) => c.power?.type !== 'glider').map(charTarget),
-    apply(ctx, pid, t) {
-      const c = getChar(ctx, t);
-      c.power = { type: 'glider' };
-      log(ctx, `${charLabel(ctx.state, c)} strapped on a Glider.`, 'card', pid);
-    },
-  },
-  teleport: {
-    type: 'teleport',
-    category: 'power',
-    targets(s, pid) {
-      const portals = getGraph(s.boardId).board.fixedPortals.filter((p) => isSpaceFree(s, p));
-      return own(s, pid)
-        .filter((c) => !c.recovering)
-        .flatMap((c) => portals.map((p) => ({ kind: 'characterSpace' as const, characterId: c.id, space: p })));
-    },
-    apply(ctx, pid, t) {
-      if (t.kind !== 'characterSpace') return;
-      const c = ctx.state.characters[t.characterId];
-      const from = c.space;
-      c.space = t.space;
-      ctx.events.push({ type: 'teleported', characterId: c.id, from, to: t.space });
-      log(ctx, `${charLabel(ctx.state, c)} teleported to a portal.`, 'card', pid);
-      resolveArrival(ctx, c, { regular: false });
-    },
-  },
-  royal_guard: {
-    type: 'royal_guard',
-    category: 'power',
-    targets(s, pid) {
-      const castle = s.players.find((p) => p.id === pid)!.castle;
-      return s.castles[castle].royalGuard ? [] : [{ kind: 'none' }];
-    },
-    apply(ctx, pid) {
-      const castle = ctx.state.players.find((p) => p.id === pid)!.castle;
-      ctx.state.castles[castle].royalGuard = true;
-      log(ctx, `${playerName(ctx.state, pid)} posted a Royal Guard.`, 'card', pid);
-    },
-  },
-  swap: {
-    type: 'swap',
-    category: 'special',
-    targets(s, pid) {
-      const swappable = (c: Character) => !c.immune && !['castle', 'treasure'].includes(spaceType(s, c.space));
-      const mine = own(s, pid).filter(swappable);
-      const theirs = Object.values(s.characters).filter((c) => c.owner !== pid && swappable(c));
-      return mine.flatMap((a) => theirs.map((b) => ({ kind: 'swap' as const, characterId: a.id, targetCharacterId: b.id })));
-    },
-    apply(ctx, pid, t) {
-      if (t.kind !== 'swap') return;
-      const a = ctx.state.characters[t.characterId];
-      const b = ctx.state.characters[t.targetCharacterId];
-      [a.space, b.space] = [b.space, a.space];
-      ctx.events.push({ type: 'swapped', a: a.id, b: b.id });
-      log(ctx, `${charLabel(ctx.state, a)} swapped places with ${charLabel(ctx.state, b)}!`, 'card', pid);
-    },
-  },
-  immunity: {
-    type: 'immunity',
-    category: 'special',
-    targets: (s, pid) => own(s, pid).filter((c) => !c.immune).map(charTarget),
-    apply(ctx, pid, t) {
-      const c = getChar(ctx, t);
-      c.immune = true;
-      log(ctx, `${charLabel(ctx.state, c)} is Immune until their next turn.`, 'card', pid);
-    },
-  },
-  slow_down: {
-    type: 'slow_down',
-    category: 'special',
-    targets: (s, pid) =>
-      opponentsOf(s, pid)
-        .filter((p) => !p.slowDownPending)
-        .map((p) => ({ kind: 'player', playerId: p.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'player') return;
-      ctx.state.players.find((p) => p.id === t.playerId)!.slowDownPending = true;
-      log(ctx, `${playerName(ctx.state, pid)} slowed ${playerName(ctx.state, t.playerId)} down!`, 'card', pid);
-    },
-  },
-  castle_attack: {
-    type: 'castle_attack',
-    category: 'special',
-    targets: (s, pid) =>
-      opponentsOf(s, pid)
-        .filter((p) => !s.castles[p.castle].damagedBy)
-        .map((p) => ({ kind: 'player', playerId: p.id })),
-    apply(ctx, pid, t) {
-      if (t.kind !== 'player') return;
-      const victim = ctx.state.players.find((p) => p.id === t.playerId)!;
-      const castle = ctx.state.castles[victim.castle];
-      if (castle.royalGuard) {
-        castle.royalGuard = false;
-        log(ctx, `${victim.name}'s Royal Guard repelled a Castle Attack!`, 'card', pid);
-        return;
-      }
-      castle.damagedBy = pid;
-      log(ctx, `${playerName(ctx.state, pid)} damaged ${victim.name}'s castle — no banking until repaired!`, 'card', pid);
+      edgeTargets(
+        getBoard(s.boardId)
+          .board.edges.filter((e) => e.kind === 'blockable' && !edgeBlocked(s, e))
+          .filter((e) => keepsEveryoneConnected(s, { blocks: [...s.blocks.filter((b) => b.owner !== pid), { edgeId: e.id, owner: pid }] })),
+      ),
+    apply: (ctx, pid, t) => {
+      if (t.kind !== 'edge') return;
+      const s = ctx.state;
+      const moved = s.blocks.find((b) => b.owner === pid);
+      s.blocks = [...s.blocks.filter((b) => b.owner !== pid), { edgeId: t.edgeId, owner: pid }];
+      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+      log(ctx, `${playerName(s, pid)} triggers a landslide on ${getBoard(s.boardId).edges[t.edgeId].name ?? 'a pass'}${moved ? ' (their earlier landslide clears)' : ''}.`, 'info', pid);
     },
   },
   repair: {
-    type: 'repair',
-    category: 'special',
-    targets(s, pid) {
-      const castle = s.players.find((p) => p.id === pid)!.castle;
-      const out: CardTarget[] = s.castles[castle].damagedBy ? [{ kind: 'none' }] : [];
-      for (const b of s.blocks) out.push({ kind: 'connection', connectionId: b.connectionId });
-      return out;
-    },
-    apply(ctx, pid, t) {
-      if (t.kind === 'none') {
-        const castle = ctx.state.players.find((p) => p.id === pid)!.castle;
-        ctx.state.castles[castle].damagedBy = null;
-        log(ctx, `${playerName(ctx.state, pid)} repaired their castle.`, 'card', pid);
-        bankCarriersInCastle(ctx, castle);
-      } else if (t.kind === 'connection') {
-        ctx.state.blocks = ctx.state.blocks.filter((b) => b.connectionId !== t.connectionId);
-        log(ctx, `${playerName(ctx.state, pid)} cleared a blocked path.`, 'card', pid);
+    category: 'map',
+    targets: (s) => [
+      ...s.blocks.map((b): CardTarget => ({ kind: 'edge', edgeId: b.edgeId })),
+      ...edgeTargets(gateEdges(s, 'bridge', false)),
+      ...Object.keys(s.transforms).map((node): CardTarget => ({ kind: 'node', node })),
+    ],
+    apply: (ctx, pid, t) => {
+      const s = ctx.state;
+      if (t.kind === 'node') {
+        delete s.transforms[t.node];
+        ctx.events.push({ type: 'edgeChanged', edgeId: t.node });
+        log(ctx, `${playerName(s, pid)} restores the road at ${nodeName(s.boardId, t.node)}.`, 'info', pid);
+      } else if (t.kind === 'edge') {
+        if (s.blocks.some((b) => b.edgeId === t.edgeId)) {
+          s.blocks = s.blocks.filter((b) => b.edgeId !== t.edgeId);
+          ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+          log(ctx, `${playerName(s, pid)} clears the landslide.`, 'info', pid);
+        } else openGate(ctx, t.edgeId, 'repaired and open');
       }
+    },
+  },
+
+  // ------------------------------------------------------------ power
+  shield: {
+    category: 'power',
+    targets: (s, pid) => own(s, pid).filter((c) => !c.shield && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
+    apply: (ctx, _pid, t) => {
+      if (t.kind !== 'character') return;
+      ctx.state.characters[t.characterId].shield = true;
+      log(ctx, `${charLabel(ctx.state, t.characterId)} raises a Shield: no cuts and no Dragon Fire until their next turn.`, 'good');
+    },
+  },
+  magic_boots: {
+    category: 'power',
+    targets: (s, pid) =>
+      own(s, pid).flatMap((c) =>
+        enumerateMoves(s, c.id, { steps: s.config.magicBootsSteps, allowCuts: false, portals: false })
+          .filter((m) => m.cost === s.config.magicBootsSteps)
+          .map((m): CardTarget => ({ kind: 'path', characterId: c.id, path: m.path })),
+      ),
+    apply: (ctx, _pid, t, discardCardId) => {
+      if (t.kind !== 'path') return;
+      const s = ctx.state;
+      const ch = s.characters[t.characterId];
+      const option = enumerateMoves(s, ch.id, { steps: s.config.magicBootsSteps, allowCuts: false, portals: false }).find((m) => m.path.join('>') === t.path.join('>'))!;
+      log(ctx, `${charLabel(s, ch.id)} pulls on Magic Boots.`, 'good', ch.owner);
+      ctx.events.push({ type: 'moved', characterId: ch.id, path: t.path });
+      walk(ctx, ch, option, discardCardId);
+    },
+  },
+  immunity: {
+    category: 'power',
+    targets: (s, pid) => own(s, pid).filter((c) => !c.immune && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
+    apply: (ctx, _pid, t) => {
+      if (t.kind !== 'character') return;
+      ctx.state.characters[t.characterId].immune = true;
+      log(ctx, `${charLabel(ctx.state, t.characterId)} is Immune until their next turn: no cuts, no Dragon Fire, no opposing cards.`, 'good');
+    },
+  },
+  dragon_slayer: {
+    category: 'power',
+    targets: (s, pid) => {
+      if (s.dragon.state === 'recovering' || companionOf(s, pid)) return [];
+      const dn = dragonNode(s);
+      const { nodes } = getBoard(s.boardId);
+      return own(s, pid)
+        .filter((c) => c.kind === 'queen' && nodes[c.node].map === nodes[dn].map)
+        .filter((c) => (walkingDistances(s, c.node, 1)[dn] ?? 99) <= 1)
+        .map((c) => ({ kind: 'character', characterId: c.id }));
+    },
+    apply: (ctx, pid, t) => {
+      if (t.kind !== 'character') return;
+      const s = ctx.state;
+      const queen = s.characters[t.characterId];
+      const value = roll(s);
+      const success = value >= s.config.slayThreshold;
+      s.stats[pid].slayAttempts++;
+      ctx.events.push({ type: 'slay', characterId: queen.id, roll: value, success });
+      if (success) {
+        s.stats[pid].slays++;
+        s.dragon = { state: 'recovering', node: getBoard(s.boardId).board.dragonHome, companion: null, recoverUntilTurn: s.turn.number + s.players.length - 1, releasedBy: null };
+        log(ctx, `${charLabel(s, queen.id)} rolls ${value} and drives the dragon back to its lair to recover for a round!`, 'dragon', pid);
+      } else {
+        log(ctx, `${charLabel(s, queen.id)} rolls ${value} — the dragon swats her away.`, 'bad', pid);
+        retreat(ctx, queen);
+      }
+    },
+  },
+  dragon_feast: {
+    category: 'power',
+    targets: (s, pid) => (canTameHere(s, pid) ? own(s, pid).filter((c) => c.node === s.dragon.node).map((c) => ({ kind: 'character', characterId: c.id })) : []),
+    apply: (ctx, pid, t) => t.kind === 'character' && attemptTame(ctx, pid, t.characterId, ctx.state.config.feastTameThreshold),
+  },
+
+  // ------------------------------------------------------------ special
+  swap: {
+    category: 'special',
+    targets: (s, pid) => {
+      const mine = own(s, pid).filter((c) => onRoad(s, c.node) && !isCompanion(s, c.id));
+      const theirs = Object.values(s.characters).filter((c) => c.owner !== pid && onRoad(s, c.node) && !isProtected(c) && !isCompanion(s, c.id));
+      return mine.flatMap((a) => theirs.filter((b) => b.node !== a.node).map((b): CardTarget => ({ kind: 'swap', characterId: a.id, targetId: b.id })));
+    },
+    apply: (ctx, pid, t) => {
+      if (t.kind !== 'swap') return;
+      const s = ctx.state;
+      const a = s.characters[t.characterId];
+      const b = s.characters[t.targetId];
+      const [an, bn] = [a.node, b.node];
+      log(ctx, `${playerName(s, pid)} swaps ${charLabel(s, a.id)} and ${charLabel(s, b.id)}.`, 'info', pid);
+      relocate(ctx, a, bn, 'swap');
+      relocate(ctx, b, an, 'swap');
+    },
+  },
+  slow_down: {
+    category: 'special',
+    targets: (s, pid) => s.players.filter((p) => p.id !== pid && !p.slowed).map((p) => ({ kind: 'player', playerId: p.id })),
+    apply: (ctx, pid, t) => {
+      if (t.kind !== 'player') return;
+      playerOf(ctx.state, t.playerId).slowed = true;
+      log(ctx, `${playerName(ctx.state, pid)} slows ${playerName(ctx.state, t.playerId)}: their next move is at most ${ctx.state.config.slowDownMaxSteps} spaces.`, 'info', pid);
+    },
+  },
+  dragon_roar: {
+    category: 'special',
+    targets: (s) => {
+      if (!dragonBlocks(s)) return [];
+      const { nodes } = getBoard(s.boardId);
+      const dist = walkingDistances(s, s.dragon.node, 3);
+      return Object.entries(dist)
+        .filter(([n, d]) => d > 0 && (nodes[n].lane === 'circuit' || nodes[n].lane === 'side' || nodes[n].lane === 'dungeon'))
+        .map(([n]): CardTarget => ({ kind: 'dragonTo', node: n }));
+    },
+    apply: (ctx, pid, t) => {
+      if (t.kind !== 'dragonTo') return;
+      const s = ctx.state;
+      s.dragon = { ...s.dragon, state: 'wild', node: t.node };
+      ctx.events.push({ type: 'dragonMoved', to: t.node });
+      log(ctx, `${playerName(s, pid)}'s Dragon Roar drives the dragon to ${nodeName(s.boardId, t.node)}. It runs wild there.`, 'dragon', pid);
+    },
+  },
+  rescue: {
+    category: 'special',
+    targets: (s, pid) =>
+      own(s, pid)
+        .filter((c) => !['home', 'final', 'temple'].includes(lane(s, c.node)))
+        .map((c) => ({ kind: 'character', characterId: c.id })),
+    apply: (ctx, pid, t, discardCardId) => {
+      if (t.kind !== 'character') return;
+      const s = ctx.state;
+      const ch = s.characters[t.characterId];
+      const gems = gemsOf(s, ch);
+      log(ctx, `${charLabel(s, ch.id)} is rescued and carried home${gems.length ? ` with ${gemList(gems.map((g) => g.kind))}` : ''}. Their plates start over.`, 'good', pid);
+      if (isCompanion(s, ch.id)) s.dragon = { ...s.dragon, state: 'wild', companion: null, node: ch.node, releasedBy: null };
+      relocate(ctx, ch, playerOf(s, pid).castle, 'rescue');
+      resetLap(ch);
+      ch.beatMonster = false;
+      bankAtHome(ctx, ch, discardCardId);
+    },
+  },
+  reveal_discovery: {
+    category: 'special',
+    targets: (s, pid) => own(s, pid).filter((c) => !['home', 'final', 'temple'].includes(lane(s, c.node))).map((c) => ({ kind: 'character', characterId: c.id })),
+    apply: (ctx, _pid, t, discardCardId) => {
+      if (t.kind !== 'character') return;
+      const ch = ctx.state.characters[t.characterId];
+      log(ctx, `${charLabel(ctx.state, ch.id)} reads a treasure map…`, 'info', ch.owner);
+      drawDiscovery(ctx, ch, discardCardId);
+      arrive(ctx, ch, discardCardId);
     },
   },
 };
 
-export function cardCategory(type: CardType): CardCategory {
-  return CARD_INFO[type].category;
+export function cardTargets(s: BoardState, playerId: string, type: CardType): CardTarget[] {
+  return CARDS[type].targets(s, playerId);
 }
 
-export function previewCard(state: PublicState, playerId: string, type: CardType, target: CardTarget): PublicState | null {
-  return CARDS[type].preview?.(state, playerId, target) ?? null;
+// ---------------------------------------------------------------- taming (shared by the action and Dragon Feast)
+
+export function canTameHere(s: BoardState, playerId: string, characterId?: string): boolean {
+  if (!dragonBlocks(s) || companionOf(s, playerId) || s.dragon.releasedBy === playerId) return false;
+  return Object.values(s.characters).some((c) => c.owner === playerId && c.node === s.dragon.node && (!characterId || c.id === characterId));
 }
 
-export function legalTargets(state: PublicState, playerId: string, type: CardType): CardTarget[] {
-  return CARDS[type].targets(state, playerId);
+export function attemptTame(ctx: Ctx, playerId: string, characterId: string, threshold: number) {
+  const s = ctx.state as GameState;
+  const ch = s.characters[characterId];
+  const value = roll(s);
+  const success = value >= threshold;
+  s.stats[playerId].tameAttempts++;
+  ctx.events.push({ type: 'tame', characterId, roll: value, success });
+  if (success) {
+    s.stats[playerId].tames++;
+    s.dragon = { state: 'companion', node: ch.node, companion: ch.id, recoverUntilTurn: 0, releasedBy: null };
+    log(ctx, `${charLabel(s, ch.id)} rolls ${value} and tames the dragon! It now travels with them (moves are 2 shorter) and can breathe fire.`, 'dragon', playerId);
+  } else {
+    log(ctx, `${charLabel(s, ch.id)} rolls ${value} (needs ${threshold}+) — the dragon roars them away.`, 'bad', playerId);
+    retreat(ctx, ch);
+  }
 }

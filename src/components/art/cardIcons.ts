@@ -1,50 +1,7 @@
-import {
-  ArrowLeftRight,
-  Ban,
-  Bomb,
-  Construction,
-  Flame,
-  MountainSnow,
-  Orbit,
-  Pickaxe,
-  Plane,
-  Sailboat,
-  Shield,
-  ShieldCheck,
-  Snail,
-  Sparkles,
-  Star,
-  Swords,
-  Unlink,
-  Waves,
-  Wrench,
-  Zap,
-  type LucideIcon,
-} from 'lucide-react';
 import type { CardCategory, CardType } from '@/engine';
 
-export const CARD_ICONS: Record<CardType, LucideIcon> = {
-  build_bridge: Construction,
-  break_bridge: Unlink,
-  carve_tunnel: Pickaxe,
-  raise_mountain: MountainSnow,
-  dig_canal: Waves,
-  block_path: Ban,
-  portal: Orbit,
-  trap: Bomb,
-  speed_boost: Zap,
-  shield: Shield,
-  attack_boost: Swords,
-  boat: Sailboat,
-  glider: Plane,
-  teleport: Sparkles,
-  royal_guard: ShieldCheck,
-  swap: ArrowLeftRight,
-  immunity: Star,
-  slow_down: Snail,
-  castle_attack: Flame,
-  repair: Wrench,
-};
+/** Painted face for a deck card. The blank banner is where the name is drawn. */
+export const cardArt = (type: CardType) => `/art/cards/${type}.png`;
 
 export const CATEGORY_STYLE: Record<CardCategory, { bg: string; band: string; ink: string; soft: string; label: string }> = {
   map: { bg: '#e3f8f3', band: 'linear-gradient(135deg,#19b8a3,#0f8c7f)', ink: '#0b5c53', soft: '#bdeee4', label: 'MAP' },

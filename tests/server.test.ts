@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { io as connect, type Socket } from 'socket.io-client';
 import { attachGameServer } from '@/server/gameServer';
 import type { ClientToServer, RoomSnapshot, ServerToClient, SessionInfo } from '@/server/protocol';
-import type { PlayerView } from '@/engine';
+import { CROWN_QUEST, legalMoves, type PlayerView } from '@/engine';
 
 type Client = Socket<ServerToClient, ClientToServer>;
 
@@ -156,12 +156,38 @@ describe('authoritative match', () => {
     const { host, guest, hostView, hs } = await twoPlayerMatch();
     const [current, other] = hostView.turn.playerId === hs.playerId ? [host, guest] : [guest, host];
     const v = hostView.version;
-    expect(await other.emitWithAck('game:action', { action: { type: 'roll' }, version: v })).toMatchObject({ ok: false, error: 'It is not your turn.' });
+    expect(await other.emitWithAck('game:action', { action: { type: 'skipMove' }, version: v })).toMatchObject({ ok: false, error: 'It is not your turn.' });
     expect(await current.emitWithAck('game:action', { action: { type: 'hack' } as never, version: v })).toMatchObject({ ok: false, error: 'Malformed action.' });
+    expect(await current.emitWithAck('game:action', { action: { type: 'skipMove' }, version: v })).toEqual({ ok: true });
+    // Same envelope again → stale, because the version moved on.
+    expect(await current.emitWithAck('game:action', { action: { type: 'skipMove' }, version: v })).toMatchObject({ ok: false, error: expect.stringMatching(/out of date/) });
+    expect(await current.emitWithAck('game:action', { action: { type: 'move' } as never, version: v + 1 })).toMatchObject({ ok: false, error: 'Malformed action.' });
+  });
+
+  it('validates the whole committed route and rejects stale or illegal routes', async () => {
+    const { host, guest, hostView, hs } = await twoPlayerMatch();
+    const [current, other] = hostView.turn.playerId === hs.playerId ? [host, guest] : [guest, host];
+    const v = hostView.version;
+    const rolled = next(current, 'game:view', (view) => view.version === v + 1);
     expect(await current.emitWithAck('game:action', { action: { type: 'roll' }, version: v })).toEqual({ ok: true });
-    // Same envelope again → stale.
-    expect(await current.emitWithAck('game:action', { action: { type: 'roll' }, version: v })).toMatchObject({ ok: false });
-    expect(await current.emitWithAck('game:action', { action: { type: 'endTurn' }, version: v + 1 })).toMatchObject({ ok: false, error: 'Move a character first.' });
+    const view = await rolled;
+    expect(view.turn.move?.roll).toBeGreaterThan(0);
+    const me = view.viewerId!;
+    const king = Object.values(view.characters).find((c) => c.owner === me && c.kind === 'king')!;
+    const theirs = Object.values(view.characters).find((c) => c.owner !== me && c.kind === 'king')!;
+    const route = legalMoves(view, king.id)[0].path;
+    const end = route[route.length - 1];
+    const gateOf = (castle: string) => CROWN_QUEST.houses.find((h) => h.castle === castle)!.entry;
+    const act = (path: string[], characterId = king.id, version = v + 1) => current.emitWithAck('game:action', { action: { type: 'move', characterId, path }, version });
+    expect(await act([king.node, 'temple'])).toMatchObject({ ok: false, error: expect.stringMatching(/not legal/) });
+    if (route.length > 2) expect(await act(route.slice(0, -1))).toMatchObject({ ok: false, error: expect.stringMatching(/not legal/) });
+    if (route.length > 3) expect(await act([...route.slice(0, 3), route[1]])).toMatchObject({ ok: false, error: expect.stringMatching(/not legal/) });
+    expect(await act([theirs.node, gateOf(theirs.node)], theirs.id)).toMatchObject({ ok: false, error: expect.stringMatching(/your own/) });
+    expect(await other.emitWithAck('game:action', { action: { type: 'move', characterId: theirs.id, path: [theirs.node, gateOf(theirs.node)] }, version: v + 1 })).toMatchObject({ ok: false, error: 'It is not your turn.' });
+    expect(await act(route, king.id, v)).toMatchObject({ ok: false, error: expect.stringMatching(/out of date/) });
+    const moved = next(current, 'game:view', (x) => x.characters[king.id].node === end);
+    expect(await act(route)).toEqual({ ok: true });
+    expect((await moved).lastEvents).toContainEqual({ type: 'moved', characterId: king.id, path: route });
   });
 
   it('keeps a seat through a disconnection and auto-plays the absent player’s turns', async () => {

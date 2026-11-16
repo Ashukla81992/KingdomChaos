@@ -7,10 +7,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { GameScreen } from '@/components/game/GameScreen';
 import { RealtimeNotice } from '@/components/RealtimeNotice';
 import { realtimeAvailable } from '@/lib/realtime';
-import type { Presence } from '@/components/game/Panels';
+import type { Presence } from '@/components/game/GameScreen';
 import { MenuShell } from '@/components/MenuShell';
 import { TimerChoice } from '@/components/TimerChoice';
-import { recordMatch, savedTimers, saveTimers } from '@/lib/storage';
+import { recordMatch, savedPace, savePace } from '@/lib/storage';
+import type { MatchPace } from '@/engine';
 import { useRoom } from '@/lib/socket';
 
 export default function RoomPage() {
@@ -31,10 +32,10 @@ function RoomLive() {
   const { room, view, connection, error, send, leave, clockSkew, socket } = useRoom(code);
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
-  const [timers, setTimers] = useState(false);
+  const [timers, setTimers] = useState<MatchPace>('untimed');
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTimers(savedTimers());
+    setTimers(savedPace());
   }, []);
 
   const presence = useMemo(() => {
@@ -119,8 +120,8 @@ function RoomLive() {
 
   const start = () => {
     setStartError(null);
-    saveTimers(timers);
-    socket.current?.emit('room:start', { timers }, (r) => !r.ok && setStartError(r.error));
+    savePace(timers);
+    socket.current?.emit('room:start', { pace: timers }, (r) => !r.ok && setStartError(r.error));
   };
 
   return (

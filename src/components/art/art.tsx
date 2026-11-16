@@ -11,14 +11,7 @@ export function EmblemShape({ emblem, size = 20, fill = 'white', stroke }: { emb
       {emblem === 'flame' && (
         <path d="M0 -9 C4 -4.5 7.5 -1 6.5 3.5 C5.5 7.5 2.5 9 0 9 C-2.5 9 -5.5 7.5 -6.5 3.5 C-7.3 0 -4 -1.5 -2.5 -5.5 C-1.5 -3 0.8 -2 0 -9Z" fill={fill} stroke={stroke} strokeWidth={sw} />
       )}
-      {emblem === 'sun' && (
-        <g fill={fill} stroke={stroke} strokeWidth={sw}>
-          <circle r={4.6} />
-          {Array.from({ length: 8 }, (_, i) => (
-            <path key={i} d="M-1.6 -6.6 L0 -9.6 L1.6 -6.6Z" transform={`rotate(${i * 45})`} />
-          ))}
-        </g>
-      )}
+      {emblem === 'moon' && <path d="M3 -8.6 A9 9 0 1 0 8.6 3.2 A7 7 0 1 1 3 -8.6Z" fill={fill} stroke={stroke} strokeWidth={sw} />}
       {emblem === 'wave' && (
         <g fill="none" stroke={fill} strokeWidth={2.6} strokeLinecap="round">
           <path d="M-8 -1.5 Q-4 -7 0 -1.5 T8 -1.5" />

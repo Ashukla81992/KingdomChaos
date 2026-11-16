@@ -8,7 +8,8 @@ import { GameScreen } from '@/components/game/GameScreen';
 import { TimerChoice } from '@/components/TimerChoice';
 import { MenuShell } from '@/components/MenuShell';
 import { ROOM_CONFIG } from '@/engine';
-import { savedName, savedTimers, saveName, saveTimers } from '@/lib/storage';
+import { savedName, savedPace, saveName, savePace } from '@/lib/storage';
+import { paceConfig, type MatchPace } from '@/engine';
 import { useLocalGame, type LocalSetup } from '@/lib/useLocalGame';
 
 const AI_NAMES = ['Sir Bumble', 'Lady Quill', 'Old Grimsby'];
@@ -18,12 +19,12 @@ export default function PracticePage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [opponents, setOpponents] = useState(1);
-  const [timers, setTimers] = useState(false);
+  const [timers, setTimers] = useState<MatchPace>('untimed');
   const [setup, setSetup] = useState<LocalSetup | null>(null);
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setName(savedName() || 'You');
-    setTimers(savedTimers());
+    setTimers(savedPace());
   }, []);
   const viewer = useCallback(() => YOU, []);
   const { view, send, restart } = useLocalGame(setup, viewer);
@@ -42,11 +43,11 @@ export default function PracticePage() {
     e.preventDefault();
     const n = name.trim().slice(0, ROOM_CONFIG.maxNameLength) || 'You';
     saveName(n);
-    saveTimers(timers);
+    savePace(timers);
     setSetup({
       mode: 'practice',
       players: [{ id: YOU, name: n }, ...AI_NAMES.slice(0, opponents).map((a, i) => ({ id: `ai${i + 1}`, name: a, isAI: true }))],
-      config: timers ? undefined : { matchDurationMs: 0, turnDurationMs: 0 },
+      config: paceConfig(timers),
     });
   };
 

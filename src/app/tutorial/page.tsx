@@ -4,15 +4,14 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Swords, Users, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CharacterFigure } from '@/components/art/art';
 import { GameScreen } from '@/components/game/GameScreen';
 import { RulesContent } from '@/components/RulesPanel';
 import { Modal } from '@/components/ui/Modal';
 import { applyAction, CHARACTER_INFO, CHARACTER_KINDS, toPlayerView, type GameAction, type GameState } from '@/engine';
-import { seatTheme } from '@/lib/seats';
+import { portrait } from '@/lib/seats';
 import { useSettings } from '@/lib/settings';
 import { markTutorialDone } from '@/lib/storage';
-import { TUTORIAL_STEPS, TUTORIAL_YOU } from '@/tutorial/steps';
+import { runTutorialOpponent, TUTORIAL_STEPS, TUTORIAL_YOU, unlockFixture } from '@/tutorial/steps';
 
 const isPhone = () => window.innerWidth < 640;
 
@@ -68,22 +67,39 @@ export default function TutorialPage() {
   const router = useRouter();
   const { reducedMotion, play } = useSettings();
   const [index, setIndex] = useState(0);
+  const [fixture, setFixture] = useState<string | null>(null);
   const [state, setState] = useState<GameState>(() => TUTORIAL_STEPS[0].setup());
   const [complete, setComplete] = useState(false);
   const [rulesOpen, setRulesOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const step = TUTORIAL_STEPS[index];
-  const interactive = Boolean(step.done);
+  const interactive = Boolean(step.done || step.selectDone);
   const canNext = !interactive || complete;
 
-  const goTo = useCallback((i: number) => {
+  const goTo = useCallback((i: number, forward = false) => {
     const next = TUTORIAL_STEPS[i];
     setIndex(i);
-    setState(next.setup());
+    setState((cur) => (forward && next.keep ? cur : next.setup()));
     setComplete(false);
     setCollapsed(false);
     if (next.finish) markTutorialDone();
   }, []);
+
+  // `?step=N` opens the tutorial at step N (used by the Back-to-step links and the browser tests).
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fixture') === 'unlock') {
+      const id = requestAnimationFrame(() => {
+        setFixture('unlock');
+        setState(unlockFixture());
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    const n = Number(params.get('step'));
+    if (!Number.isInteger(n) || n < 2 || n > TUTORIAL_STEPS.length) return;
+    const id = requestAnimationFrame(() => goTo(n - 1));
+    return () => cancelAnimationFrame(id);
+  }, [goTo]);
 
   const skip = () => {
     markTutorialDone();
@@ -95,27 +111,45 @@ export default function TutorialPage() {
       const r = applyAction(state, { playerId: TUTORIAL_YOU, action, version: state.version }, Date.now());
       if (!r.ok) return { ok: false as const, error: r.error };
       setState(r.state);
+      if (r.state.status === 'playing' && r.state.turn.playerId !== TUTORIAL_YOU) {
+        const before = r.state;
+        // Alex plays after a short pause so the hand-over is visible.
+        setTimeout(() => setState((cur) => (cur === before ? runTutorialOpponent(cur, Date.now()).state : cur)), reducedMotion ? 300 : 1200);
+      }
       if (step.done && !complete && step.done(state, r.state, r.events)) {
         setComplete(true);
         play('bank');
       }
       return { ok: true as const };
     },
-    [state, step, complete, play],
+    [state, step, complete, play, reducedMotion],
   );
 
   const allow = useCallback(
     (a: GameAction): string | null => {
+      if (fixture === 'unlock') return a.type === 'roll' || a.type === 'move' || a.type === 'skipAdventure' ? null : 'Finish banking the last gem.';
       if (complete) return 'Step complete — press Next to continue.';
       if (!step.allowed) return 'Read the tip, then press Next.';
-      if (!step.allowed.includes(a.type)) return a.type === 'endTurn' ? 'No need to end the turn here — follow the tip.' : 'Follow the tip for this step.';
+      if (!step.allowed.includes(a.type)) return 'Follow the tip for this step.';
+      if (a.type === 'move' && step.allowCharacter && a.characterId !== step.allowCharacter) return 'Move the highlighted character for this step.';
+      if (a.type === 'move' && step.allowEnd && a.path[a.path.length - 1] !== step.allowEnd) return 'For this step, move to the highlighted space.';
       if (a.type === 'playCard' && step.allowCard) {
         const card = state.hands[TUTORIAL_YOU].find((c) => c.id === a.cardId);
         if (card?.type !== step.allowCard) return 'Use the highlighted card for this step.';
       }
       return null;
     },
-    [complete, step, state],
+    [complete, step, state, fixture],
+  );
+
+  const onSelect = useCallback(
+    (id: string) => {
+      if (step.selectDone && id === step.selectDone && !complete) {
+        setComplete(true);
+        play('bank');
+      }
+    },
+    [step, complete, play],
   );
 
   const coach = useMemo(() => (complete ? {} : (step.coach?.(state) ?? {})), [complete, step, state]);
@@ -168,9 +202,8 @@ export default function TutorialPage() {
           <ul className="mt-2 grid grid-cols-2 gap-1.5">
             {CHARACTER_KINDS.map((k) => (
               <li key={k} className="flex items-center gap-1.5 rounded-xl bg-[#f5f2ff] p-1.5 text-xs">
-                <svg viewBox="-20 -60 40 64" width={24} height={38} aria-hidden="true">
-                  <CharacterFigure kind={k} theme={seatTheme(0)} />
-                </svg>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={portrait(0, k)} alt="" width={30} height={38} className="h-[38px] w-[30px] object-contain" />
                 <span>
                   <b>{CHARACTER_INFO[k].name}</b> — {CHARACTER_INFO[k].abilityName}
                 </span>
@@ -201,7 +234,7 @@ export default function TutorialPage() {
             <ChevronLeft size={18} aria-hidden="true" /> Back
           </button>
           {!step.finish && (
-            <button className={`btn btn-primary ml-auto ${canNext && interactive ? 'kc-pulse' : ''}`} onClick={() => goTo(index + 1)} disabled={!canNext}>
+            <button className={`btn btn-primary ml-auto ${canNext && interactive ? 'kc-pulse' : ''}`} onClick={() => goTo(index + 1, true)} disabled={!canNext}>
               {canNext ? 'Next' : 'Try it on the board'} <ChevronRight size={18} aria-hidden="true" />
             </button>
           )}
@@ -221,11 +254,14 @@ export default function TutorialPage() {
         controller={{ view, send, mode: 'tutorial' }}
         onExit={() => router.push('/')}
         tutorial={{
-          coach: coach.board,
+          coach: fixture ? undefined : coach.board,
           allow,
+          onSelect,
           hideResults: true,
-          reserveBottom: true,
-          overlay: (
+          reserveBottom: !fixture,
+          overlay: fixture ? (
+            <span className="sr-only" data-fixture={fixture} />
+          ) : (
             <>
               <Spotlight selectors={coach.ui ?? []} board={Boolean(coach.board?.length)} />
               {card}

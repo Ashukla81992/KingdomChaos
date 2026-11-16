@@ -2,8 +2,8 @@
 
 import { ChevronLeft } from 'lucide-react';
 import Link from 'next/link';
-import { CharacterFigure } from './art/art';
-import { seatTheme } from '@/lib/seats';
+
+import { portrait } from '@/lib/seats';
 import { CHARACTER_KINDS } from '@/engine';
 
 export function Logo({ size = 'lg' }: { size?: 'lg' | 'sm' }) {
@@ -18,14 +18,12 @@ export function Logo({ size = 'lg' }: { size?: 'lg' | 'sm' }) {
 
 export function HeroCast() {
   return (
-    <svg viewBox="-110 -70 220 80" className="mx-auto h-28 w-auto sm:h-36" aria-hidden="true">
-      <ellipse cy={2} rx={108} ry={10} fill="rgba(29,36,64,0.15)" />
+    <div className="mx-auto flex h-28 w-full max-w-sm items-end justify-center gap-1 sm:h-36" aria-hidden="true">
       {CHARACTER_KINDS.map((k, i) => (
-        <g key={k} transform={`translate(${-75 + i * 50},0) scale(1.15)`} className="kc-float" style={{ animationDelay: `${i * 0.4}s` }}>
-          <CharacterFigure kind={k} theme={seatTheme(i)} />
-        </g>
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={k} src={portrait(i, k)} alt="" className="kc-float h-full w-auto max-w-[24%] object-contain drop-shadow" style={{ animationDelay: `${i * 0.4}s` }} />
       ))}
-    </svg>
+    </div>
   );
 }
 

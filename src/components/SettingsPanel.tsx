@@ -58,7 +58,22 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
               </button>
             ))}
           </div>
-          <p className="mt-2 text-sm text-[#4a5374]">Reduced motion removes piece walking, die tumbling and pulsing highlights.</p>
+          <p className="mt-2 text-sm text-[#4a5374]">Reduced motion removes die tumbling, camera flights and pulsing highlights.</p>
+        </fieldset>
+        <fieldset>
+          <legend className="font-display mb-2 font-semibold">Animation speed</legend>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Animation speed">
+            {(
+              [
+                ['normal', 'Normal'],
+                ['fast', 'Fast'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} role="radio" aria-checked={settings.pace === v} onClick={() => update({ pace: v })} className={`btn ${settings.pace === v ? 'btn-primary' : 'btn-ghost'} text-sm`}>
+                {label}
+              </button>
+            ))}
+          </div>
         </fieldset>
       </div>
     </Modal>

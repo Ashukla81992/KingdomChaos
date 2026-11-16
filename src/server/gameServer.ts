@@ -3,7 +3,7 @@ import { appendFile, mkdir } from 'node:fs/promises';
 import type { Server as HttpServer } from 'node:http';
 import path from 'node:path';
 import { Server, type Socket } from 'socket.io';
-import { ROOM_CONFIG, type GameConfig } from '../engine/config';
+import { ROOM_CONFIG, paceConfig, type GameConfig, type MatchPace } from '../engine/config';
 import { toPlayerView } from '../engine/view';
 import type { GameState } from '../engine/types';
 import { GameRunner } from '../runner/GameRunner';
@@ -229,7 +229,8 @@ export function attachGameServer(httpServer: HttpServer, options: GameServerOpti
       turns: state.result.turns,
       reason: state.result.reason,
       tieBreak: state.result.tieBreak,
-      scores: state.players.map((p) => p.score),
+      gems: state.players.map((p) => p.gems.length),
+      cuts: state.players.map((p) => p.cut),
       stats: Object.values(state.stats),
     };
     try {
@@ -306,7 +307,8 @@ export function attachGameServer(httpServer: HttpServer, options: GameServerOpti
 
     socket.on('room:start', (payload: unknown, maybeAck?: unknown) => {
       const ack = typeof payload === 'function' ? payload : maybeAck;
-      const timersOff = typeof payload === 'object' && payload !== null && (payload as { timers?: boolean }).timers === false;
+      const opts = typeof payload === 'object' && payload !== null ? (payload as { timers?: boolean; pace?: string }) : {};
+      const pace: MatchPace = opts.pace === 'clock' || opts.pace === 'rounds' || opts.pace === 'untimed' ? opts.pace : opts.timers === false ? 'untimed' : 'clock';
       if (typeof ack !== 'function') return;
       const cur = current(socket);
       if (!cur) return ack({ ok: false, error: 'You are not in a room.' });
@@ -321,7 +323,7 @@ export function attachGameServer(httpServer: HttpServer, options: GameServerOpti
       room.runner = new GameRunner({
         players: room.members.map((m) => ({ id: m.id, name: m.name })),
         seed: randomInt(2 ** 31),
-        config: timersOff ? { ...options.gameConfig, matchDurationMs: 0, turnDurationMs: 0 } : options.gameConfig,
+        config: { ...options.gameConfig, ...paceConfig(pace) },
         isConnected: (pid) => {
           const m = room.members.find((x) => x.id === pid);
           return !!m && !m.left && isConnected(m);

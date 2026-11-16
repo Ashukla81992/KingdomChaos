@@ -1,29 +1,33 @@
-import type { GameState, PlayerView, PublicState } from './types';
+import type { GameState, PlayerView } from './types';
 
-/** Strip all hidden information. Only the viewer's own hand is included. */
-export function toPlayerView(state: GameState, viewerId: string | null): PlayerView {
-  // Explicitly drop hidden fields so they never reach the wire.
-  const {
-    hands,
-    deck,
-    discard,
-    rngState: _rng,
-    logCounter: _lc,
-    cardCounter: _cc,
-    forcedRolls: _fr,
-    ...publicState
-  } = state;
-  void _rng;
-  void _lc;
-  void _cc;
-  void _fr;
-  const pub: PublicState = structuredClone(publicState);
+/** What one player is allowed to see: their own hand only, no deck order, no discovery order, no RNG state. */
+export function toPlayerView(s: GameState, viewerId: string | null): PlayerView {
   return {
-    ...pub,
     viewerId,
-    hand: viewerId && hands[viewerId] ? structuredClone(hands[viewerId]) : [],
-    handCounts: Object.fromEntries(Object.entries(hands).map(([id, h]) => [id, h.length])),
-    deckCount: deck.length,
-    discardCount: discard.length,
+    boardId: s.boardId,
+    config: s.config,
+    version: s.version,
+    status: s.status,
+    players: s.players,
+    characters: s.characters,
+    gems: s.gems,
+    dragon: s.dragon,
+    bridges: s.bridges,
+    transforms: s.transforms,
+    blocks: s.blocks,
+    vehicles: s.vehicles,
+    turn: s.turn,
+    startedAt: s.startedAt,
+    endsAt: s.endsAt,
+    result: s.result,
+    log: s.log,
+    lastEvents: s.lastEvents,
+    stats: s.stats,
+    hand: viewerId ? (s.hands[viewerId] ?? []) : [],
+    handCounts: Object.fromEntries(s.players.map((p) => [p.id, s.hands[p.id]?.length ?? 0])),
+    deckCount: s.deck.length,
+    discardTop: s.discard.length ? s.discard[s.discard.length - 1].type : null,
+    discardCount: s.discard.length,
+    discoveryCount: s.discoveries.length,
   };
 }

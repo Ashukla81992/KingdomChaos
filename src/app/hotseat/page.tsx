@@ -7,18 +7,19 @@ import { EmblemBadge } from '@/components/art/art';
 import { GameScreen } from '@/components/game/GameScreen';
 import { TimerChoice } from '@/components/TimerChoice';
 import { MenuShell } from '@/components/MenuShell';
-import { ISLE_OF_EMBERS, ROOM_CONFIG, type GameState } from '@/engine';
+import { CROWN_QUEST, ROOM_CONFIG, type GameState } from '@/engine';
 import { seatTheme } from '@/lib/seats';
-import { savedTimers, saveTimers } from '@/lib/storage';
+import { savedPace, savePace } from '@/lib/storage';
+import { paceConfig, type MatchPace } from '@/engine';
 import { useLocalGame, type LocalSetup } from '@/lib/useLocalGame';
 
 export default function HotseatPage() {
   const router = useRouter();
   const [names, setNames] = useState(['Player 1', 'Player 2']);
-  const [timers, setTimers] = useState(false);
+  const [timers, setTimers] = useState<MatchPace>('untimed');
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setTimers(savedTimers());
+    setTimers(savedPace());
   }, []);
   const [setup, setSetup] = useState<LocalSetup | null>(null);
   const [revealedTurn, setRevealedTurn] = useState<number | null>(null);
@@ -59,15 +60,15 @@ export default function HotseatPage() {
 
   const start = (e: React.FormEvent) => {
     e.preventDefault();
-    saveTimers(timers);
+    savePace(timers);
     setSetup({
       mode: 'hotseat',
       players: names.map((n, i) => ({ id: `p${i + 1}`, name: n.trim().slice(0, ROOM_CONFIG.maxNameLength) || `Player ${i + 1}` })),
-      config: timers ? undefined : { matchDurationMs: 0, turnDurationMs: 0 },
+      config: paceConfig(timers),
     });
   };
 
-  const seats = ISLE_OF_EMBERS.seatOrder[names.length];
+  const seats = CROWN_QUEST.seatOrder[names.length];
 
   return (
     <MenuShell title="Hot-seat (same device)">

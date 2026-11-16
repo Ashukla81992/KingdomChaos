@@ -1,4 +1,5 @@
 /** Small, SSR-safe localStorage helpers. */
+import type { MatchPace } from '@/engine';
 export function readJSON<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
@@ -25,12 +26,16 @@ export const markTutorialDone = () => {
   } catch {}
 };
 
-const TIMERS_KEY = 'kc:timers';
-/** True only after the player has chosen timed games. Untimed is the default. */
-export const savedTimers = () => typeof window !== 'undefined' && window.localStorage.getItem(TIMERS_KEY) === '1';
-export const saveTimers = (on: boolean) => {
+const PACE_KEY = 'kc:pace';
+/** The last chosen match length. No limit is the default. */
+export const savedPace = (): MatchPace => {
+  if (typeof window === 'undefined') return 'untimed';
+  const v = window.localStorage.getItem(PACE_KEY);
+  return v === 'clock' || v === 'rounds' ? v : 'untimed';
+};
+export const savePace = (p: MatchPace) => {
   try {
-    window.localStorage.setItem(TIMERS_KEY, on ? '1' : '0');
+    window.localStorage.setItem(PACE_KEY, p);
   } catch {}
 };
 
