@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG, type GameConfig } from './config';
 import { nodeName } from './graph';
 import { adventureOptions, dragonFireTargets, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
 import { CARD_INFO } from './rulesText';
+import { applyPower, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
 import {
   CARD_CATEGORY,
   handsFree,
@@ -105,7 +106,9 @@ export function createGame(opts: CreateGameOptions): GameState {
     castle: board.houses[seats[i]].castle,
     isAI: !!p.isAI,
     gems: [],
+    bank: { ruby: 0, sapphire: 0, emerald: 0, diamond: 0 },
     cut: false,
+    royalGuardUsed: false,
     slowed: false,
     keys: 0,
   }));
@@ -114,7 +117,7 @@ export function createGame(opts: CreateGameOptions): GameState {
   for (const p of players) {
     for (const kind of CHARACTER_KINDS) {
       const id = `${p.id}-${kind}`;
-      characters[id] = { id, owner: p.id, kind, node: p.castle, plates: [], lap: 0, carrying: [], shield: false, immune: false, beatMonster: false };
+      characters[id] = { id, owner: p.id, kind, node: p.castle, plates: [], lap: 0, carrying: [], shield: false, immune: false, beatMonster: false, finished: false, guarded: false };
     }
   }
 
@@ -131,7 +134,7 @@ export function createGame(opts: CreateGameOptions): GameState {
     transforms: {},
     blocks: [],
     vehicles: { boat: board.docks[0], plane: board.airfields[0] },
-    turn: { playerId: players[0].id, number: 0, round: 0, moveDone: false, adventureDone: false, move: null, witchPortalUsed: false, acted: false, extra: null, bonus: false, startedAt: opts.now, deadline: null },
+    turn: { playerId: players[0].id, number: 0, round: 0, moveDone: false, adventureDone: false, move: null, witchPortalUsed: false, acted: false, extra: null, bonus: false, rolls: 0, moved: [], diplomacyUsed: false, startedAt: opts.now, deadline: null },
     startedAt: opts.now,
     endsAt: config.matchDurationMs > 0 ? opts.now + config.matchDurationMs : null,
     result: null,
@@ -143,6 +146,8 @@ export function createGame(opts: CreateGameOptions): GameState {
     discard: [],
     discoveries: [],
     discoveryDiscard: [],
+    trades: [],
+    tradeCounter: 0,
     rngState: opts.seed | 0,
     logCounter: 0,
     cardCounter: 0,
@@ -195,6 +200,9 @@ function startTurn(ctx: Ctx, playerId: string, bonus: boolean) {
     acted: false,
     extra: null,
     bonus,
+    rolls: 0,
+    moved: [],
+    diplomacyUsed: false,
     startedAt: ctx.now,
     deadline: s.config.turnDurationMs > 0 ? ctx.now + s.config.turnDurationMs : null,
   };
@@ -232,7 +240,7 @@ function finishTurn(ctx: Ctx) {
 }
 
 /** Grant the turn's one extra turn (a natural 6 and a cut in the same turn still give only one). */
-function earnExtra(ctx: Ctx, reason: 'six' | 'cut') {
+function earnExtra(ctx: Ctx, reason: 'six' | 'capture') {
   const t = ctx.state.turn;
   if (t.extra) return;
   t.extra = reason;
@@ -263,7 +271,8 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
   if (envelope.version !== undefined && envelope.version !== state.version) return fail('That action is out of date — the board changed. Try again.');
   const { playerId, action } = envelope;
   if (!state.players.some((p) => p.id === playerId)) return fail('You are not part of this match.');
-  if (state.turn.playerId !== playerId) return fail('It is not your turn.');
+  const offTurn = (OFF_TURN_ACTIONS as string[]).includes(action.type);
+  if (state.turn.playerId !== playerId && !offTurn) return fail('It is not your turn.');
 
   const s = structuredClone(state);
   const ctx: Ctx = { state: s, events: [], now };
@@ -278,6 +287,12 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
     t.adventureDone = true;
     t.acted = true;
   };
+  if ((POWER_ACTIONS as string[]).includes(action.type)) {
+    const error = applyPower(ctx, playerId, action as PowerAction);
+    if (error) return fail(error);
+    if (!offTurn) autoAdvance(ctx);
+    return done(s, ctx);
+  }
   if (action.type !== 'release' && action.type !== 'roll' && action.type !== 'move' && action.type !== 'skipMove' && action.type !== 'skipAdventure' && t.adventureDone)
     return fail('You already used your adventure action this turn.');
 
@@ -323,7 +338,7 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       ctx.events.push({ type: 'moved', characterId: ch.id, path: option.path });
       log(ctx, `${charLabel(s, ch.id)} moves to ${nodeName(s.boardId, option.path[option.path.length - 1])}${option.witchPortal ? ' (free portal hop)' : ''}.`, 'info', playerId);
       walk(ctx, ch, option, action.discardCardId);
-      if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'cut');
+      if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
       break;
     }
     case 'skipMove': {

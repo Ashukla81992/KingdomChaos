@@ -67,6 +67,18 @@ export interface NodeDef {
   trail?: string;
   /** Trap risk: stopping here may spring a hidden snare. */
   hazard?: boolean;
+  /** [A3] A monster that forces one roll when a move ends here (Stone Golem, Cave Spider). */
+  encounter?: EncounterDef;
+}
+
+/** [A3] One-roll encounter. Success needs `threshold`+ (Knight adds `knightBonus`); failure sends the piece to `safeRoom`. */
+export interface EncounterDef {
+  monster: 'golem' | 'spider';
+  name: string;
+  /** Golem: the shortcut exit a winner is carried to. Spider: unused (the prize is a power card). */
+  shortcutTo?: string;
+  /** Marked safe room a loser is sent to. */
+  safeRoom: string;
 }
 
 export interface TrailInfo {
@@ -166,6 +178,10 @@ export interface Character {
   immune: boolean;
   /** Beat the monster during the current dungeon visit. */
   beatMonster: boolean;
+  /** [A1] Entered the Crown Temple. A finished piece stays there and never moves again. */
+  finished: boolean;
+  /** [A2] Royal Guard: cannot be captured (landing, Knight attack or Dragon Fire) until its owner's next turn. */
+  guarded: boolean;
 }
 
 /** A gem token. It exists only while carried or lying on the board; banked gems become the player's. */
@@ -194,10 +210,14 @@ export interface PlayerState {
   seat: number;
   castle: string;
   isAI: boolean;
-  /** Gem kinds banked (each counts once). */
+  /** Distinct gem kinds banked. Always the kinds with `bank[kind] >= 1`; only gem helpers write it. */
   gems: GemKind[];
-  /** Has cut an opponent's character through normal movement. */
+  /** [A2] Banked copies per kind, duplicates included. A copy beyond the first is a spare (Diplomacy, Alchemy). */
+  bank: Record<GemKind, number>;
+  /** Has captured an opponent's piece by movement (temple capture credit). Dragon Fire never sets it. */
   cut: boolean;
+  /** [A2] The King's Royal Guard has been used this match. */
+  royalGuardUsed: boolean;
   /** Slow Down played on this player: their next roll is capped. */
   slowed: boolean;
   /** Dungeon keys held (each opens the Vault Door once). */
@@ -262,12 +282,45 @@ export interface TurnState {
   witchPortalUsed: boolean;
   /** Releasing the dragon is only allowed before any other action this turn. */
   acted: boolean;
-  /** An extra turn earned this turn (a natural 6 or a movement cut); one at most. */
-  extra: 'six' | 'cut' | null;
-  /** This turn is itself an extra turn. */
+  /**
+   * [A1] Bonus roll earned by the current roll: a natural 6 or at least one movement capture. One at
+   * most per roll (a 6 plus any number of captures is still one). Granted once the move resolves.
+   */
+  extra: 'six' | 'capture' | null;
+  /** [A1] The current roll is a bonus roll (same turn; the Adventure action is still once per turn). */
   bonus: boolean;
+  /** [A1] Rolls made this turn (1 + bonus rolls taken). */
+  rolls: number;
+  /** [A1] Characters that moved this turn, in order (Royal Guard and Diplomacy read it). */
+  moved: string[];
+  /** [A2] The Queen made a Diplomacy offer this turn. */
+  diplomacyUsed: boolean;
   startedAt: number;
   deadline: number | null;
+}
+
+/** [A2] What a Diplomacy offer asks for in return. */
+export type TradeWant = { kind: 'gem'; gem: GemKind } | { kind: 'card'; cardType: CardType };
+
+/** [A2] An open Queen's Diplomacy offer. It expires when the offering player's turn ends. */
+export interface TradeOffer {
+  id: string;
+  from: string;
+  to: string;
+  /** A spare banked gem of the offerer (they keep at least one copy). */
+  give: GemKind;
+  want: TradeWant;
+  /** Turn number it was made on. */
+  turn: number;
+}
+
+/** [A2] A trade as one viewer may see it. Third parties see only who is trading. */
+export interface TradeView {
+  id: string;
+  from: string;
+  to: string;
+  give?: GemKind;
+  want?: TradeWant;
 }
 
 export type LogKind = 'info' | 'good' | 'bad' | 'system' | 'dragon';
@@ -302,7 +355,8 @@ export interface PlayerStats {
 
 export interface MatchResult {
   winners: string[];
-  reason: 'temple' | 'timer' | 'rounds';
+  /** `ended`: the online host ended the match (no winner). */
+  reason: 'temple' | 'timer' | 'rounds' | 'ended';
   tieBreak: null | 'cut' | 'shared';
   durationMs: number;
   turns: number;
@@ -311,27 +365,42 @@ export interface MatchResult {
   finalGems: Record<string, number>;
 }
 
-export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard';
+export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard' | 'encounter';
 
+/**
+ * Events are facts, not prose: the UI (src/lib/explain.ts) turns them into "what happened, why, what
+ * now" cards. Add fields rather than renaming; every consumer matches on `type`.
+ */
 export type GameEvent =
   | { type: 'turnStarted'; playerId: string; turn: number }
-  | { type: 'rolled'; playerId: string; value: number }
+  /** `steps`: the movement allowance after the dragon penalty or Slow Down; `penalty` says which applied. */
+  | { type: 'rolled'; playerId: string; value: number; steps?: number; penalty?: 'dragon' | 'slowed' | null; bonus?: boolean }
   | { type: 'moved'; characterId: string; path: string[] }
-  /** A move ended on (or the Knight passed through) an opponent and sent them home. */
+  /** A movement capture (landing, or one of the Knight's chosen route-attack targets) sent a piece home. */
   | { type: 'cut'; characterId: string; targetId: string; node: string; stole: GemKind[]; dropped: GemKind[] }
+  /** [A1] The Knight's route attack, with the 2–3 targets the player chose. */
+  | { type: 'routeAttack'; characterId: string; targets: string[] }
   | { type: 'teleported'; characterId: string; from: string; to: string; reason: TeleportReason; name?: string }
   | { type: 'pickedUp'; characterId: string; gem: GemKind; from: string | null }
-  /** `duplicate`: the player already had this gem, so it went back to the supply. */
+  /** `duplicate`: the kingdom already had this kind; it is kept as a spare copy. */
   | { type: 'banked'; playerId: string; characterId: string; gem: GemKind; duplicate: boolean }
   /** A plate touched for the first time on this lap; `checkpoint` is how many it has now (4 = lap). */
   | { type: 'lap'; characterId: string; checkpoint: number; plate: number }
-  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'cut' }
+  /** [A1] A bonus roll was earned; it is granted when the current move resolves. */
+  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'capture' }
+  /** [A1] No piece could use the full allowance; movement skipped. */
+  | { type: 'noMove'; playerId: string; steps: number }
   | { type: 'hazard'; characterId: string; node: string; roll: number; sprung: boolean }
+  /** The Royal Path opened: one of each gem kind banked. */
   | { type: 'finalUnlocked'; playerId: string }
   | { type: 'enteredFinal'; characterId: string }
+  /** [A1] A piece entered the Crown Temple; `count` is how many of that kingdom are in. */
+  | { type: 'finished'; characterId: string; playerId: string; count: number }
   | { type: 'defeated'; characterId: string; by: string; cause: 'cut' | 'fire' }
   | { type: 'shieldUsed'; characterId: string }
   | { type: 'monster'; characterId: string; roll: number; total: number; success: boolean }
+  /** [A3] Stone Golem or Cave Spider: one roll; `to` is where the piece ended up. */
+  | { type: 'encounter'; characterId: string; monster: 'golem' | 'spider'; roll: number; total: number; success: boolean; to: string }
   | { type: 'tame'; characterId: string; roll: number; success: boolean }
   | { type: 'dragonFire'; characterId: string; targetId: string }
   | { type: 'slay'; characterId: string; roll: number; success: boolean }
@@ -341,7 +410,15 @@ export type GameEvent =
   | { type: 'cardPlayed'; playerId: string; card: CardType }
   | { type: 'cardDrawn'; playerId: string }
   | { type: 'discovery'; characterId: string; found: DiscoveryType; gem?: GemKind }
-  | { type: 'edgeChanged'; edgeId: string }
+  /** [A3] `change` and `by` let the UI say "Blue destroyed the bridge". */
+  | { type: 'edgeChanged'; edgeId: string; change?: 'opened' | 'closed' | 'blocked' | 'cleared'; by?: string; card?: CardType }
+  /** [A3] A space became a mountain or river, or was repaired. */
+  | { type: 'terrainChanged'; node: string; to: 'mountain' | 'river' | null; by?: string }
+  /** [A2] Powers and trades. */
+  | { type: 'royalGuard'; characterId: string; targetId: string }
+  | { type: 'alchemy'; characterId: string; from: GemKind; to: GemKind }
+  | { type: 'tradeOffered'; offerId: string; from: string; to: string }
+  | { type: 'tradeResolved'; offerId: string; from: string; to: string; outcome: 'accepted' | 'declined' | 'expired' | 'cancelled' }
   | { type: 'gameOver'; winners: string[] };
 
 export interface GameState {
@@ -373,6 +450,9 @@ export interface GameState {
   discard: CardInstance[];
   discoveries: Discovery[];
   discoveryDiscard: Discovery[];
+  /** [A2] Open Diplomacy offers. */
+  trades: TradeOffer[];
+  tradeCounter: number;
   rngState: number;
   logCounter: number;
   cardCounter: number;
@@ -384,8 +464,18 @@ export interface GameState {
 export type GameAction =
   | { type: 'release' }
   | { type: 'roll' }
-  /** The full route, starting at the character's current location. */
-  | { type: 'move'; characterId: string; path: string[]; discardCardId?: string | null }
+  /**
+   * The full route, starting at the character's current location. `attack` (Knight only): the 2–3
+   * rivals on this route the player chose for a route attack; omit for a normal move.
+   */
+  | { type: 'move'; characterId: string; path: string[]; attack?: string[]; discardCardId?: string | null }
+  /** [A2] Free actions: they never use the Move or the Adventure action. */
+  | { type: 'royalGuard'; targetId: string }
+  | { type: 'alchemy'; characterId: string; gemId: string; to: GemKind }
+  | { type: 'offerTrade'; to: string; give: GemKind; want: TradeWant }
+  /** Off-turn: the recipient answers. `cardId` picks which copy to hand over for a card request. */
+  | { type: 'respondTrade'; offerId: string; accept: boolean; cardId?: string }
+  | { type: 'cancelTrade'; offerId: string }
   | { type: 'skipMove' }
   | { type: 'skipAdventure' }
   | { type: 'enterDungeon'; characterId: string }
@@ -434,6 +524,8 @@ export interface PlayerView {
   discardTop: CardType | null;
   discardCount: number;
   discoveryCount: number;
+  /** [A2] Open offers, redacted for this viewer. */
+  trades: TradeView[];
 }
 
 /** The parts of state shared by GameState and PlayerView (what rule queries need). */

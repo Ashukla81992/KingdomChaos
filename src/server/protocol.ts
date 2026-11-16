@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ROOM_CONFIG, type MatchPace } from '../engine/config';
-import { GEM_KINDS, type GameAction, type PlayerView } from '../engine/types';
+import { GEM_KINDS, type CardType, type GameAction, type PlayerView } from '../engine/types';
 
 /** Shared between the Socket.IO server and the browser client. */
 
@@ -81,7 +81,17 @@ const discard = id.nullable().optional();
 export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('release') }),
   z.object({ type: z.literal('roll') }),
-  z.object({ type: z.literal('move'), characterId: id, path: z.array(id).min(2).max(12), discardCardId: discard }),
+  z.object({ type: z.literal('move'), characterId: id, path: z.array(id).min(2).max(12), attack: z.array(id).min(1).max(6).optional(), discardCardId: discard }),
+  z.object({ type: z.literal('royalGuard'), targetId: id }),
+  z.object({ type: z.literal('alchemy'), characterId: id, gemId: id, to: z.enum(GEM_KINDS) }),
+  z.object({
+    type: z.literal('offerTrade'),
+    to: id,
+    give: z.enum(GEM_KINDS),
+    want: z.discriminatedUnion('kind', [z.object({ kind: z.literal('gem'), gem: z.enum(GEM_KINDS) }), z.object({ kind: z.literal('card'), cardType: id.transform((v) => v as CardType) })]),
+  }),
+  z.object({ type: z.literal('respondTrade'), offerId: id, accept: z.boolean(), cardId: id.optional() }),
+  z.object({ type: z.literal('cancelTrade'), offerId: id }),
   z.object({ type: z.literal('skipMove') }),
   z.object({ type: z.literal('skipAdventure') }),
   z.object({ type: z.literal('enterDungeon'), characterId: id }),

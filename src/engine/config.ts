@@ -41,10 +41,19 @@ export interface GameConfig {
   discoveries: Partial<Record<Exclude<DiscoveryType, 'gem'>, number>> & { gems: Partial<Record<GemKind, number>> };
   /** Spaces a discovered trap sends a character back along the road. */
   discoveryTrapSteps: number;
-  /** A natural roll of this value earns one extra turn (0 disables). */
+  /** A natural roll of this value earns one bonus roll (0 disables). */
   extraTurnRoll: number;
-  /** A movement cut earns one extra turn. */
+  /** At least one movement capture during a move earns one bonus roll. */
   extraTurnOnCut: boolean;
+  /** [A1] Knight route attack: how many rivals the player must choose (inclusive). */
+  knightAttackMin: number;
+  knightAttackMax: number;
+  /** [A1] Pieces a kingdom must get into the Crown Temple to win. */
+  finishersToWin: number;
+  /** [A2] Royal Guard uses per match. */
+  royalGuardPerMatch: number;
+  /** [A3] Stone Golem and Cave Spider succeed on this roll or higher (Knight adds `knightBonus`). */
+  encounterThreshold: number;
 }
 
 export const DEFAULT_DECK: Record<CardType, number> = {
@@ -95,6 +104,11 @@ export const DEFAULT_CONFIG: GameConfig = {
   discoveryTrapSteps: 5,
   extraTurnRoll: 6,
   extraTurnOnCut: true,
+  knightAttackMin: 2,
+  knightAttackMax: 3,
+  finishersToWin: 4,
+  royalGuardPerMatch: 1,
+  encounterThreshold: 4,
 };
 
 /** Round limit used by the physical prototype (and offered digitally). */
