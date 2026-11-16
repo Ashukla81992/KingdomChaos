@@ -1,5 +1,6 @@
 import { CIRCUIT_LENGTH, getBoard, other } from './board';
 import { HAZARD_ROLL_MAX } from './crownLayout';
+import { arrivalPreview, dragonSpaceRule, resolveArrival, type ArrivalPreview } from './dungeon';
 import { edgeOpen, nodeName } from './graph';
 import { randomInt, shuffle } from './rng';
 import {
@@ -17,8 +18,12 @@ import {
   type LogKind,
   type MatchResult,
   type PlayerState,
+  type PlayerStats,
   type TeleportReason,
 } from './types';
+import { finishersOf, royalPathOpen, templeBlockers } from './victory';
+
+export { finishersOf, royalPathOpen, templeBlockers } from './victory';
 
 export interface Ctx {
   state: GameState;
@@ -164,16 +169,20 @@ export function cutsMade(s: Pick<GameState, 'stats'> | { stats: Record<string, {
   return s.stats[playerId]?.cuts ?? 0;
 }
 
-/** The final path opens once the required gems are banked and the required cuts made. */
-export function finalUnlocked(s: Pick<BoardState, 'players' | 'config'> & { stats: Record<string, { cuts: number }> }, playerId: string) {
-  const p = playerOf(s, playerId);
-  return requiredGems(s).every((k) => p.gems.includes(k)) && cutsMade(s, playerId) >= s.config.cutsRequired;
+/** The Royal Path opens once every required gem kind is banked (captures and markers are checked at the temple gate). */
+export function finalUnlocked(s: Pick<BoardState, 'players' | 'config'>, playerId: string) {
+  return royalPathOpen(s, playerId);
 }
 
-function announceUnlock(ctx: Ctx, playerId: string, was: boolean) {
-  if (was || !finalUnlocked(ctx.state, playerId)) return;
+/** Keep `player.gems` as the distinct kinds with `bank[kind] >= 1`. */
+export function syncGems(player: Pick<PlayerState, 'gems' | 'bank'>) {
+  player.gems = GEM_KINDS.filter((k) => (player.bank[k] ?? 0) >= 1);
+}
+
+export function announceUnlock(ctx: Ctx, playerId: string, was: boolean) {
+  if (was || !royalPathOpen(ctx.state, playerId)) return;
   ctx.events.push({ type: 'finalUnlocked', playerId });
-  log(ctx, `${playerName(ctx.state, playerId)}'s Royal Path is open! A character that has touched all four house plates may now turn in at its fork and race to the Crown Temple.`, 'system', playerId);
+  log(ctx, `${playerName(ctx.state, playerId)}'s Royal Path is open! Pieces may turn in at the fork; the temple still needs all four markers and a capture.`, 'system', playerId);
 }
 
 function giveGem(ctx: Ctx, ch: Character, gem: Gem, from: string | null) {
@@ -220,16 +229,15 @@ function bankGem(ctx: Ctx, ch: Character, gem: Gem, discardCardId?: string | nul
   const was = finalUnlocked(s, player.id);
   ch.carrying = ch.carrying.filter((id) => id !== gem.id);
   s.gems = s.gems.filter((g) => g.id !== gem.id);
-  const duplicate = player.gems.includes(gem.kind);
-  if (!duplicate) {
-    player.gems.push(gem.kind);
-    s.stats[player.id].gemsBanked++;
-  }
+  const duplicate = (player.bank[gem.kind] ?? 0) >= 1;
+  player.bank[gem.kind] = (player.bank[gem.kind] ?? 0) + 1;
+  syncGems(player);
+  if (!duplicate) s.stats[player.id].gemsBanked++;
   ctx.events.push({ type: 'banked', playerId: player.id, characterId: ch.id, gem: gem.kind, duplicate });
   log(
     ctx,
     duplicate
-      ? `${player.name} already has ${aGem(gem.kind)}; the spare goes back to its station.`
+      ? `${player.name} banks a spare ${GEM_NAMES[gem.kind]} — kept in the treasury for Diplomacy or Alchemy.`
       : `${player.name} banks ${aGem(gem.kind)} (${player.gems.length}/${requiredGems(s).length} gems).`,
     duplicate ? 'info' : 'good',
     player.id,
@@ -275,7 +283,7 @@ export function touchPlate(ctx: Ctx, ch: Character) {
     s.stats[ch.owner].laps++;
     log(
       ctx,
-      `${charLabel(s, ch.id)} has touched all four house plates — lap complete!${finalUnlocked(s, ch.owner) ? ' Turn in at the fork for the Royal Path.' : ' The Royal Path opens once all gems are banked and a cut is made.'}`,
+      `${charLabel(s, ch.id)} has touched all four house plates — lap complete!${royalPathOpen(s, ch.owner) ? ' The temple gate will open once your kingdom also has a capture.' : ' Bank every gem kind to open the Royal Path; markers and a capture are checked at the temple.'}`,
       'good',
       ch.owner,
     );
@@ -293,14 +301,14 @@ export function resetLap(ch: Character) {
 export const isSafe = (boardId: string, node: string) => !!getBoard(boardId).nodes[node]?.safe;
 
 export function othersAt(s: Pick<BoardState, 'characters'>, node: string, exceptId?: string) {
-  return Object.values(s.characters).filter((c) => c.node === node && c.id !== exceptId);
+  return Object.values(s.characters).filter((c) => !c.finished && c.node === node && c.id !== exceptId);
 }
 
 export function opponentsAt(s: Pick<BoardState, 'characters'>, node: string, playerId: string) {
-  return Object.values(s.characters).filter((c) => c.node === node && c.owner !== playerId);
+  return Object.values(s.characters).filter((c) => !c.finished && c.node === node && c.owner !== playerId);
 }
 
-export const isProtected = (c: Pick<Character, 'shield' | 'immune'>) => c.shield || c.immune;
+export const isProtected = (c: Pick<Character, 'shield' | 'immune' | 'guarded'>) => !!(c.shield || c.immune || c.guarded);
 
 /** Can `ch` be put on `node` without a move (vehicles, leaving the dungeon)? Needs a safe or empty space. */
 export function canArrive(s: Pick<BoardState, 'boardId' | 'characters'>, node: string, characterId: string) {
@@ -337,7 +345,7 @@ export function relocate(ctx: Ctx, ch: Character, to: string, reason: TeleportRe
   arrive(ctx, ch, discardCardId);
 }
 
-/** Send a character home: plate progress resets, the gem stays where it fell (or is handed over by the caller). */
+/** Send a character home. Markers (plates) are kept; the gem stays where it fell (or is handed over by the caller). */
 export function sendHome(ctx: Ctx, ch: Character) {
   const s = ctx.state;
   if (isCompanion(s, ch.id)) {
@@ -345,9 +353,9 @@ export function sendHome(ctx: Ctx, ch: Character) {
     log(ctx, `The dragon breaks free and runs wild at ${nodeName(s.boardId, ch.node)}!`, 'dragon');
   }
   ch.node = playerOf(s, ch.owner).castle;
-  resetLap(ch);
   ch.beatMonster = false;
   ch.shield = false;
+  ch.guarded = false;
   s.stats[ch.owner].defeated++;
 }
 
@@ -362,7 +370,7 @@ function dropGems(ctx: Ctx, ch: Character): Gem[] {
 }
 
 /**
- * A movement cut: the victim goes home and its lap resets. The attacker takes the victim's gems
+ * A movement cut: the victim goes home and keeps its markers. The attacker takes the victim's gems
  * while its hands are free; the rest drop on the space.
  */
 export function cutCharacter(ctx: Ctx, attackerId: string, targetId: string) {
@@ -392,7 +400,7 @@ export function cutCharacter(ctx: Ctx, attackerId: string, targetId: string) {
   announceUnlock(ctx, attacker.owner, was);
 }
 
-/** Dragon Fire: not a cut. The gem drops where the target stood and it goes home. */
+/** Dragon Fire: not a cut (no `stats.cuts`, no bonus). The gem drops where the target stood and it goes home. */
 export function burn(ctx: Ctx, attackerId: string, targetId: string) {
   const s = ctx.state;
   const target = s.characters[targetId];
@@ -438,43 +446,61 @@ export interface MoveOption {
   cost: number;
   /** The Witch used her free portal hop (path contains a portal pair with no edge). */
   witchPortal: boolean;
-  /** Where the Knight cuts while passing. */
-  knightCut: string | null;
-  /** Opponents cut on landing. */
+  /** Opponents cut on landing (King/Witch/Knight normal move). Empty when the Knight uses a route attack. */
   landingCuts: string[];
   entersFinal: boolean;
+  /** Knight: every eligible rival on this route when there are at least `knightAttackMin`. The client picks 2–3. */
+  routeTargets: string[];
+  /** Preview of an encounter or slay duel if the move ends here. */
+  arrival: ArrivalPreview | null;
+  /** This route ends on the Crown Temple (and the piece will finish). */
+  finishes: boolean;
 }
 
 export interface MoveRules {
   steps: number;
-  /** Island moves must use every step. Dungeon moves may stop early. */
+  /** False for Magic Boots: may not capture. */
   allowCuts: boolean;
   portals: boolean;
 }
 
 /** Explains why the next step from `node` is not allowed, for the move planner. */
-export type StepBlock = 'closed' | 'opponentCastle' | 'finalLocked' | 'notYourFinal' | 'dragon' | 'opponent' | 'protected' | 'friend' | 'visited';
+export type StepBlock = 'closed' | 'opponentCastle' | 'finalLocked' | 'notYourFinal' | 'dragon' | 'opponent' | 'protected' | 'friend' | 'visited' | 'templeGate';
+
+type MoveBoard = BoardState & { stats?: Record<string, Pick<PlayerStats, 'cuts'>> };
+
+function eligibleOn(s: BoardState, node: string, owner: string): Character[] {
+  if (isSafe(s.boardId, node)) return [];
+  return opponentsAt(s, node, owner).filter((c) => !isProtected(c));
+}
 
 /**
- * Every legal route for one character. Island routes use the whole roll on one-way roads (side
- * routes run both ways); dungeon routes may stop early. Opponents on unsafe spaces block passing,
- * except for the Queen (passes without cutting) and the Knight (cuts one he passes). Wild and
- * guarding dragons stop movement on their space. A landing is illegal on a friendly piece on an
- * unsafe space, on a protected opponent, and (without cuts) on any opponent on an unsafe space.
+ * Every legal exact-length route for one character (island and dungeon). Opponents on unsafe spaces
+ * block passing except the Queen (passes, never captures) and the Knight (normal move cannot pass;
+ * with 2+ eligible rivals the route is offered as a route attack). Dragon spaces use `dragonSpaceRule`.
  */
-export function enumerateMoves(s: BoardState, characterId: string, rules: MoveRules): MoveOption[] {
-  const { out, nodes } = getBoard(s.boardId);
+export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRules): MoveOption[] {
+  const { out, nodes, board } = getBoard(s.boardId);
   const ch = s.characters[characterId];
+  if (!ch || ch.finished) return [];
   const house = houseOf(s, ch.owner);
-  const unlocked = finalUnlocked(s as BoardState & { stats: Record<string, { cuts: number }> }, ch.owner);
+  const unlocked = royalPathOpen(s, ch.owner);
   const dNode = dragonBlocks(s) ? s.dragon.node : null;
+  const dragRule = dragonSpaceRule(s, characterId);
   const freeHop = rules.portals && ch.kind === 'witch' && !s.turn.witchPortalUsed && !isCompanion(s, ch.id);
-  const dungeon = nodes[ch.node].map === 'dungeon';
   const result = new Map<string, MoveOption>();
   const visited = new Set<string>([ch.node]);
   const exactTemple = s.config.exactTemple;
+  const attackMin = s.config.knightAttackMin;
+  const withStats = s as BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
 
   const landing = (node: string): { ok: boolean; cuts: string[] } => {
+    if (ch.kind === 'queen') {
+      const here = othersAt(s, node, ch.id);
+      if (!here.length) return { ok: true, cuts: [] };
+      if (dragRule === 'slay' && node === dNode) return { ok: true, cuts: [] };
+      return { ok: false, cuts: [] };
+    }
     if (nodes[node].safe) return { ok: true, cuts: [] };
     const here = othersAt(s, node, ch.id);
     if (here.some((c) => c.owner === ch.owner)) return { ok: false, cuts: [] };
@@ -484,19 +510,47 @@ export function enumerateMoves(s: BoardState, characterId: string, rules: MoveRu
     return { ok: true, cuts: opp.map((c) => c.id) };
   };
 
-  const record = (path: string[], cost: number, hop: boolean, knightCut: string | null, entersFinal: boolean) => {
+  const record = (path: string[], cost: number, hop: boolean, entersFinal: boolean) => {
     const end = path[path.length - 1];
     const land = landing(end);
     if (!land.ok) return;
+    const midRival = path.slice(1, -1).some((n) => !isSafe(s.boardId, n) && opponentsAt(s, n, ch.owner).length > 0);
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    for (const n of path.slice(1)) {
+      for (const o of eligibleOn(s, n, ch.owner)) {
+        if (!seen.has(o.id)) {
+          seen.add(o.id);
+          targets.push(o.id);
+        }
+      }
+    }
+    const knightAttack = ch.kind === 'knight' && rules.allowCuts && targets.length >= attackMin;
+    if (midRival && !knightAttack) {
+      if (ch.kind === 'queen') {
+        /* queen already passed */
+      } else return;
+    }
+    if (midRival && ch.kind !== 'queen' && ch.kind !== 'knight') return;
     const key = path.join('>');
-    if (!result.has(key)) result.set(key, { path, cost, witchPortal: hop, knightCut, landingCuts: land.cuts, entersFinal });
+    if (result.has(key)) return;
+    result.set(key, {
+      path,
+      cost,
+      witchPortal: hop,
+      landingCuts: knightAttack ? [] : land.cuts,
+      entersFinal,
+      routeTargets: knightAttack ? targets : [],
+      arrival: arrivalPreview(s, characterId, end),
+      finishes: end === board.temple,
+    });
   };
 
-  const dfs = (node: string, left: number, path: string[], hop: boolean, knightCut: string | null, entersFinal: boolean) => {
+  const dfs = (node: string, left: number, path: string[], hop: boolean, entersFinal: boolean) => {
     const cost = rules.steps - left;
-    if (left === 0 || (dungeon && cost > 0)) record(path, cost, hop, knightCut, entersFinal);
-    if (node === 'temple' && left > 0 && !exactTemple) record(path, cost, hop, knightCut, entersFinal);
-    if (path.length > 1 && node === dNode) return;
+    if (left === 0) record(path, cost, hop, entersFinal);
+    if (node === board.temple && left > 0 && !exactTemple) record(path, cost, hop, entersFinal);
+    if (path.length > 1 && node === dNode && dragRule !== 'pass') return;
     const nexts: { to: string; cost: number; hop: boolean }[] = [];
     for (const ed of left > 0 ? out[node] : []) {
       if (!edgeOpen(s, ed)) continue;
@@ -505,7 +559,10 @@ export function enumerateMoves(s: BoardState, characterId: string, rules: MoveRu
       if (target.type === 'castle') continue;
       if (ed.guard && ed.guard.from === node && !ch.beatMonster && playerOf(s, ch.owner).keys <= 0) continue;
       if (target.lane === 'final' && nodes[node].lane !== 'final') {
-        if (target.house !== house.seat || ch.lap < 4 || !unlocked) continue;
+        if (target.house !== house.seat || !unlocked) continue;
+      }
+      if (to === board.temple || (target.lane === 'temple' && nodes[node].lane === 'final')) {
+        if (templeBlockers(withStats, characterId).length) continue;
       }
       nexts.push({ to, cost: 1, hop: false });
     }
@@ -514,38 +571,33 @@ export function enumerateMoves(s: BoardState, characterId: string, rules: MoveRu
     for (const n of nexts) {
       if (visited.has(n.to)) continue;
       const nextLeft = left - n.cost;
-      // Can we continue past `n.to`? Checked when we arrive and still have steps (below).
-      let kc = knightCut;
+      if (n.to === dNode && nextLeft > 0 && dragRule !== 'pass') continue;
       if (nextLeft > 0 && !nodes[n.to].safe) {
         const opp = opponentsAt(s, n.to, ch.owner);
         if (opp.length) {
           if (ch.kind === 'queen') {
-            /* passes freely */
-          } else if (ch.kind === 'knight' && rules.allowCuts && !kc && !opp.some(isProtected)) kc = n.to;
-          else {
-            if (dungeon) record([...path, n.to], cost + n.cost, hop || n.hop, kc, entersFinal);
-            continue;
-          }
+            /* passes */
+          } else if (ch.kind === 'knight' && rules.allowCuts) {
+            /* may pass for a route attack; legality checked at record */
+          } else continue;
         }
       }
       visited.add(n.to);
-      dfs(n.to, nextLeft, [...path, n.to], hop || n.hop, kc, entersFinal || (nodes[n.to].lane === 'final' && nodes[node].lane !== 'final'));
+      dfs(n.to, nextLeft, [...path, n.to], hop || n.hop, entersFinal || (nodes[n.to].lane === 'final' && nodes[node].lane !== 'final'));
       visited.delete(n.to);
     }
   };
-  dfs(ch.node, rules.steps, [ch.node], false, null, false);
-
-  // In the dungeon a route may end on a blocked space early; dfs already records every prefix.
+  dfs(ch.node, rules.steps, [ch.node], false, false);
   return [...result.values()];
 }
 
 /**
- * Walk a validated route: checkpoints, pickups and banking on every step; the Knight's pass cut;
- * landing cuts; then a trap or shortcut on the final space; then the temple.
+ * Walk a validated route: plates and pickups on every step; route-attack or landing cuts after the
+ * last step; then arrival encounters, hazards, teleports, and the temple.
  */
-export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?: string | null) {
+export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?: string | null, attack?: string[]) {
   const s = ctx.state;
-  const { nodes } = getBoard(s.boardId);
+  const { nodes, board } = getBoard(s.boardId);
   for (let i = 1; i < option.path.length; i++) {
     const prev = option.path[i - 1];
     const node = option.path[i];
@@ -558,15 +610,22 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
     ch.node = node;
     if (isHop) ctx.events.push({ type: 'teleported', characterId: ch.id, from: prev, to: node, reason: 'portal', name: nodes[prev].name });
     else touchPlate(ctx, ch);
-    if (option.knightCut === node) for (const o of opponentsAt(s, node, ch.owner)) cutCharacter(ctx, ch.id, o.id);
     if (option.entersFinal && nodes[node].lane === 'final' && nodes[prev].lane !== 'final') {
       ctx.events.push({ type: 'enteredFinal', characterId: ch.id });
       log(ctx, `${charLabel(s, ch.id)} turns onto the Royal Path!`, 'good', ch.owner);
     }
     arrive(ctx, ch, discardCardId);
   }
-  for (const id of option.landingCuts) cutCharacter(ctx, ch.id, id);
+  if (attack?.length) {
+    ctx.events.push({ type: 'routeAttack', characterId: ch.id, targets: attack });
+    log(ctx, `${charLabel(s, ch.id)} charges a route attack!`, 'good', ch.owner);
+    for (const id of attack) cutCharacter(ctx, ch.id, id);
+  } else {
+    for (const id of option.landingCuts) cutCharacter(ctx, ch.id, id);
+  }
   pickUpAt(ctx, ch);
+  resolveArrival(ctx, ch, discardCardId);
+  if (s.status !== 'playing') return;
   if (nodes[ch.node].hazard) springHazard(ctx, ch, discardCardId);
   const tp = nodes[ch.node].teleport;
   if (tp) {
@@ -574,10 +633,7 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
     log(ctx, `${tp.name}! ${tp.text}`, tp.type === 'trap' ? 'bad' : 'good', ch.owner);
     relocate(ctx, ch, dest, tp.type, tp.name, discardCardId);
   }
-  if (ch.node === getBoard(s.boardId).board.temple && s.status === 'playing') {
-    log(ctx, `${charLabel(s, ch.id)} reaches the Crown Temple!`, 'system', ch.owner);
-    finishGame(ctx, 'temple', [ch.owner]);
-  }
+  if (ch.node === board.temple && s.status === 'playing' && !ch.finished) enterTemple(ctx, ch, discardCardId);
 }
 
 /** The nearest main-road space, for snares and buried traps off the coast road. */
@@ -680,7 +736,7 @@ export function drawDiscovery(ctx: Ctx, ch: Character, discardCardId?: string | 
         break;
       }
       s.bridges[gate.gate] = true;
-      ctx.events.push({ type: 'edgeChanged', edgeId: gate.edgeId });
+      ctx.events.push({ type: 'edgeChanged', edgeId: gate.edgeId, change: 'opened', by: ch.owner });
       log(ctx, `${who} uncovers a hidden way: the ${structureName(getBoard(s.boardId).edges[gate.edgeId])} is open — for every house.`, 'good', ch.owner);
       break;
     }
@@ -693,13 +749,27 @@ export function carriedGems(s: Pick<GameState, 'characters'>, playerId: string) 
   return Object.values(s.characters).reduce((n, c) => n + (c.owner === playerId ? c.carrying.length : 0), 0);
 }
 
-/** Most gems banked; tie → a cut made; tie → shared victory. */
+/** Enter the Crown Temple: the piece finishes, banks carried gems, and may win the match. */
+export function enterTemple(ctx: Ctx, ch: Character, discardCardId?: string | null) {
+  const s = ctx.state;
+  if (ch.finished) return;
+  ch.finished = true;
+  bankAtHome(ctx, ch, discardCardId);
+  const count = finishersOf(s, ch.owner);
+  ctx.events.push({ type: 'finished', characterId: ch.id, playerId: ch.owner, count });
+  log(ctx, `${charLabel(s, ch.id)} enters the Crown Temple! (${count}/${s.config.finishersToWin})`, 'system', ch.owner);
+  if (count >= s.config.finishersToWin) finishGame(ctx, 'temple', [ch.owner]);
+}
+
+/** Most finishers; then gems banked; then a cut made; then shared. */
 export function rankWinners(s: GameState): { winners: string[]; tieBreak: MatchResult['tieBreak'] } {
   let pool: PlayerState[] = s.players;
   const top = (vals: (id: string) => number) => {
     const best = Math.max(...pool.map((p) => vals(p.id)));
     pool = pool.filter((p) => vals(p.id) === best);
   };
+  top((id) => finishersOf(s, id));
+  if (pool.length === 1) return { winners: [pool[0].id], tieBreak: null };
   top((id) => playerOf(s, id).gems.length);
   if (pool.length === 1) return { winners: [pool[0].id], tieBreak: null };
   top((id) => Number(cutsMade(s, id) > 0));
@@ -723,5 +793,5 @@ export function finishGame(ctx: Ctx, reason: MatchResult['reason'], forced?: str
   };
   ctx.events.push({ type: 'gameOver', winners: ranked.winners });
   const names = ranked.winners.map((id) => playerName(s, id)).join(' & ');
-  log(ctx, ranked.winners.length > 1 ? `Shared victory: ${names}!` : `${names} wins Kingdom Chaos: Crown Quest!`, 'system');
+  log(ctx, ranked.winners.length > 1 ? `Shared victory: ${names}!` : `${names} wins Kingdom of Four Gems!`, 'system');
 }

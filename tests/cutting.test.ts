@@ -3,12 +3,13 @@ import { applyAction, legalMoves } from '@/engine';
 import { act, carry, endsFor, game, hand, move, noCards, place, reject, rollMove, rollWith, routeTo, T0 } from './helpers';
 
 describe('cuts', () => {
-  it('ending a move on an opponent on an unsafe space cuts it home and resets its lap', () => {
+  it('ending a move on an opponent on an unsafe space cuts it home and keeps its markers', () => {
     let s = noCards(game());
     place(s, 'a-king', 'c1');
     place(s, 'b-king', 'c4', { lap: 2 });
+    const plates = [...s.characters['b-king'].plates];
     s = rollMove(s, 'a', 'a-king', 3, 'c4');
-    expect(s.characters['b-king']).toMatchObject({ node: 'home-purple', lap: 0 });
+    expect(s.characters['b-king']).toMatchObject({ node: 'home-purple', plates, lap: 2 });
     expect(s.stats.a.cuts).toBe(1);
     expect(s.lastEvents.some((e) => e.type === 'cut')).toBe(true);
   });
@@ -81,36 +82,29 @@ describe('cuts', () => {
     expect(endsFor(s, 'a-king').has('c37')).toBe(true);
   });
 
-  it('the Queen passes opponents without cutting them', () => {
+  it('the Queen passes opponents without cutting them and must end on an empty space', () => {
     let s = noCards(game());
     place(s, 'a-queen', 'c1');
     place(s, 'b-king', 'c2');
     s = rollMove(s, 'a', 'a-queen', 3, 'c4');
     expect(s.characters['b-king'].node).toBe('c2');
-  });
-
-  it('the Knight cuts one opponent he passes and keeps moving, but not a protected one', () => {
-    let s = noCards(game());
-    place(s, 'a-knight', 'c1');
-    place(s, 'b-king', 'c2');
-    s = rollMove(s, 'a', 'a-knight', 3, 'c4');
-    expect(s.characters['b-king'].node).toBe('home-purple');
-    expect(s.characters['a-knight'].node).toBe('c4');
+    expect(s.characters['a-queen'].node).toBe('c4');
 
     s = noCards(game());
-    place(s, 'a-knight', 'c1');
-    place(s, 'b-king', 'c2', { shield: true });
+    place(s, 'a-queen', 'c1');
+    place(s, 'b-king', 'c4');
     s = rollWith(s, 'a', 3);
-    expect(legalMoves(s, 'a-knight').every((m) => !m.path.includes('c2'))).toBe(true);
+    expect(endsFor(s, 'a-queen').has('c4')).toBe(false);
   });
 
-  it('the Knight cannot pass a second opponent in one move', () => {
+  it('the Knight may pass rivals only as a route attack when at least two are eligible', () => {
     let s = noCards(game());
     place(s, 'a-knight', 'c6');
     place(s, 'b-king', 'c8');
     place(s, 'b-queen', 'c9');
-    s = rollWith(s, 'a', 4);
-    expect(endsFor(s, 'a-knight').has('c10')).toBe(false);
+    s = rollWith(s, 'a', 3);
+    const opt = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === 'c6>c7>c8>c9');
+    expect(opt?.routeTargets.sort()).toEqual(['b-king', 'b-queen'].sort());
   });
 
   it('Shield or Immunity makes landing illegal and the server rejects it', () => {

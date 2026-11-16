@@ -4,7 +4,7 @@ import type { CardCategory, CardType, CharacterKind, NodeType } from './types';
 
 export const GAME_TITLE = 'Kingdom Chaos: Crown Quest';
 export const QUICK_GOAL =
-  'Bank a Ruby, Sapphire, Emerald and Diamond at your gate, cut at least one opponent, touch all four house plates with one character (a lap), then walk it up your Royal Path to the Crown Temple.';
+  'Bank one of each gem at your gate to open your Royal Path. Touch the four public checkpoints with each character you send to the temple, earn your kingdom’s capture credit, walk them up the Royal Path, and get all four characters into the Crown Temple.';
 
 export interface CardText {
   name: string;
@@ -39,11 +39,11 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Collapse Bridge',
     category: 'map',
     short: 'Knock down a bridge.',
-    full: 'Collapse a standing bridge on an inner route (the Stone Bridge starts open; the Rope Bridge can be collapsed once it is rebuilt). The main road can never be closed.',
+    full: 'Collapse a standing bridge on an inner route (the Stone Bridge starts open; the Rope Bridge can be collapsed once it is rebuilt). The main road always stays open.',
     usesAction: A,
     targets: 'A standing bridge with nobody at either end',
     duration: 'Until rebuilt or repaired',
-    restrictions: 'Cannot strand any piece or castle.',
+    restrictions: 'Keeps every house able to reach its castle, checkpoints, and Royal Path.',
     noTarget: 'No bridge can be collapsed right now (occupied, or it would strand someone).',
   },
   dig_tunnel: {
@@ -76,29 +76,29 @@ export const CARD_INFO: Record<CardType, CardText> = {
     usesAction: A,
     targets: 'An empty marked terrain site',
     duration: 'Until repaired',
-    restrictions: 'Never on the main road, castles, temple, stations or the dungeon gate. Cannot strand anyone.',
+    restrictions: 'Never on the main road, castles, temple, stations or the dungeon gate. Keeps every house connected.',
     noTarget: 'No terrain site is free (occupied, already changed, or it would strand someone).',
   },
   create_river: {
     name: 'Create River',
     category: 'map',
     short: 'Flood a marked inner-route space.',
-    full: 'Flood an empty marked terrain site with a river. Paths through that space close for everyone. (It does not create a boat route.)',
+    full: 'Flood an empty marked terrain site with a river. Paths through that space close for everyone.',
     usesAction: A,
     targets: 'An empty marked terrain site',
     duration: 'Until repaired',
-    restrictions: 'Never on the main road, castles, temple, stations or the dungeon gate. Cannot strand anyone.',
+    restrictions: 'Never on the main road, castles, temple, stations or the dungeon gate. Keeps every house connected.',
     noTarget: 'No terrain site is free (occupied, already changed, or it would strand someone).',
   },
   landslide: {
     name: 'Landslide',
     category: 'map',
     short: 'Block a marked pass.',
-    full: 'Drop rocks on a marked pass (Temple Pass, Vale Pass or Crag Pass). Pieces and Dragon Fire cannot cross it.',
+    full: 'Drop rocks on a marked pass (Temple Pass, Vale Pass or Crag Pass). Pieces and Dragon Fire stop at the blocked crossing.',
     usesAction: A,
     targets: 'A marked pass',
     duration: 'Until repaired, or until you place another landslide',
-    restrictions: 'One landslide per player at a time. Cannot strand anyone.',
+    restrictions: 'One landslide per player at a time. Keeps every house connected.',
     noTarget: 'No pass can be blocked right now.',
   },
   repair: {
@@ -115,8 +115,8 @@ export const CARD_INFO: Record<CardType, CardText> = {
   shield: {
     name: 'Shield',
     category: 'power',
-    short: 'No cuts, no Dragon Fire.',
-    full: 'One of your pieces cannot be cut (landing on it is not allowed) or hit by Dragon Fire. Traps still work.',
+    short: 'Safe from captures and Dragon Fire.',
+    full: 'One of your pieces cannot be captured (landing on it is refused) and is safe from Dragon Fire. Traps still work.',
     usesAction: A,
     targets: 'One of your pieces',
     duration: 'Until the start of your next turn',
@@ -126,7 +126,7 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Magic Boots',
     category: 'power',
     short: `Walk exactly ${C.magicBootsSteps} more spaces.`,
-    full: `Walk one of your pieces exactly ${C.magicBootsSteps} spaces by the normal road rules. Plates, gems and banking count, but the boots never cut.`,
+    full: `Walk one of your pieces exactly ${C.magicBootsSteps} spaces by the normal road rules. Checkpoints, gems and banking count; the boots never capture.`,
     usesAction: A,
     targets: 'One of your pieces and a route',
     duration: 'Instant',
@@ -137,7 +137,7 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Immunity',
     category: 'power',
     short: 'Untouchable.',
-    full: 'One of your pieces cannot be cut, hit by Dragon Fire, or targeted by opponents’ Swap.',
+    full: 'One of your pieces cannot be captured, hit by Dragon Fire, or targeted by opponents’ Swap.',
     usesAction: A,
     targets: 'One of your pieces',
     duration: 'Until the start of your next turn',
@@ -146,13 +146,13 @@ export const CARD_INFO: Record<CardType, CardText> = {
   dragon_slayer: {
     name: 'Dragon Slayer',
     category: 'power',
-    short: `Queen: roll ${C.slayThreshold}+ to drive off the dragon.`,
-    full: `Your Queen, on or next to the dragon, rolls: ${C.slayThreshold}–6 sends the dragon (and anyone’s companion) back to its lair to recover for one round. Fail: she retreats.`,
-    usesAction: A,
-    targets: 'Your Queen',
+    short: `Queen: end on the wild dragon, then roll ${C.slayThreshold}+.`,
+    full: `Only your Queen holding this card may end her move on the wild dragon’s space. She then rolls: ${C.slayThreshold}–6 clears the block and sends the dragon back to its lair to recover for one round. Fail: she retreats.`,
+    usesAction: 'Triggers when the Queen ends on the wild dragon',
+    targets: 'Your Queen on the wild dragon’s space',
     duration: 'Dragon recovers for one round',
-    restrictions: 'Queen only. Not on a recovering dragon or your own companion.',
-    noTarget: 'Your Queen must stand on or next to the dragon (and it must not be recovering or yours).',
+    restrictions: 'Queen only. Wild dragon. Holding this card.',
+    noTarget: 'Your Queen must hold Dragon Slayer and end on the wild dragon’s space.',
   },
   dragon_feast: {
     name: 'Dragon Feast',
@@ -169,11 +169,11 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Swap',
     category: 'special',
     short: 'Trade places with an opponent.',
-    full: 'Swap one of your pieces with an opponent’s piece. Both must be on roads (not castles, Royal Paths, the temple or the dungeon). Plates in between do not count; a piece swapped onto a plate touches it.',
+    full: 'Swap one of your pieces with an opponent’s piece. Both must be on roads (castles, Royal Paths, the temple and the dungeon stay put). Checkpoints in between stay untouched; a piece swapped onto a checkpoint touches it.',
     usesAction: A,
     targets: 'One of your pieces and one opponent piece',
     duration: 'Instant',
-    restrictions: 'Not on protected pieces or dragon companions.',
+    restrictions: 'Protected pieces and dragon companions stay put.',
     noTarget: 'No legal pair to swap.',
   },
   slow_down: {
@@ -184,7 +184,7 @@ export const CARD_INFO: Record<CardType, CardText> = {
     usesAction: A,
     targets: 'An opponent',
     duration: 'Their next roll',
-    restrictions: 'Not on a player already slowed.',
+    restrictions: 'Skip a player already slowed.',
   },
   dragon_roar: {
     name: 'Dragon Roar',
@@ -194,18 +194,18 @@ export const CARD_INFO: Record<CardType, CardText> = {
     usesAction: A,
     targets: 'A space within 3 of a free dragon',
     duration: 'Until moved again',
-    restrictions: 'Not a companion. Never into castles, Royal Paths or the temple.',
+    restrictions: 'Companions stay with their piece. Never into castles, Royal Paths or the temple.',
     noTarget: 'The dragon is a companion or recovering.',
   },
   rescue: {
     name: 'Rescue',
     category: 'special',
     short: 'Bring a piece home, banking its gems.',
-    full: 'Send one of your pieces straight home. A carried gem is banked on arrival. Its plates start over.',
+    full: 'Send one of your pieces straight home. A carried gem is banked on arrival. Its checkpoints start over.',
     usesAction: A,
     targets: 'One of your pieces outside the castle and Royal Path',
     duration: 'Instant',
-    restrictions: 'Resets that piece’s plates.',
+    restrictions: 'Resets that piece’s checkpoints.',
   },
   reveal_discovery: {
     name: 'Reveal Discovery',
@@ -215,12 +215,15 @@ export const CARD_INFO: Record<CardType, CardText> = {
     usesAction: A,
     targets: 'One of your pieces',
     duration: 'Instant',
-    restrictions: 'Not in a castle, on a Royal Path or at the temple.',
+    restrictions: 'Skip castles, Royal Paths and the temple.',
   },
 };
 
 export const CATEGORY_INFO: Record<CardCategory, { name: string; blurb: string }> = {
-  map: { name: 'Map', blurb: 'Open or close marked sites on the inner routes — for every house. The main road, castles, temple, stations and dungeon gate never change, and nobody can be stranded.' },
+  map: {
+    name: 'Map',
+    blurb: 'Open or close marked sites on the inner routes — for every house. The main road, castles, temple, stations and dungeon gate stay as they are, and every house keeps a path to its castle, checkpoints and Royal Path.',
+  },
   power: { name: 'Power', blurb: 'Protect a piece, walk further, or deal with the dragon.' },
   special: { name: 'Special', blurb: 'Tricks: swaps, slow-downs, roars, rescues and discoveries.' },
 };
@@ -232,10 +235,26 @@ export interface CharacterText {
 }
 
 export const CHARACTER_INFO: Record<CharacterKind, CharacterText> = {
-  king: { name: 'King', abilityName: 'Royal Treasury', ability: 'When the King banks a new gem, draw a card.' },
-  queen: { name: 'Queen', abilityName: 'Royal Passage', ability: 'Passes opponents without cutting them (she still cuts by landing). Only she can use Dragon Slayer.' },
-  witch: { name: 'Witch', abilityName: 'Portal Hop', ability: 'Once per turn, hop between the East and West Moonstone Arches for free during her move.' },
-  knight: { name: 'Knight', abilityName: 'Charge', ability: `+${C.knightBonus} against the monster. May cut one unprotected opponent he passes and keep moving.` },
+  king: {
+    name: 'King',
+    abilityName: 'Royal Treasury & Guard',
+    ability: `When the King banks a new gem kind, draw a card (hand limit applies). Once per match, after he moved this turn, Royal Guard protects him or an adjacent ally until your next turn starts.`,
+  },
+  queen: {
+    name: 'Queen',
+    abilityName: 'Royal Passage & Diplomacy',
+    ability: `Passes through opponents and must end on an empty space (safe spaces included). After she moved this turn, once per turn, offer a spare banked gem for a rival’s spare gem or a power card. Only she may use Dragon Slayer by ending on the wild dragon.`,
+  },
+  witch: {
+    name: 'Witch',
+    abilityName: 'Alchemy & Portal Hop',
+    ability: `Once per turn, hop between the East and West Moonstone Arches for free during her move. On her turn, Alchemy converts a gem she carries into a kind her kingdom is missing when a copy of the carried kind is already banked. She walks through the wild dragon’s space and is immune to Dragon Fire.`,
+  },
+  knight: {
+    name: 'Knight',
+    abilityName: 'Charge',
+    ability: `+${C.knightBonus} against dungeon monsters and encounters. On a route with at least two eligible rivals, may route-attack ${C.knightAttackMin}–${C.knightAttackMax} of them (an eligible rival on the final space must be included).`,
+  },
 };
 
 export interface LocationText {
@@ -244,44 +263,74 @@ export interface LocationText {
 }
 
 export const LOCATION_INFO: Record<NodeType, LocationText> = {
-  castle: { name: 'Castle', rule: 'Home. Pieces start here and return here when cut. Any roll moves a piece out onto its gate.' },
-  circuit: { name: 'Main road', rule: 'A 40-space two-way ring through all four house plates. It crosses Dragon Mountain in one tunnel step (the painted tunnel between the north road and the Crystal Mine). Cards cannot close it. Moves use the whole roll. Ending on an opponent here cuts it.' },
-  final: { name: 'Royal Path', rule: 'Your own path to the temple. Safe. Opens once you have every gem and a cut, for a piece that has touched all four house plates.' },
-  temple: { name: 'Crown Temple', rule: 'Land here exactly from your Royal Path to win.' },
+  castle: { name: 'Castle', rule: 'Home. Pieces start here and return here when captured. Any roll moves a piece out onto its gate.' },
+  circuit: {
+    name: 'Main road',
+    rule: 'A 40-space two-way ring through all four house gates. It crosses Dragon Mountain in one tunnel step. Cards leave it open. Moves use the whole allowance.',
+  },
+  final: {
+    name: 'Royal Path',
+    rule: 'Your own path to the temple. Safe. Opens once your kingdom has banked one of each gem kind. Edges run both ways, so a piece may enter early and walk back onto the island. The temple gate still asks for four checkpoints and the kingdom’s capture credit.',
+  },
+  temple: {
+    name: 'Crown Temple',
+    rule: 'A piece that enters finishes for its kingdom. Get all four characters into the temple to win.',
+  },
   side: { name: 'Inner route', rule: 'A two-way trail across the island: often shorter, but cards can open or close it, and some stones carry a trap risk.' },
   dEntrance: { name: 'Dungeon Entrance', rule: 'Safe. Adventure: leave the dungeon to the Dragon Gate.' },
-  path: { name: 'Dungeon passage', rule: 'Dungeon moves may stop early and go either way.' },
-  monster: { name: 'Monster Den', rule: `Adventure: fight the monster. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door this visit. Lose: retreat.` },
+  path: { name: 'Dungeon passage', rule: 'Dungeon moves use the exact allowance, the same as the island.' },
+  monster: {
+    name: 'Monster Den',
+    rule: `Adventure: fight the monster. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door this visit. Fail: retreat to a safe room.`,
+  },
   dragonChamber: { name: 'Dragon Lair', rule: 'The dragon guards and recovers here. Stand with it to tame it.' },
   gemChamber: { name: 'Crystal Shrine', rule: 'Adventure: take any gem your kingdom still needs.' },
   trap: { name: 'Spike Pit', rule: 'Ending a move here drops you through the Dungeon Trapdoor to the Dungeon Entrance.' },
   vault: { name: 'Old Vault', rule: 'Behind the guarded Vault Door. Adventure: dig for a discovery.' },
-  safeRoom: { name: 'Safe room', rule: 'Safe. Failed fights retreat here.' },
+  safeRoom: { name: 'Safe room', rule: 'Safe. Failed encounters retreat here.' },
 };
 
 export const FEATURE_INFO = {
-  safe: 'Safe space: nobody can be cut here, and several pieces (even opponents) may share it.',
-  entry: 'House gate and public plate: its pieces leave the castle here and bank gems here. Any piece of any house that passes or lands here touches this plate for its lap.',
-  fork: 'Fork: once your Royal Path is open, a piece that has touched all four plates turns in here.',
-  station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom needs it.',
+  safe: 'Safe space: captures are refused here, and several pieces (even opponents) may share it.',
+  entry:
+    'House gate and public checkpoint: its pieces leave the castle here and bank gems here. Any piece of any house that passes or lands here touches this checkpoint.',
+  fork: 'Fork: once your Royal Path is open, a piece may turn in here — even before it has every checkpoint. The temple gate still checks checkpoints and capture credit.',
+  station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom still needs that kind.',
   dig: 'Dig site: adventure action to draw a discovery — a gem, a card, a key, a hidden route opened for everyone, or a buried trap.',
   dungeonGate: 'Dragon Gate, on the east coast: adventure action to enter the dungeon.',
-  dock: 'Dock: when the boat is here, sail to the other dock (adventure action; plates on the way do not count).',
-  airfield: 'Airfield: when the plane is here, fly to the other airfield (adventure action; plates on the way do not count).',
+  dock: 'Dock: when the boat is here, sail to the other dock (adventure action; checkpoints on the way stay untouched).',
+  airfield: 'Airfield: when the plane is here, fly to the other airfield (adventure action; checkpoints on the way stay untouched).',
   portal: 'East and West Moonstone Arches: the Witch may hop from one to the other once per turn for free.',
   terrainSite: 'Terrain site: Raise Mountain or Create River can close this space.',
-  hazard: `Trap risk: a piece that stops here rolls the die; on 1–${HAZARD_ROLL_MAX} a snare drags it back to the nearest main-road space. It keeps its gems and plates. Passing through is safe.`,
+  hazard: `Trap risk: a piece that stops here rolls the die; on 1–${HAZARD_ROLL_MAX} a snare drags it back to the nearest main-road space. It keeps its gems and checkpoints. Passing through is safe.`,
 };
 
 export const STATUS_INFO = {
-  shield: 'Shield — cannot be cut or burned until its owner’s next turn.',
-  immune: 'Immune — cannot be cut, burned or swapped until its owner’s next turn.',
-  carrying: 'Carrying gems — bank them at your house gate. If cut, the cutter takes what it can carry.',
+  shield: 'Shield — safe from captures and Dragon Fire until its owner’s next turn.',
+  immune: 'Immune — safe from captures, Dragon Fire and Swap until its owner’s next turn.',
+  carrying: 'Carrying gems — bank them at your house gate. If captured, the attacker takes what it can carry.',
   companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); can breathe Dragon Fire.`,
   slowed: `Slowed — next move is at most ${C.slowDownMaxSteps}.`,
   beatMonster: 'Beat the monster — the Vault Door is open for this visit.',
-  lap: 'Lap — this piece must touch all four house plates (Red, Blue, Purple, Green), in any order. A cut or a trip home starts it over.',
+  lap: 'Checkpoints — this piece must touch all four public markers (Red, Blue, Purple, Green), in any order. Captured pieces keep the markers they have touched.',
+  guarded: 'Royal Guard — safe from captures and Dragon Fire until its owner’s next turn starts.',
+  finished: 'Finished — this piece has entered the Crown Temple and stays there.',
 };
+
+/** Colours and labels for every map marker kind (colours match `src/engine/markers.ts`). */
+export const MAP_MARKER_INFO = {
+  landslide: { name: 'Landslide', color: '#b45309', rule: 'A blocked pass. Pieces and Dragon Fire stop here until Repair clears it.' },
+  portal: { name: 'Portal', color: '#0f766e', rule: 'Moonstone Arch pair. The Witch may hop between the linked arches once per turn.' },
+  teleport: { name: 'Teleport', color: '#7c3aed', rule: 'A named teleport tile that fires when a move ends here (shown as a trap or shortcut marker).' },
+  crossingOpen: { name: 'Created crossing', color: '#15803d', rule: 'A bridge, tunnel or paved road opened for every house.' },
+  crossingClosed: { name: 'Destroyed crossing', color: '#b91c1c', rule: 'A collapsed bridge or sealed crossing. Build Bridge, Dig Tunnel, Build Road or Repair can reopen marked sites.' },
+  trap: { name: 'Trap', color: '#9f1239', rule: 'Ending a move here sweeps the piece along the trap’s path. Gems and checkpoints are kept; markers on the way stay untouched.' },
+  shortcut: { name: 'Shortcut', color: '#a16207', rule: 'Ending a move here carries the piece along the shortcut. Markers on the skipped spaces stay untouched.' },
+  hazard: { name: 'Hazard', color: '#d97706', rule: `Trap risk: stopping here rolls the die; 1–${HAZARD_ROLL_MAX} springs a snare. Passing through is safe.` },
+  encounter: { name: 'Encounter', color: '#be123c', rule: `Stone Golem or Cave Spider. Ending here forces one roll: ${C.encounterThreshold}+ succeeds (Knight +${C.knightBonus}). Fail: retreat to the marked safe room.` },
+  safeRoom: { name: 'Safe room', color: '#0369a1', rule: 'Safe dungeon space. Failed fights and encounters retreat here.' },
+  wildDragon: { name: 'Wild dragon', color: '#c2410c', rule: 'Blocks the road. The Witch may pass through. The Queen holding Dragon Slayer may end here to duel.' },
+} as const;
 
 export interface RuleSection {
   id: string;
@@ -294,97 +343,114 @@ export const RULE_SECTIONS: RuleSection[] = [
   {
     id: 'objective',
     title: 'Objective',
-    paragraphs: [QUICK_GOAL, 'Every house has the same goal, but you choose your own routes and tactics to reach it.'],
+    paragraphs: [QUICK_GOAL, 'Every house has the same goal; you choose the routes and tactics.'],
     bullets: [
-      'Gems and the cut belong to the player (your house). Plates belong to each character.',
-      'Your Royal Path opens once all four gems are banked and you have made one cut by movement. Only a character that has touched all four plates may turn onto it.',
-      `Timer target: ${C.matchDurationMs / 60000} minutes. When time runs out: most gems wins, then a cut made, then a shared victory.`,
+      'Gems and capture credit belong to the kingdom. Checkpoints belong to each character.',
+      'Your Royal Path opens once one of each of the four gem kinds is banked. Captures and checkpoints are separate.',
+      'A piece may enter an open Royal Path early and walk back onto the island. The temple gate still needs all four checkpoints on that piece and the kingdom’s capture credit.',
+      `Victory: the first kingdom with ${C.finishersToWin} finished characters in the Crown Temple wins.`,
+    ],
+  },
+  {
+    id: 'setup',
+    title: 'Setup and turn order',
+    paragraphs: [
+      'Each player takes a house colour and its King, Queen, Witch and Knight in the castle. Deal one map, one power and one special card to each (Dragon Slayer stays out of opening hands). Structures start with only the Stone Bridge open.',
+    ],
+    bullets: [
+      'Turns go clockwise from the starting seat.',
+      'Each turn has one move (roll, then exact route) and one optional Adventure action, in either order.',
+      'Modes: Play Online (private rooms with an invite code), Play on This Device (handoff screens and a local save), and Practice vs AI.',
     ],
   },
   {
     id: 'turn',
     title: 'Turns and dice',
-    paragraphs: ['Turns go clockwise. Each turn has one move and one optional adventure action, in either order. The turn ends by itself once both are used (or skipped).'],
+    paragraphs: [
+      'Roll first when you need a move. The allowance is the roll, then a dragon companion uses max(1, roll − 2), then Slow Down may cap it. The rolled event shows value, steps, penalty and whether this is a bonus roll.',
+    ],
     bullets: [
-      'Roll one die, then choose which piece uses it. Changing your selection never rerolls.',
-      `A move must use the whole roll: no stopping early on the island. With the dragon, the penalty comes first: move max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}).`,
-      'If no piece can use the full roll, the game explains why and skips your move.',
-      'Extra turn: a natural 6 earns one extra turn, and so does cutting a rival by movement. A 6 that also cuts still earns only one. Extra turns can chain. The current move and adventure action finish first.',
-      'If the turn clock runs out, an earned extra turn is lost.',
+      'Choose one character and a route that uses exactly that allowance — island and dungeon alike.',
+      'Portal hops, traps and shortcuts resolve after the steps.',
+      'If none of your pieces has a legal full-length move, movement is skipped; any earned bonus still resolves.',
+      'Forced effects (traps, shortcuts, hazards, encounters) resolve where they trigger and always log a reason.',
+      'Bonus roll: a natural 6, or at least one movement capture on that move, earns exactly one bonus roll in the same turn. A 6 plus any number of captures is still one. Chains are possible. The Adventure action stays once per turn.',
+      'Dragon Fire, encounters and card effects earn no bonus roll. On timeout, a pending bonus is lost.',
       'Adventure actions: play a card · dig · enter or leave the dungeon · fight the monster · tame · Dragon Fire · sail or fly. Releasing your dragon companion is free at the start of your turn.',
     ],
   },
   {
     id: 'movement',
-    title: 'Movement and multiple routes',
-    paragraphs: ['Every road runs both ways. Tap a piece and every space it can reach with the exact roll glows; the preview shows the route, what happens on it, and the route’s trade-off.'],
+    title: 'Movement and routes',
+    paragraphs: ['Every road runs both ways. Tap a piece and every space it can reach with the exact allowance glows; the preview shows the route and what happens on it.'],
     bullets: [
       'A move may never step on the same space twice.',
-      'The main road is a 40-space two-way ring through all four house plates. It crosses Dragon Mountain in one tunnel step (the painted tunnel between the north road and the Crystal Mine). Cards cannot close it.',
-      'Temple Roads: every inner road meets at the Temple Plaza, the quickest way across the middle of the island. Everyone passes through, so cuts are common, and a Landslide can block the Temple Pass.',
-      'Lakeside Roads: from the west coast past the lake to the temple, with a dig site on the shore. The shore can be flooded by Create River or raised by Raise Mountain.',
-      'Camp and Glade Roads: a web of forest roads between Green, the old camp and the bridges. Dig sites at the camp and the glade. Trap risk in the brambles, and the Camp Road is unbuilt until someone plays Build Road.',
-      'River Crossings: the Stone Bridge and the Rope Bridge cross the gorge between west and east. Trap risk on the spray. The Stone Bridge starts open. The Rope Bridge starts broken, and cards can collapse the Stone Bridge.',
-      'East Ruins Roads: round the spike pit and the old ruins, linking Purple, the Dragon Gate and the temple. A dig site in the ruins. Trap risk on the Pit Road (the Crag Snare). The Ruins Road is unbuilt until Build Road, and a Landslide can block the Vale Pass.',
-      'Sapphire Falls Roads: mountain roads from Blue down past the falls to the temple. The Crystal Mine Tunnel stays sealed until someone digs it, and a Landslide can block the Crag Pass.',
-      'You cannot pass an opponent on an unsafe space (the Queen can; the Knight cuts one he passes). You may pass your own pieces but not end on one outside a safe space.',
-      'A wild or guarding dragon stops you on its space; nobody can walk past it. You can never enter an opponent’s castle or Royal Path.',
+      'The main road is a 40-space two-way ring through all four gates. Cards leave it open.',
+      'Inner routes (Temple, Lakeside, Camp and Glade, River Crossings, East Ruins, Sapphire Falls) trade speed for map-card risk and trap stones.',
+      'King and Witch capture by landing on an eligible opponent. The Queen passes opponents and must end on a space with no other piece. The Knight may take a normal move or a route attack when enough eligible rivals sit on the route.',
+      'A wild or guarding dragon blocks its space for most pieces; the Witch may pass a wild dragon. You stay out of an opponent’s castle or Royal Path.',
     ],
   },
   {
     id: 'plates',
-    title: 'House plates and the lap',
-    paragraphs: ['Each castle has a public house plate at its gate: Red, Blue, Purple and Green. A lap means one character has touched all four, in any order and by any route.'],
+    title: 'Checkpoints',
+    paragraphs: [
+      'Four public checkpoints sit at the house gates: Red, Blue, Purple and Green. Each character tracks which it has touched, in any order and by any route.',
+    ],
     bullets: [
-      'Passing a plate counts, and so does landing on it. Leaving your castle touches your own plate.',
+      'Passing a checkpoint counts, and so does landing on it. Leaving your castle touches your own gate.',
       'Progress is tracked per character, for example “Queen: Red ✓ · Blue ✓ · Purple ○ · Green ○”.',
-      'Being cut, rescued or sent home resets that character’s plates. Your house keeps its banked gems and its cut.',
-      'Teleports, swaps, boats, planes, portal hops and shortcuts do not count plates in between, but a plate you arrive on counts.',
-      'A trap keeps your plate progress unless it sends you home. Nothing can grant a lap you did not earn.',
+      'Captured pieces keep the markers they have touched. Banked gems and capture credit stay with the kingdom.',
+      'Teleports, swaps, boats, planes, portal hops and shortcuts leave markers on the way untouched; a checkpoint you arrive on counts.',
+      'The temple gate checks that this piece has all four markers. Royal Path access uses banked gems alone.',
     ],
   },
   {
     id: 'cuts',
-    title: 'Cutting and extra turns',
-    paragraphs: ['End a move on an opponent on an unsafe space to cut it: it goes home, its plates reset, and you take the gems it carried while your hands are free. A movement cut earns an extra turn.'],
+    title: 'Captures and bonus rolls',
+    paragraphs: [
+      'A movement capture sends the rival home, keeps their checkpoints, and transfers carried gems while your hands are free. Capture credit (`stats.cuts`) is the kingdom’s temple requirement.',
+    ],
     bullets: [
-      'Safe spaces (gold-star stones, castles, gates, Royal Paths, dungeon safe rooms) protect everyone on them and can hold several pieces, even opponents.',
-      'Shield and Immunity make landing on that piece illegal — the preview shows it before you commit.',
-      'The Knight may cut one unprotected opponent he passes and keep moving; that counts as a cut and earns the extra turn.',
-      'A cut never uses your adventure action. Dragon Fire and traps are not cuts and earn no extra turn.',
-      'Cutting the dragon’s companion sets the dragon wild on that space.',
+      'Safe spaces (gold-star stones, castles, gates, Royal Paths, dungeon safe rooms) refuse captures and can hold several pieces.',
+      'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first.',
+      'Knight route attack: choose 2–3 eligible rivals among those he passes or lands on; an eligible rival on the final space must be included.',
+      'One bonus roll per movement roll: a natural 6 or at least one movement capture. Chains re-check the same rule. Dragon Fire and card effects earn none.',
+      'Capturing the dragon’s companion leaves the dragon wild on that space.',
     ],
   },
   {
     id: 'gems',
-    title: 'Gems and banking',
+    title: 'Gems, spares and trading',
     paragraphs: ['Four stations: Ruby Mine, Sapphire Falls, Diamond Hill and Emerald Grove. They never run out, and every player can use them.'],
     bullets: [
-      'Gems are picked up automatically when a piece with free hands passes or lands on a station, and banked automatically at your own gate.',
-      `Each piece carries up to ${C.carryLimit} gems. A piece only picks up gems its kingdom still needs.`,
-      'Status per gem: not collected, carried (at risk), or banked (safe forever). A duplicate goes back to its station.',
+      'Gems are picked up when a piece with free hands passes or lands on a station, and banked at your own gate.',
+      `Each piece carries up to ${C.carryLimit} gems. A piece only picks up kinds its kingdom still needs.`,
+      'Banking adds a copy to your bank. Duplicates stay as spares; your gem list shows the distinct kinds.',
+      'Queen Diplomacy: after she moved this turn, offer one spare banked gem for a rival’s spare gem or a power card they hold. Accept swaps atomically; a full hand cannot take a card. Offers expire when your turn ends.',
+      'Witch Alchemy: on her turn, convert a carried gem into a missing kind when a copy of the carried kind is already banked.',
       'The dungeon’s Crystal Shrine offers any gem you still need; a lucky dig can turn one up.',
     ],
   },
   {
     id: 'characters',
     title: 'Characters',
-    paragraphs: ['Every house has a King, Queen, Witch and Knight, drawn in that house’s colours. They stand on the board with no backing plate, so the painted house seals stay visible.'],
+    paragraphs: ['Every house has a King, Queen, Witch and Knight in that house’s colours.'],
     bullets: [
-      'King — Royal Treasury: draws a card when he banks a new gem.',
-      'Queen — Royal Passage: passes opponents without cutting them; only she can use Dragon Slayer.',
-      'Witch — Portal Hop: once per turn, hops between the East and West Moonstone Arches for free during her move.',
-      `Knight — Charge: +${C.knightBonus} against the monster; may cut one opponent he passes.`,
+      'King — Royal Treasury draws on banking a new kind; Royal Guard once per match after he moved.',
+      'Queen — passes opponents, ends on empty spaces, Diplomacy once per turn after she moved; Dragon Slayer duel on the wild dragon.',
+      'Witch — Portal Hop once per turn, Alchemy on her turn, walks through the wild dragon, immune to Dragon Fire.',
+      `Knight — +${C.knightBonus} vs monsters and encounters; route attack ${C.knightAttackMin}–${C.knightAttackMax} when the route allows.`,
     ],
   },
   {
     id: 'cards',
-    title: 'Cards and digging',
+    title: 'Terrain and cards',
     paragraphs: [
       `Everyone starts with one card of each category. Hands hold at most ${C.handLimit}; drawing into a full hand lets you discard one or decline the new card. Hands are hidden.`,
-      'Digging (adventure action on a dig site) always gives something you can use or plan around: a gem you need, a card, a dungeon key, a hidden route opened for every house, or a buried trap. The dig sites are Lakeside Dig, Old Camp Dig, Glade Dig, Ruins Dig and Bone Dig (space 19).',
+      'Digging (adventure action on a dig site) always gives something useful: a gem you need, a card, a dungeon key, a hidden route opened for every house, or a buried trap.',
     ],
-    bullets: [CATEGORY_INFO.map.blurb, CATEGORY_INFO.power.blurb, CATEGORY_INFO.special.blurb, 'Playing a card uses your adventure action. Every card in the deck has a target in some position; a card with no legal target right now is greyed out with the reason.'],
+    bullets: [CATEGORY_INFO.map.blurb, CATEGORY_INFO.power.blurb, CATEGORY_INFO.special.blurb, 'Playing a card uses your adventure action. A card with no legal target is greyed out with the reason.'],
   },
   {
     id: 'structures',
@@ -392,9 +458,9 @@ export const RULE_SECTIONS: RuleSection[] = [
     paragraphs: ['Inner routes have marked sites: bridges, tunnels, road plots, passes and terrain sites. Opening or closing one changes the roads for every player at once.'],
     bullets: [
       'Build Bridge, Dig Tunnel and Build Road open closed sites. Collapse Bridge, Landslide, Raise Mountain and Create River close open ones. Repair undoes a closure.',
-      'Closed until a card or a dig: the Rope Bridge (broken-bridge), the Camp Road (camp-road), the Ruins Road (ruins-road) and the Crystal Mine Tunnel (mine-tunnel). The Stone Bridge starts open. A Landslide card blocks Temple Pass, Vale Pass or Crag Pass.',
-      'Selecting a map card shows every legal site on the board. A change that would strand any piece is not offered and is rejected by the server.',
-      'The main road can never be closed, so every house can always reach every plate and its own Royal Path.',
+      'Closed until a card or a dig: the Rope Bridge, the Camp Road, the Ruins Road and the Crystal Mine Tunnel. The Stone Bridge starts open.',
+      'A change that would cut a kingdom off from its castle, a checkpoint, or its Royal Path entry is refused.',
+      'The main road stays open, so every house can always reach every checkpoint and its own Royal Path.',
     ],
   },
   {
@@ -402,21 +468,23 @@ export const RULE_SECTIONS: RuleSection[] = [
     title: 'Traps and shortcuts',
     paragraphs: ['Red arrow spaces are traps and green arrow spaces are shortcuts. They fire only if your move ends on them.'],
     bullets: [
-      'The Landslide trap (space 5) sweeps you to Willow Valley (space 37). Hidden Pit (space 17) drops you to space 4, under Dragon Mountain. River Current (space 25) carries you to the west beach (space 29) and touches no plates on the way. Plates in between do not count.',
-      'Magic Lift (space 13) carries you down the east coast to space 18. Secret Passage (space 33) leads north along the west coast to space 38. Plates on the skipped spaces do not count.',
-      'The East Moonstone Arch (space 14) and the West Moonstone Arch (space 34) are a pair: the Witch may hop between them once per turn.',
-      `Trap risk on the Bramble Snare, the Spray Snare and the Crag Snare. Stopping there rolls the die; 1–${HAZARD_ROLL_MAX} drags you back to the nearest main-road space. Passing through is safe. The board never shows which roll is coming.`,
-      'Traps keep your gems and plates and are not cuts.',
+      'Landslide (space 5), Hidden Pit (space 17) and River Current (space 25) are traps. Magic Lift (space 13) and Secret Passage (space 33) are shortcuts.',
+      'The East and West Moonstone Arches are a portal pair for the Witch.',
+      `Trap risk on the Bramble Snare, the Spray Snare and the Crag Snare. Stopping there rolls the die; 1–${HAZARD_ROLL_MAX} drags you back to the nearest main-road space.`,
+      'Traps keep your gems and checkpoints and grant no capture credit.',
     ],
   },
   {
     id: 'dungeon',
-    title: 'Dungeon',
-    paragraphs: ['Enter from the Dragon Gate on the east coast (space 16) as an adventure action. The dungeon has its own map; dungeon moves may stop early and go either way.'],
+    title: 'Dungeon encounters',
+    paragraphs: [
+      'Enter from the Dragon Gate on the east coast (space 16) as an adventure action. Dungeon moves use the exact allowance.',
+    ],
     bullets: [
-      `Monster Den: roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit. A dungeon key also opens it once.`,
-      'Crystal Shrine: take any needed gem. Old Vault: dig for a discovery. Spike Pit: drops you to the entrance.',
-      'Leaving returns you to the Dragon Gate.',
+      `Stone Golem guards a shortcut; Cave Spider guards a power-card chest. Ending on the monster’s space forces one roll: ${C.encounterThreshold}+ succeeds (Knight +${C.knightBonus}).`,
+      'Golem success carries the piece along the shortcut; Spider success draws a power card. Failure sends the piece to the marked safe room. Both outcomes are previewed before you confirm.',
+      `Monster Den (adventure fight): roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit. A dungeon key also opens it once.`,
+      'Crystal Shrine: take any needed gem. Old Vault: dig. Spike Pit: drops you to the entrance. Leaving returns you to the Dragon Gate.',
     ],
   },
   {
@@ -426,35 +494,57 @@ export const RULE_SECTIONS: RuleSection[] = [
     bullets: [
       `Tame: stand with it and roll ${C.tameThreshold}–6. Fail: retreat to the nearest safe space.`,
       `A companion moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}), shown as “Roll 5 − Dragon 2 = Move 3”.`,
-      `Dragon Fire: hits an opponent within ${C.dragonFireRange} open spaces. Not across closed roads, not into castles or Royal Paths. Shield and Immunity block it.`,
-      `Queen + Dragon Slayer: roll ${C.slayThreshold}–6 to send it home to recover for one round. Fail: she retreats.`,
+      `Dragon Fire: hits an eligible rival within ${C.dragonFireRange} open, connected spaces. Gems drop on that space. No capture credit and no bonus roll. Shield, Immunity and Royal Guard block it. The Witch is immune.`,
+      'Release at the start of your turn leaves a wild dragon blocking that space. The Witch may pass through.',
+      `Dragon Slayer: only the Queen holding it may end on the wild dragon’s space, then rolls ${C.slayThreshold}+. Success clears the block and returns the dragon to recover for one round.`,
     ],
   },
   {
     id: 'vehicles',
     title: 'Boats and planes',
     paragraphs: ['The boat sails between the Harbour and East Landing; the plane flies between the airfields. Using one is an adventure action and it stays where it arrives.'],
-    bullets: ['Plates on the way do not count. Dragon companions cannot ride.'],
+    bullets: ['Checkpoints on the way stay untouched. Dragon companions stay off the vehicles.'],
   },
   {
     id: 'victory',
-    title: 'Final path and victory',
-    paragraphs: ['Once your path is open, a character that has touched all four plates turns in at your fork and walks your Royal Path to the Crown Temple.'],
+    title: 'Royal Path, temple and victory',
+    paragraphs: [
+      'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Finished pieces stay on the temple; get all four in to win.',
+    ],
     bullets: [
-      'Royal Paths are one-way and safe; only your pieces may use yours. They stay hidden on the board until they matter (a legend toggle shows them for inspection).',
-      `Reaching the temple needs the exact roll${C.exactTemple ? '' : ' (this match allows overshooting)'}. Too high and that piece cannot move this turn.`,
+      'Royal Paths are safe and belong to their house. They stay subtle on the board until they matter (the legend toggle shows them for inspection).',
+      `Reaching the temple needs the exact roll${C.exactTemple ? '' : ' (this match allows overshooting)'}.`,
+      `The first kingdom with ${C.finishersToWin} finished characters wins (reason: temple).`,
+    ],
+  },
+  {
+    id: 'modes',
+    title: 'Play modes',
+    paragraphs: ['Choose how you play from the main menu. Practice vs AI uses the same rules engine.'],
+    bullets: [
+      'Play Online: private rooms with an invite code. Sign in to recover your seat on any device. Only the host may end a match. Unfinished rooms expire after 2 hours of inactivity; finished results stay readable for 24 hours.',
+      'Play on This Device: handoff screens hide private hands between turns (and for trade responses). The match saves locally after every accepted action and works offline.',
+      'Practice vs AI: you versus one to three AI seats in the browser. The AI only sees its own redacted view.',
+      'Learn to Play: a guided first turn plus the full rules rail during play.',
     ],
   },
   {
     id: 'timers',
     title: 'Timers',
-    paragraphs: [`Timed matches: ${C.matchDurationMs / 60000} minutes total, ${C.turnDurationMs / 1000} seconds per turn. The ${C.matchDurationMs / 60000}-minute length is a design target and has not been validated by playtests. Opening the rules never pauses the clock.`],
-    bullets: ['When a turn timer runs out, the die is rolled if needed, a move is chosen automatically, and the adventure action is skipped.', 'Disconnected players keep their seat; their turns are auto-resolved after a short delay.'],
+    paragraphs: [
+      `Timed matches offer a clock and a per-turn limit. Opening the rules never pauses the clock.`,
+    ],
+    bullets: [
+      'When a turn timer runs out, the die is rolled if needed, a move is chosen automatically, a pending bonus is lost, and the adventure action is skipped.',
+      'Disconnected players keep their seat; their turns are auto-resolved after a short delay.',
+    ],
   },
   {
     id: 'physical',
     title: 'Physical prototype',
-    paragraphs: ['Crown Quest plays on a table: print both boards, one die, 16 piece tokens, 1 dragon, gem tokens, shield/immunity/landslide markers, boat and plane tokens, a 35-card deck and a discovery deck.'],
-    bullets: ['Without a clock, use a fixed 12-round limit: after round 12, most gems wins, then a cut, then shared.'],
+    paragraphs: [
+      'Crown Quest plays on a table: print both boards, one die, 16 piece tokens, 1 dragon, gem tokens, status and map markers, boat and plane tokens, a 35-card deck and a discovery deck.',
+    ],
+    bullets: ['Without a clock, use a fixed 12-round limit: after round 12, most gems wins, then capture credit, then a shared victory.'],
   },
 ];

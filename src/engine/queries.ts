@@ -9,7 +9,6 @@ import {
   companionOf,
   dragonNode,
   enumerateMoves,
-  finalUnlocked,
   houseOf,
   isCompanion,
   isProtected,
@@ -18,6 +17,7 @@ import {
   playerOf,
   type MoveOption,
 } from './rules';
+import { finishersOf, royalPathOpen } from './victory';
 import type { BoardState, CardInstance, CardTarget, Character, GameAction, PlayerStats } from './types';
 
 type Stats = { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
@@ -76,7 +76,7 @@ export function movableCharacters(s: BoardState): Mover[] {
   if (!m || s.turn.moveDone) return [];
   const out: Mover[] = [];
   for (const c of Object.values(s.characters)) {
-    if (c.owner !== s.turn.playerId) continue;
+    if (c.owner !== s.turn.playerId || c.finished) continue;
     const { steps, note } = stepsFor(s, c.id, m.roll);
     const options = legalMoves(s, c.id);
     if (options.length) out.push({ characterId: c.id, steps, note, options });
@@ -91,7 +91,8 @@ export function whyStuck(s: QueryState, characterId: string): string {
   const node = nodes[ch.node];
   const m = s.turn.move;
   const steps = m ? stepsFor(s, characterId, m.roll).steps : 0;
-  if (node.lane === 'final') return `needs exactly the right roll to reach the temple (${steps} is too many)`;
+  if (ch.finished) return 'has already entered the Crown Temple';
+  if (node.lane === 'final') return `needs an exact ${steps}-space route on the Royal Path`;
   if (dragonNode(s) === ch.node && s.dragon.state !== 'companion' && s.dragon.state !== 'recovering') return 'stands with the dragon';
   return `every ${steps}-space route is blocked by pieces, the dragon, or a closed road`;
 }
@@ -109,8 +110,21 @@ export function dragonFireTargets(s: BoardState, playerId: string): Character[] 
   const { nodes } = getBoard(s.boardId);
   const dist = walkingDistances(s, from, s.config.dragonFireRange);
   return Object.values(s.characters).filter((c) => {
-    const lane = nodes[c.node].lane;
-    return c.owner !== playerId && !isProtected(c) && lane !== 'home' && lane !== 'final' && lane !== 'temple' && dist[c.node] !== undefined && mapOf(s.boardId, c.node) === mapOf(s.boardId, from);
+    const n = nodes[c.node];
+    const lane = n.lane;
+    // Witch is immune; Shield/Immunity/Royal Guard and safe spaces block fire; range is open paths only.
+    return (
+      c.owner !== playerId &&
+      c.kind !== 'witch' &&
+      !isProtected(c) &&
+      !c.guarded &&
+      !n.safe &&
+      lane !== 'home' &&
+      lane !== 'final' &&
+      lane !== 'temple' &&
+      dist[c.node] !== undefined &&
+      mapOf(s.boardId, c.node) === mapOf(s.boardId, from)
+    );
   });
 }
 
@@ -213,12 +227,15 @@ export function hasAdventure(s: QueryState, playerId: string, hand: CardInstance
 export function objectiveText(s: QueryState, playerId: string): string {
   const p = playerOf(s, playerId);
   const cuts = s.stats[playerId]?.cuts ?? 0;
-  if (finalUnlocked(s, playerId)) {
-    const ready = Object.values(s.characters).filter((c) => c.owner === playerId && c.lap >= 4);
-    return ready.length ? 'Royal Path open — turn in at your fork and land exactly on the Crown Temple.' : 'Royal Path open — touch all four house plates with one character, then turn in at your fork.';
+  const finished = finishersOf(s, playerId);
+  if (finished >= s.config.finishersToWin) return 'Victory — your kingdom holds the Crown Temple.';
+  if (royalPathOpen(s, playerId)) {
+    const needCut = cuts < s.config.cutsRequired;
+    const ready = Object.values(s.characters).filter((c) => c.owner === playerId && !c.finished && c.plates.length >= 4);
+    if (needCut) return `Royal Path open — make a capture, then bring marked pieces to the temple (${finished}/${s.config.finishersToWin} in).`;
+    if (ready.length) return `Royal Path open — race marked pieces to the Crown Temple (${finished}/${s.config.finishersToWin} in).`;
+    return `Royal Path open — touch all four house plates, then enter the temple (${finished}/${s.config.finishersToWin} in).`;
   }
-  const parts: string[] = [];
-  if (p.gems.length < s.config.gemsRequired) parts.push(`bank ${s.config.gemsRequired - p.gems.length} more gem${s.config.gemsRequired - p.gems.length === 1 ? '' : 's'}`);
-  if (cuts < s.config.cutsRequired) parts.push('cut an opponent');
-  return `To open your Royal Path: ${parts.join(' and ')}. Then a character that has touched all four house plates turns in at your ${houseOf(s, playerId).name} fork.`;
+  const left = s.config.gemsRequired - p.gems.length;
+  return `Bank ${left} more gem kind${left === 1 ? '' : 's'} to open your ${houseOf(s, playerId).name} Royal Path.`;
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { BookOpen, Bot, GraduationCap, Settings, Users, UsersRound } from 'lucide-react';
+import { BookOpen, Bot, GraduationCap, Monitor, Settings, Users } from 'lucide-react';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { HeroCast, Logo } from '@/components/MenuShell';
@@ -27,28 +27,28 @@ export default function MainMenu() {
       </div>
       <nav className="mt-6 grid w-full max-w-md gap-3" aria-label="Main menu">
         <Link href="/online" className="btn btn-primary text-xl">
-          <Users size={24} aria-hidden="true" /> Play with Friends
+          <Users size={24} aria-hidden="true" /> Play Online
         </Link>
-        <Link href="/practice" className="btn btn-blue text-xl">
+        <Link href="/hotseat" className="btn btn-blue text-xl">
+          <Monitor size={24} aria-hidden="true" /> Play on This Device
+        </Link>
+        <Link href="/practice" className="btn btn-green text-xl">
           <Bot size={24} aria-hidden="true" /> Practice vs AI
         </Link>
-        <Link href="/tutorial" className="btn btn-green relative text-xl">
+        <Link href="/tutorial" className="btn btn-ghost relative text-xl">
           <GraduationCap size={24} aria-hidden="true" /> Learn to Play
           {firstTime && <span className="absolute -top-2 -right-2 rounded-full bg-[#e0532d] px-2 py-0.5 text-xs font-bold text-white shadow">New here? Start here!</span>}
         </Link>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <button className="btn btn-ghost" onClick={() => setRules(true)}>
             <BookOpen size={20} aria-hidden="true" /> Rules
           </button>
           <button className="btn btn-ghost" onClick={() => setSettings(true)}>
             <Settings size={20} aria-hidden="true" /> Settings
           </button>
-          <Link href="/hotseat" className="btn btn-ghost">
-            <UsersRound size={20} aria-hidden="true" /> Hot-seat
-          </Link>
         </div>
       </nav>
-      <p className="mt-8 max-w-md text-center text-sm text-[#4a5374]">2–4 players · no account needed</p>
+      <p className="mt-8 max-w-md text-center text-sm text-[#4a5374]">2–4 players · online accounts optional for same-device play</p>
       <RulesPanel open={rules} onClose={() => setRules(false)} />
       <SettingsPanel open={settings} onClose={() => setSettings(false)} />
     </main>

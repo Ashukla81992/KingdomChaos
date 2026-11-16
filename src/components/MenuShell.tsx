@@ -10,7 +10,7 @@ export function Logo({ size = 'lg' }: { size?: 'lg' | 'sm' }) {
   return (
     <div className="text-center">
       <h1 className={`font-display font-bold tracking-tight drop-shadow-[0_3px_0_rgba(255,255,255,0.8)] ${size === 'lg' ? 'text-5xl sm:text-7xl' : 'text-3xl sm:text-4xl'}`}>
-        Kingdom <span className="text-[#e0532d]">Chaos</span>
+        Kingdom of <span className="text-[#e0532d]">Four Gems</span>
       </h1>
     </div>
   );

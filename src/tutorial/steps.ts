@@ -45,7 +45,7 @@ const give = (s: GameState, characterId: string, kind: GemKind) => {
   s.gems.push({ id, kind, node: null, carriedBy: characterId });
   s.characters[characterId].carrying.push(id);
 };
-/** Put a Red piece somewhere having touched `plates` house plates (the rivals' first, then its own). */
+/** Put a Red piece somewhere having touched `plates` house checkpoints (the rivals' first, then its own). */
 const place = (s: GameState, id: string, node: string, plates = 0) => {
   s.characters[id].node = node;
   s.characters[id].plates = [1, 2, 3, 0].slice(0, plates);
@@ -58,6 +58,7 @@ const card = (s: GameState, type: CardType) => {
 const you = (s: GameState) => s.players.find((p) => p.id === TUTORIAL_YOU)!;
 const ready = (s: GameState) => {
   you(s).gems = ['ruby', 'sapphire', 'emerald', 'diamond'];
+  you(s).bank = { ruby: 1, sapphire: 1, emerald: 1, diamond: 1 };
   you(s).cut = true;
   s.stats.you.cuts = 1;
 };
@@ -70,6 +71,7 @@ const withRoll = (s: GameState, n: number) => {
 export function unlockFixture(): GameState {
   const s = withRoll(fresh(), 3);
   you(s).gems = ['ruby', 'sapphire', 'emerald'];
+  you(s).bank = { ruby: 1, sapphire: 1, emerald: 1, diamond: 0 };
   you(s).cut = true;
   s.stats.you.cuts = 1;
   place(s, 'you-witch', 'c37', 3);
@@ -109,7 +111,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'welcome',
     title: 'Welcome to Crown Quest',
-    body: [QUICK_GOAL, 'You are the Red house (top left). Your King, Queen, Witch and Knight wait in your castle, in red.'],
+    body: [
+      QUICK_GOAL,
+      'You are the Red house (top left). Your King, Queen, Witch and Knight wait in your castle. This Learn to Play walk-through covers a guided first turn, then the key rules.',
+    ],
     setup: () => withRoll(fresh(), 4),
     showCharacters: true,
     coach: () => ({ board: ['home-red', 'temple'] }),
@@ -117,20 +122,23 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'roll',
     title: 'Roll the die',
-    body: ['Each turn you roll one die. Any roll brings a piece out of the castle onto your gate. A 6 earns one extra turn after this one, and so does cutting a rival.', 'Tap the die (or press R).'],
+    body: [
+      'Each turn you roll one die, then choose one character and a route that uses exactly that allowance.',
+      'A natural 6, or a movement capture, earns one bonus roll in the same turn. Tap the die (or press R).',
+    ],
     setup: () => withRoll(fresh(), 4),
     keep: true,
     allowed: ['roll'],
     coach: (s) => ({ ui: s.turn.move ? [] : ['[data-dice]'] }),
     done: (_b, a) => !!a.turn.move,
-    after: 'You rolled 4. One piece will move exactly 4 spaces.',
+    after: 'You rolled 4. One piece will move exactly 4 spaces — the whole allowance on one route.',
   },
   {
     id: 'move',
-    title: 'Pick a piece, preview, move',
+    title: 'Pick a piece and follow the route',
     body: [
-      'Tap your Witch (the pointed hat). Several spaces glow — roads run both ways and branch. Tap the one past the Ruby Mine: the preview shows the route and what will happen.',
-      'Press “Move here” (or tap the space again). A move must use the whole roll and may not step on the same space twice.',
+      'Tap your Witch (the pointed hat). Several spaces glow — roads run both ways and branch. Tap the one past the Ruby Mine: the preview shows the exact route.',
+      'Press “Move here” (or tap the space again). Use the whole roll on one path; portal hops and traps resolve after the steps.',
     ],
     setup: rolled,
     keep: true,
@@ -139,14 +147,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowEnd: 'c3',
     coach: (s) => ({ ui: s.turn.moveDone ? [] : ['[data-piece="you-witch"]', '[data-end="true"]', '[data-confirm]'], board: ['c2'] }),
     done: (_b, a) => a.characters['you-witch'].node === 'c3' && a.characters['you-witch'].carrying.length > 0,
-    after: 'Passing the Ruby Mine picked up a Ruby. The small gem badge on the Witch shows she carries it.',
+    after: 'Passing the Ruby Mine picked up a Ruby. The small gem badge on the Witch shows she carries it. Watch the event strip for what happened and why.',
   },
   {
     id: 'bank',
     title: 'Bank it at your gate',
     body: [
-      'A gem counts once it reaches your Red Gate. Passing or landing on the gate banks it automatically.',
-      'Each gate is also a house plate. Your Witch has touched the Blue, Purple and Green plates; your own plate completes her lap. Roll and move her onto the gate.',
+      'A gem counts once it reaches your Red Gate. Passing or landing on the gate banks it automatically. Duplicates stay as spares.',
+      'Each gate is also a public checkpoint. Your Witch has touched the Blue, Purple and Green markers; your own gate completes her set. Roll and move her onto the gate.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 3);
@@ -159,14 +167,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowEnd: 'c0',
     coach: (s) => ({ ...MOVE_UI(s), board: ['c0'] }),
     done: (_b, a) => you(a).gems.includes('ruby'),
-    after: 'RUBY BANKED — and touching your Red plate completed her lap: one piece has now touched all four house plates, in any order.',
+    after: 'RUBY BANKED — and touching your Red gate completed her four checkpoints. Captured pieces keep the markers they have touched.',
   },
   {
     id: 'cut',
-    title: 'Cut and steal',
+    title: 'Capture and earn a bonus roll',
     body: [
-      'End your move on a rival on an ordinary space and you cut it: it goes back to its castle, and you take the gem it carries.',
-      'Alex’s Witch carries a Sapphire 3 spaces ahead of your Knight. Roll and land on her.',
+      'End your move on a rival on an ordinary space to capture it: it returns to its castle, keeps its checkpoints, and you take the gem it carries while your hands are free.',
+      'Alex’s Witch carries a Sapphire 3 spaces ahead of your Knight. Roll and land on her — that capture earns one bonus roll in this same turn.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 3);
@@ -180,12 +188,42 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowEnd: 'c4',
     coach: (s) => ({ ...MOVE_UI(s), board: ['c4'] }),
     done: (_b, a) => a.characters['foe-witch'].node === 'home-purple',
-    after: 'CUT! Her plates reset, your Knight carries the Sapphire, and the cut earns you an extra turn. Gold-star spaces, gates and Royal Paths are safe: nobody can be cut there.',
+    after: 'CAPTURE! She keeps her checkpoints. Your Knight carries the Sapphire, and the capture earns a bonus roll. Read the event card or log for what you can do next.',
+  },
+  {
+    id: 'bonus',
+    title: 'Take the bonus roll',
+    body: [
+      'A natural 6 or at least one movement capture earns exactly one bonus roll in the same turn. A 6 plus captures is still one; chains are possible.',
+      'Your Knight already captured and a bonus is pending. Tap the die to roll again, then move any piece the exact new allowance — or End turn / skip Adventure when you are finished looking.',
+    ],
+    setup: () => {
+      const s = withRoll(fresh(), 2);
+      place(s, 'you-knight', 'c4');
+      give(s, 'you-knight', 'sapphire');
+      s.characters['foe-witch'].node = 'home-purple';
+      s.turn.extra = 'capture';
+      s.turn.bonus = true;
+      s.turn.moveDone = false;
+      s.turn.adventureDone = false;
+      s.turn.move = null;
+      s.turn.rolls = 1;
+      s.stats.you.cuts = 1;
+      you(s).cut = true;
+      return s;
+    },
+    allowed: ['roll', 'move', 'skipMove', 'skipAdventure'],
+    coach: (s) => ({ ...MOVE_UI(s), ui: !s.turn.move ? ['[data-dice]'] : MOVE_UI(s).ui }),
+    done: (_b, a, ev) => !!a.turn.move || a.turn.moveDone || a.turn.adventureDone || a.turn.playerId !== TUTORIAL_YOU || ev.some((e) => e.type === 'rolled' && e.bonus),
+    after: 'Bonus rolls stay in the same turn. The Adventure action is still once per turn.',
   },
   {
     id: 'shield',
-    title: 'Power card: Shield',
-    body: ['Cards use your adventure action — one per turn, before or after moving.', 'Alex’s Knight is 4 behind your Queen. Tap the Shield card, then your Queen. Nobody may land on a shielded piece until your next turn.'],
+    title: 'Power card and the event strip',
+    body: [
+      'Cards use your adventure action — one per turn, before or after moving. After each action, the event strip (or event card) explains what happened and what you can do now.',
+      'Alex’s Knight is 4 behind your Queen. Tap the Shield card, then your Queen. Landing on a shielded piece is refused until your next turn.',
+    ],
     setup: () => {
       const s = fresh();
       card(s, 'shield');
@@ -202,7 +240,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'map-card',
     title: 'Map card: rebuild a bridge',
-    body: ['Map cards open and close inner routes for everyone, only on marked sites, and never cut anyone off.', 'Tap Build Bridge and pick the Rope Bridge. It starts broken.'],
+    body: [
+      'Map cards open and close inner routes for everyone, only on marked sites, and every house keeps a path to its castle, checkpoints and Royal Path.',
+      'Tap Build Bridge and pick the Rope Bridge. It starts broken.',
+    ],
     setup: () => {
       const s = fresh();
       card(s, 'build_bridge');
@@ -212,14 +253,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowCard: 'build_bridge',
     coach: () => ({ ui: ['[data-card="build_bridge"]', '[data-highlight="target"]'] }),
     done: (_b, a) => a.bridges['broken-bridge'] === true,
-    after: 'The Rope Bridge is open again — a shortcut for every player, rivals included. Landslide, Collapse Bridge, Raise Mountain and Create River close routes the same way; digging can uncover hidden ones.',
+    after: 'The Rope Bridge is open again — a shortcut for every player. Landslide, Collapse Bridge, Raise Mountain and Create River close routes the same way.',
   },
   {
     id: 'dungeon',
     title: 'The dungeon (optional)',
     body: [
       'Roll and move your Witch onto the Dragon Gate, then press “enter the dungeon” (your adventure action). Alex takes a turn; then press “leave the dungeon” to climb back out.',
-      'Red and green arrow spaces nearby are traps and shortcuts: they fire only when a move ends on them.',
+      'Inside: Stone Golem and Cave Spider encounters (roll 4+, Knight +1), the Crystal Shrine, and the dragon’s lair. Red and green arrows nearby are traps and shortcuts.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 2);
@@ -238,14 +279,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       return { ...MOVE_UI(s), board: ['c16'] };
     },
     done: (_b, _a, ev) => ev.some((e) => e.type === 'teleported' && e.reason === 'dungeon' && e.characterId === 'you-witch' && e.to === 'c16'),
-    after: 'Back on the island. Inside are a monster guarding the Vault Door, the Crystal Shrine (any gem you need), dig sites and the dragon’s lair.',
+    after: 'Back on the island. Failed encounters retreat to a marked safe room; both outcomes are previewed before you confirm a landing.',
   },
   {
     id: 'royal-path',
     title: 'Turn onto your Royal Path',
     body: [
-      'With all four gems banked and one cut, your Royal Path opens (top strip). A piece that has touched all four plates turns in at your fork.',
-      'Your Queen has touched all four. Roll, then choose the glowing space on the red Royal Path.',
+      'Banking one of each gem kind opens your Royal Path (top strip). Pieces may enter early and walk back onto the island. The temple gate still needs four checkpoints on that piece and your kingdom’s capture credit.',
+      'Your Queen has all four checkpoints and your path is open. Roll, then choose the glowing space on the red Royal Path.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 2);
@@ -258,16 +299,26 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowEnd: 'f-red-1',
     coach: (s) => ({ ...MOVE_UI(s), ui: [...MOVE_UI(s).ui, '[data-tutorial="objective"]'], board: ['f-red-1'] }),
     done: (_b, a) => a.characters['you-queen'].node === 'f-red-1',
-    after: 'On the Royal Path. Only your pieces can use it, and it is safe.',
+    after: 'On the Royal Path. Only your pieces can use it, and it is safe. Edges run both ways.',
   },
   {
     id: 'temple',
-    title: 'Land exactly on the Crown Temple',
-    body: ['You need the exact roll to land on the temple. Too high and that piece cannot move this turn.', 'Your Queen is 3 away. Roll and walk her in.'],
+    title: 'Finish at the Crown Temple',
+    body: [
+      'A piece that enters the temple finishes for its kingdom and stays there. Get all four characters in to win.',
+      'Three of your pieces are already finished. Your Queen is 3 away — roll and walk her in as the fourth.',
+    ],
     setup: () => {
       const s = withRoll(fresh(), 3);
       ready(s);
       place(s, 'you-queen', 'f-red-3', 4);
+      for (const kind of ['king', 'witch', 'knight'] as const) {
+        const id = `you-${kind}`;
+        s.characters[id].finished = true;
+        s.characters[id].node = 'temple';
+        s.characters[id].plates = [0, 1, 2, 3];
+        s.characters[id].lap = 4;
+      }
       return s;
     },
     allowed: ['roll', 'move'],
@@ -275,14 +326,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     allowEnd: 'temple',
     coach: (s) => ({ ...MOVE_UI(s), board: ['temple'] }),
     done: (_b, a) => a.status === 'finished' && a.result?.winners[0] === TUTORIAL_YOU,
-    after: 'You claimed the Crown Temple. The Red house wins!',
+    after: 'All four Red characters are in the Crown Temple. The Red house wins!',
   },
   {
     id: 'more',
     title: 'You are ready',
     body: [
-      'Still to discover: the dungeon under the Dragon Gate (monster, vault, Crystal Shrine), the dragon you can tame or slay, the boat and plane, dig sites, and the Witch’s Moonstone Arches.',
-      'Tap any space for what it does, open the Legend, or the Rules. Everything is one tap away during a match.',
+      'Still to discover: Royal Guard, Queen Diplomacy, Witch Alchemy, Knight route attacks, dungeon encounters, and the wild dragon duel with Dragon Slayer.',
+      'Open the Rules rail or Legend any time during a match. Practice vs AI uses the same engine as online play.',
     ],
     setup: fresh,
     finish: true,

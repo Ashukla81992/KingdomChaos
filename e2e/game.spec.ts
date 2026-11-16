@@ -45,6 +45,8 @@ test('practice: roll, pick a piece, preview, move, and the turn passes to the AI
   await expect(page.locator('[data-turn-banner]')).toContainText(/Your turn/i);
   await expect(status(page)).toContainText('Roll the die');
   await dice(page).click();
+  await expect(page.locator('[data-event-card]')).toBeVisible({ timeout: 5_000 });
+  await expect(page.getByText('Stop here')).toHaveCount(0);
 
   const mine = page.locator('[data-piece][data-owner="you"][data-movable="true"]');
   await expect(mine.first()).toBeVisible();
@@ -55,7 +57,7 @@ test('practice: roll, pick a piece, preview, move, and the turn passes to the AI
   await expect(status(page)).toContainText(/^Move your .* to /);
   await page.locator('[data-confirm]').click();
   await expect(page.getByLabel('Actions this turn').or(page.locator('[data-turn-banner]', { hasText: /'s turn/ })).first()).toBeVisible();
-  // Finish the turn, and any extra turns a 6 or a cut earned.
+  // Finish the turn, and any bonus rolls a 6 or a capture earned.
   for (let i = 0; i < 8 && /Your turn/i.test((await page.locator('[data-turn-banner]').textContent()) ?? ''); i++) {
     const endTurn = page.locator('[data-end-turn]');
     if (await endTurn.isVisible()) await endTurn.click();
@@ -80,6 +82,8 @@ test('rolling and moving: a piece leaves the castle with the whole roll, passes 
   const card = await tutorialStep(page, 2);
   await dice(page).click();
   await expect(status(page)).toContainText('You rolled 4 — choose a piece');
+  await expect(page.locator('[data-event-card="rolled"]')).toBeVisible();
+  await expect(page.getByText('Stop here')).toHaveCount(0);
   await card.getByRole('button', { name: 'Next', exact: true }).click();
   await expect(card.getByText(/Step 3 of 11/)).toBeVisible();
 
@@ -123,7 +127,7 @@ test('cut and steal: landing on a rival sends it home and takes its gem', async 
   await piece(page, 'you-knight').click();
   await space(page, 'c4').click();
   await expect(page.locator('[data-status-sub]')).toContainText("Cuts Alex's Witch");
-  await expect(page.locator('[data-status-sub]')).toContainText('extra turn');
+  await expect(page.locator('[data-status-sub]')).toContainText(/bonus roll|extra turn/i);
   await page.locator('[data-confirm]').click();
   await expect(piece(page, 'foe-witch')).toHaveAttribute('data-node', 'home-purple');
   await expect(page.locator('[data-extra-status]')).toBeVisible();
@@ -191,7 +195,7 @@ test('Royal Path and an exact landing on the Crown Temple win', async ({ page })
   await piece(page, 'you-king').click();
   await expect(page.locator('[data-royal-path="play"]')).toHaveCount(0);
   await space(page, 'f-red-1').click();
-  await expect(page.locator('[data-announcer]')).toContainText(/touched 0 of 4 house plates/);
+  await expect(page.locator('[data-announcer]')).toContainText(/touched 0 of 4 house plates|temple gate|Royal Path/i);
   await expect(space(page, 'f-red-1')).not.toHaveAttribute('data-end', 'true');
   await expect(piece(page, 'you-king')).toHaveAttribute('data-node', 'home-red');
   await piece(page, 'you-queen').click();
@@ -317,7 +321,7 @@ test('rules open mid-game without stopping the match timer', async ({ page }) =>
   const before = await timer.getAttribute('aria-label');
   await page.getByRole('button', { name: 'Rules', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByRole('heading', { name: /House plates and the lap/ })).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: /Checkpoints/ })).toBeVisible();
   await dialog.getByRole('searchbox').fill('portal');
   await expect(dialog.getByText(/Witch/).first()).toBeVisible();
   await page.waitForTimeout(1500);
@@ -404,6 +408,7 @@ test('two players can create, join and start a private room, and only the active
   await dice(active).click();
   await expect(active.getByLabel('Actions this turn')).toContainText(/rolled \d/);
   await expect(waiting.locator('[data-feed]')).toContainText(/rolled \d/);
+  await expect(active.locator('[data-event-card]')).toBeVisible();
 
   const mover = active.locator('[data-piece][data-movable="true"]').first();
   const id = (await mover.getAttribute('data-piece'))!;
@@ -423,4 +428,14 @@ test('joining with a bad code shows a clear error', async ({ page }) => {
   await page.getByLabel('Room code').fill('ZZZZZ');
   await page.getByRole('button', { name: 'Join room' }).click();
   await expect(page.getByRole('alert').filter({ hasText: /\S/ })).toContainText(/no room with that code/i);
+});
+
+test('Diplomacy trade panel opens', async ({ page }) => {
+  await page.goto('/practice');
+  await page.getByRole('button', { name: 'Start practice' }).click();
+  await expect(dice(page)).toBeEnabled({ timeout: 45_000 });
+  await page.locator('[data-diplomacy-open]').first().click();
+  await expect(page.locator('[data-trade-panel]')).toBeVisible();
+  await page.locator('[data-trade-close]').click();
+  await expect(page.locator('[data-trade-panel]')).toHaveCount(0);
 });

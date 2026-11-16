@@ -74,11 +74,11 @@ function gateEdges(s: BoardState, structure: EdgeDef['structure'], open: boolean
 
 const setGate = (s: BoardState, gate: string, open: boolean) => ({ ...s.bridges, [gate]: open });
 
-function openGate(ctx: Ctx, edgeId: string, verb: string) {
+function openGate(ctx: Ctx, edgeId: string, verb: string, by?: string, card?: CardType) {
   const s = ctx.state;
   const e = getBoard(s.boardId).edges[edgeId];
   s.bridges[e.gate!] = true;
-  ctx.events.push({ type: 'edgeChanged', edgeId });
+  ctx.events.push({ type: 'edgeChanged', edgeId, change: 'opened', by, card });
   log(ctx, `The ${structureName(e)} is ${verb} — every house may use it.`, 'info');
 }
 
@@ -95,7 +95,7 @@ function transform(kind: 'mountain' | 'river') {
   return (ctx: Ctx, pid: string, t: CardTarget) => {
     if (t.kind !== 'node') return;
     ctx.state.transforms[t.node] = kind;
-    ctx.events.push({ type: 'edgeChanged', edgeId: t.node });
+    ctx.events.push({ type: 'terrainChanged', node: t.node, to: kind, by: pid });
     log(ctx, `${playerName(ctx.state, pid)} ${kind === 'mountain' ? 'raises a mountain' : 'floods a river'} at ${nodeName(ctx.state.boardId, t.node)} — the road there is closed.`, 'info', pid);
   };
 }
@@ -105,28 +105,28 @@ export const CARDS: Record<CardType, CardDef> = {
   build_bridge: {
     category: 'map',
     targets: (s) => edgeTargets(gateEdges(s, 'bridge', false)),
-    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'rebuilt and open'),
+    apply: (ctx, pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'rebuilt and open', pid, 'build_bridge'),
   },
   collapse_bridge: {
     category: 'map',
     targets: (s) => edgeTargets(gateEdges(s, 'bridge', true).filter((e) => !occupied(s, e.a) && !occupied(s, e.b) && keepsEveryoneConnected(s, { bridges: setGate(s, e.gate!, false) }))),
-    apply: (ctx, _pid, t) => {
+    apply: (ctx, pid, t) => {
       if (t.kind !== 'edge') return;
       const e = getBoard(ctx.state.boardId).edges[t.edgeId];
       ctx.state.bridges[e.gate!] = false;
-      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId, change: 'closed', by: pid, card: 'collapse_bridge' });
       log(ctx, `The ${e.name ?? 'bridge'} collapses!`, 'bad');
     },
   },
   dig_tunnel: {
     category: 'map',
     targets: (s) => edgeTargets(gateEdges(s, 'tunnel', false)),
-    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'dug through and open'),
+    apply: (ctx, pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'dug through and open', pid, 'dig_tunnel'),
   },
   build_road: {
     category: 'map',
     targets: (s) => edgeTargets(gateEdges(s, 'road', false)),
-    apply: (ctx, _pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'paved and open'),
+    apply: (ctx, pid, t) => t.kind === 'edge' && openGate(ctx, t.edgeId, 'paved and open', pid, 'build_road'),
   },
   raise_mountain: { category: 'map', targets: terrainTargets, apply: transform('mountain') },
   create_river: { category: 'map', targets: terrainTargets, apply: transform('river') },
@@ -143,7 +143,7 @@ export const CARDS: Record<CardType, CardDef> = {
       const s = ctx.state;
       const moved = s.blocks.find((b) => b.owner === pid);
       s.blocks = [...s.blocks.filter((b) => b.owner !== pid), { edgeId: t.edgeId, owner: pid }];
-      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+      ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId, change: 'blocked', by: pid, card: 'landslide' });
       log(ctx, `${playerName(s, pid)} triggers a landslide on ${getBoard(s.boardId).edges[t.edgeId].name ?? 'a pass'}${moved ? ' (their earlier landslide clears)' : ''}.`, 'info', pid);
     },
   },
@@ -158,14 +158,14 @@ export const CARDS: Record<CardType, CardDef> = {
       const s = ctx.state;
       if (t.kind === 'node') {
         delete s.transforms[t.node];
-        ctx.events.push({ type: 'edgeChanged', edgeId: t.node });
+        ctx.events.push({ type: 'terrainChanged', node: t.node, to: null, by: pid });
         log(ctx, `${playerName(s, pid)} restores the road at ${nodeName(s.boardId, t.node)}.`, 'info', pid);
       } else if (t.kind === 'edge') {
         if (s.blocks.some((b) => b.edgeId === t.edgeId)) {
           s.blocks = s.blocks.filter((b) => b.edgeId !== t.edgeId);
-          ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId });
+          ctx.events.push({ type: 'edgeChanged', edgeId: t.edgeId, change: 'cleared', by: pid, card: 'repair' });
           log(ctx, `${playerName(s, pid)} clears the landslide.`, 'info', pid);
-        } else openGate(ctx, t.edgeId, 'repaired and open');
+        } else openGate(ctx, t.edgeId, 'repaired and open', pid, 'repair');
       }
     },
   },

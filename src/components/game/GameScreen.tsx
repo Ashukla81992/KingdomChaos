@@ -22,7 +22,9 @@ import {
   nodeName,
   noMoveReason,
   objectiveText,
+  other,
   playableCards,
+  whyStuck,
   type CardTarget,
   type CharacterKind,
   type GemKind,
@@ -32,6 +34,7 @@ import {
   type NodeDef,
   type PlayerView,
 } from '@/engine';
+import { arrivalFor, attackCandidates, captureTargets, chooseRoute, templeBlockersFor } from '@/lib/boardPreview';
 import { alternatives, choose, consequences, destinations, routeNote, startPlan, whyNot } from '@/lib/movePlan';
 import { royalPlaySeat, TEMPLE_UNLOCK_TITLE } from '@/lib/royalPath';
 import { portrait, seatTheme } from '@/lib/seats';
@@ -45,10 +48,13 @@ import { SettingsPanel } from '../SettingsPanel';
 import { Modal } from '../ui/Modal';
 import { CardView } from './CardView';
 import { Die } from './Die';
+import { EventCard } from './EventCard';
 import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
+import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
 import { ObjectiveStrip } from './ObjectiveStrip';
 import { ResultsOverlay } from './ResultsOverlay';
+import { TradePanel } from './TradePanel';
 import { formatClock, useNow } from './useNow';
 
 export type SendResult = { ok: true } | { ok: false; error: string };
@@ -82,6 +88,8 @@ interface Props {
   onExit: () => void | Promise<void>;
   results?: { primary?: { label: string; onClick: () => void }; secondary?: { label: string; onClick: () => void } };
   tutorial?: TutorialHooks;
+  /** [A5] Host-only control to end an online match early (confirmed by the caller). */
+  hostEndMatch?: { label: string; onClick: () => void; busy?: boolean };
 }
 
 const STALE = /out of date/i;
@@ -161,7 +169,7 @@ function locationTip(node: NodeDef, view: PlayerView): string {
   return parts.filter(Boolean).join(' ');
 }
 
-export function GameScreen({ controller, onExit, results, tutorial }: Props) {
+export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch }: Props) {
   const { view, send, mode } = controller;
   const { reducedMotion, play, settings, update } = useSettings();
   const me = view.viewerId;
@@ -181,11 +189,16 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
   const [crowd, setCrowd] = useState<string | null>(null);
   const [map, setMap] = useState<MapId>('island');
   const [sel, setSel] = useState<{ characterId: string; path: string[] | null } | null>(null);
+  /** Knight route-attack targets chosen for the previewed path. */
+  const [attack, setAttack] = useState<string[]>([]);
   /** Card given up if a draw lands in a full hand (null: keep the hand and decline the new card). */
   const [replace, setReplace] = useState<string | null>(null);
   const [effects, setEffects] = useState<BoardEffect[]>([]);
   const [invalid, setInvalid] = useState<{ node: string; at: number } | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [tradeOpen, setTradeOpen] = useState(false);
+  const [tradeRival, setTradeRival] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'turn' | 'progress' | null>(null);
   const fxId = useRef(0);
   const now = useNow(250, controller.clockSkew ?? 0);
   const fast = settings.pace === 'fast';
@@ -236,7 +249,7 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     const choice = base.options.find((o) => o.path.join('>') === key);
     return choice ? { ...base, choice } : null;
   }, [sel, canPlan, view]);
-  const ends = useMemo(() => (plan ? destinations(plan) : new Map()), [plan]);
+  const ends = useMemo(() => (plan ? destinations(plan) : new Map<string, import('@/engine').MoveOption[]>()), [plan]);
 
   useEffect(() => {
     if (sel && !plan) {
@@ -356,16 +369,6 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     if (hop && hop.type === 'teleported') setMap(nodes[hop.to]?.map ?? 'island');
   }, [view, me, play, label, say, reducedMotion, nodes]);
 
-  // After rolling with exactly one piece able to move, select it; with one end, preview it.
-  useEffect(() => {
-    if (canPlan && !sel && movers.length === 1 && !cardId) {
-      const m = movers[0];
-      const endsOf = new Set(m.options.map((o) => o.path[o.path.length - 1]));
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSel({ characterId: m.characterId, path: endsOf.size === 1 ? m.options[0].path : null });
-    }
-  }, [canPlan, sel, movers, cardId]);
-
   // The board follows the selected piece to its map.
   useEffect(() => {
     const at = sel ? view.characters[sel.characterId]?.node : null;
@@ -396,17 +399,67 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
 
   const committing = useRef<string | null>(null);
   const commit = useCallback(
-    async (characterId: string, path: string[]) => {
-      const key = `${view.version}:${characterId}:${path.join('>')}`;
+    async (characterId: string, path: string[], attackIds?: string[]) => {
+      const key = `${view.version}:${characterId}:${path.join('>')}:${(attackIds ?? []).join(',')}`;
       if (committing.current === key) return;
       committing.current = key;
-      const r = await run({ type: 'move', characterId, path, discardCardId: discardId });
+      const r = await run({
+        type: 'move',
+        characterId,
+        path,
+        attack: attackIds && attackIds.length ? attackIds : undefined,
+        discardCardId: discardId,
+      });
       committing.current = null;
-      if (r.ok || STALE.test(r.error)) setSel(null);
-      else setSel({ characterId, path: null });
+      if (r.ok || STALE.test(r.error)) {
+        setSel(null);
+        setAttack([]);
+      } else setSel({ characterId, path: null });
     },
     [run, view.version, discardId],
   );
+
+  const lockedAttack = useCallback(
+    (characterId: string, path: string[], candidates: string[]) => {
+      const end = path[path.length - 1];
+      return candidates.filter((id) => view.characters[id]?.node === end);
+    },
+    [view.characters],
+  );
+
+  const syncAttackFor = useCallback(
+    (characterId: string, path: string[] | null) => {
+      if (!path) {
+        setAttack([]);
+        return;
+      }
+      const opt = startPlan(view, characterId)?.options.find((o) => o.path.join('>') === path.join('>'));
+      if (!opt) {
+        setAttack([]);
+        return;
+      }
+      const candidates = attackCandidates(view, characterId, opt);
+      const min = view.config.knightAttackMin ?? 2;
+      if (candidates.length < min) {
+        setAttack([]);
+        return;
+      }
+      setAttack(lockedAttack(characterId, path, candidates));
+    },
+    [view, lockedAttack],
+  );
+
+  // After rolling with exactly one piece able to move, select it; with one end, preview it.
+  useEffect(() => {
+    if (canPlan && !sel && movers.length === 1 && !cardId) {
+      const m = movers[0];
+      const endsOf = new Set(m.options.map((o) => o.path[o.path.length - 1]));
+      const path = endsOf.size === 1 ? m.options[0].path : null;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSel({ characterId: m.characterId, path });
+      syncAttackFor(m.characterId, path);
+    }
+  }, [canPlan, sel, movers, cardId, syncAttackFor]);
 
   const select = (c: Character) => {
     setCardId(null);
@@ -414,7 +467,9 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     setCrowd(null);
     const m = movers.find((x) => x.characterId === c.id);
     const endsOf = new Set(m?.options.map((o) => o.path[o.path.length - 1]));
-    setSel({ characterId: c.id, path: m && endsOf.size === 1 ? m.options[0].path : null });
+    const path = m && endsOf.size === 1 ? m.options[0].path : null;
+    setSel({ characterId: c.id, path });
+    syncAttackFor(c.id, path);
     tutorial?.onSelect?.(c.id);
     setAnnounce(`${label(c)} selected. ${m?.note ?? ''}. ${endsOf.size === 1 ? 'One place to go: confirm with Move here.' : `${endsOf.size} places to go. Tap a glowing space to preview.`}`);
   };
@@ -435,6 +490,7 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     const next = choose(plan, node);
     if (!next?.choice) return false;
     setSel({ characterId: plan.characterId, path: next.choice.path });
+    syncAttackFor(plan.characterId, next.choice.path);
     if (!quiet) {
       const what = consequences(view, plan.characterId, next.choice);
       setAnnounce(`Preview: ${nodeName(view.boardId, node)}. ${what.join('. ')}. Tap Move here to confirm.`);
@@ -443,37 +499,102 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     return true;
   };
 
+  const tryCommit = (characterId: string, path: string[]) => {
+    const opt = plan?.options.find((o) => o.path.join('>') === path.join('>')) ?? plan?.choice;
+    const candidates = opt ? attackCandidates(view, characterId, opt) : [];
+    const min = view.config.knightAttackMin ?? 2;
+    const max = view.config.knightAttackMax ?? 3;
+    if (candidates.length >= min) {
+      const locked = lockedAttack(characterId, path, candidates);
+      if (attack.length < min || attack.length > max || !locked.every((id) => attack.includes(id))) {
+        say(`Choose ${min}–${max} route-attack targets. Final-space rivals stay selected.`);
+        play('error');
+        return;
+      }
+      return void commit(characterId, path, attack);
+    }
+    return void commit(characterId, path);
+  };
+
   const onPiece = (id: string) => {
     const c = view.characters[id];
-    if (!c) return;
+    if (!c || c.finished) return;
     const aimed = shownTargets.find((t) => (t.kind === 'character' && t.characterId === id) || (t.kind === 'swap' && t.targetId === id));
     if (aimed) return playTarget(aimed);
+    if (plan?.choice) {
+      const candidates = attackCandidates(view, plan.characterId, plan.choice);
+      const min = view.config.knightAttackMin ?? 2;
+      if (candidates.includes(id) && candidates.length >= min) {
+        const locked = lockedAttack(plan.characterId, plan.choice.path, candidates);
+        if (locked.includes(id)) return say('That rival is on the final space and stays in the attack.');
+        const max = view.config.knightAttackMax ?? 3;
+        setAttack((list) => {
+          if (list.includes(id)) return list.filter((x) => x !== id);
+          if (list.length >= max) {
+            say(`Choose up to ${max} targets.`);
+            return list;
+          }
+          return [...list, id];
+        });
+        return;
+      }
+    }
     if (plan && c.owner !== me && ends.has(c.node)) return void onNode(c.node);
     if (canPlan && movable.has(id)) {
       if (plan?.characterId === id) {
         if (plan.choice && ends.size > 1) {
           setSel({ characterId: id, path: null });
+          setAttack([]);
           setAnnounce('Preview cleared. Your roll is kept.');
         }
         return;
       }
       return select(c);
     }
-    if (c.owner === me && canPlan) return say(`${label(c)} has no legal move with this roll.`);
+    if (c.owner === me && canPlan) return say(`${label(c)} cannot move: ${whyStuck(view, c.id)}.`);
     if (c.owner === me && canRoll) {
       setInspect({ kind: 'character', id });
       return say('Roll the die first, then choose who moves.');
     }
     if (c.owner !== me && plan) return flash(c.node, whyNot(view, plan, c.node));
+    // Queen diplomacy: tap a rival castle piece's house via character standing there is awkward —
+    // castle taps go through onNode.
     setInspect({ kind: 'character', id });
   };
 
   const onNode = (id: string) => {
+    const node = nodes[id];
+    // Diplomacy: tap a rival castle after the Queen moved.
+    if (
+      me &&
+      node?.type === 'castle' &&
+      node.house !== undefined &&
+      Object.values(view.characters).some((c) => c.owner === me && c.kind === 'queen' && view.turn.moved.includes(c.id))
+    ) {
+      const rival = view.players.find((p) => p.seat === node.house && p.id !== me);
+      if (rival) {
+        setTradeRival(rival.id);
+        setTradeOpen(true);
+        return;
+      }
+    }
     if (plan) {
       if (ends.has(id)) {
         const end = plan.choice?.path[plan.choice.path.length - 1];
-        if (end === id) return void commit(plan.characterId, plan.choice!.path);
+        if (end === id) return void tryCommit(plan.characterId, plan.choice!.path);
         return void preview(id);
+      }
+      // Dragging along an intermediate space: pick a route that visits it.
+      if (plan.choice === null || plan.choice.path[plan.choice.path.length - 1] !== id) {
+        const via = plan.options.find((o) => o.path.includes(id) && o.path[o.path.length - 1] !== plan.characterId);
+        if (via && via.path.slice(1, -1).includes(id)) {
+          const next = chooseRoute(plan, via.path);
+          if (next?.choice) {
+            setSel({ characterId: plan.characterId, path: next.choice.path });
+            syncAttackFor(plan.characterId, next.choice.path);
+            return;
+          }
+        }
       }
       const here = mine.filter((c) => c.node === id && movable.has(c.id));
       if (here.length === 1) return select(here[0]);
@@ -509,7 +630,18 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
     if (!plan) return;
     if (node && ends.has(node)) {
       const route = plan.choice && plan.choice.path[plan.choice.path.length - 1] === node ? plan.choice : ends.get(node)![0];
-      return void commit(plan.characterId, route.path);
+      setSel({ characterId: plan.characterId, path: route.path });
+      syncAttackFor(plan.characterId, route.path);
+      return void tryCommit(plan.characterId, route.path);
+    }
+    if (node && plan.options.some((o) => o.path.includes(node))) {
+      const route = plan.options.find((o) => o.path.includes(node) && ends.has(o.path[o.path.length - 1])) ?? plan.options.find((o) => o.path.includes(node));
+      if (route) {
+        setSel({ characterId: plan.characterId, path: route.path });
+        syncAttackFor(plan.characterId, route.path);
+        if (ends.has(route.path[route.path.length - 1]) && route.path[route.path.length - 1] === node) return void tryCommit(plan.characterId, route.path);
+        return;
+      }
     }
     if (node && node !== view.characters[plan.characterId].node) flash(node, `${whyNot(view, plan, node)} The piece went back.`);
     else if (!node) say('Drop the piece on a glowing space. It went back to where it was.');
@@ -521,11 +653,13 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
       const t = e.target as HTMLElement;
       if (t.closest('input,textarea,select,[role="dialog"]')) return;
       if (e.key === 'r' && canRoll && !busy) void run({ type: 'roll' });
-      else if ((e.key === 'm' || e.key === 'Enter') && plan?.choice && !busy && !t.closest('button,[role="button"]')) void commit(plan.characterId, plan.choice.path);
+      else if ((e.key === 'm' || e.key === 'Enter') && plan?.choice && !busy && !t.closest('button,[role="button"]')) tryCommit(plan.characterId, plan.choice.path);
       else if (e.key === 'e' && myTurn && view.turn.moveDone && !view.turn.adventureDone && !busy) void run({ type: 'skipAdventure' });
-      else if (e.key === 'Escape' && (sel || cardId)) {
+      else if (e.key === 'Escape' && (sel || cardId || tradeOpen)) {
         setSel(null);
+        setAttack([]);
         setCardId(null);
+        setTradeOpen(false);
       } else return;
       e.preventDefault();
     };
@@ -547,9 +681,50 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
   }, [shownTargets]);
   const coach = useMemo(() => new Set(tutorial?.coach ?? []), [tutorial?.coach]);
   const what = plan?.choice ? consequences(view, plan.characterId, plan.choice) : [];
-  const boardPlan: BoardPlan | null = plan ? { characterId: plan.characterId, ends: [...ends.keys()], choice: plan.choice?.path ?? null, summary: what.join(' · ') } : null;
+  const routeAttackIds = plan?.choice ? attackCandidates(view, plan.characterId, plan.choice) : [];
+  const needsAttack = routeAttackIds.length >= (view.config.knightAttackMin ?? 2);
+  const previewCaptures = plan?.choice ? captureTargets(view, plan.characterId, plan.choice) : [];
+  const previewHazards = plan?.choice
+    ? plan.choice.path.filter((n) => {
+        const nd = nodes[n];
+        return !!(nd?.hazard || nd?.teleport);
+      })
+    : [];
+  const previewPortals = plan?.choice
+    ? plan.choice.path.flatMap((n, i) => {
+        if (i === 0) return [];
+        const prev = plan.choice!.path[i - 1];
+        const { out } = getBoard(view.boardId);
+        const walked = out[prev]?.some((e) => other(e, prev) === n);
+        if (walked === false) return [n];
+        return nodes[n]?.portal ? [nodes[n].portal!] : [];
+      })
+    : [];
+  const boardPlan: BoardPlan | null = plan
+    ? {
+        characterId: plan.characterId,
+        ends: [...ends.keys()],
+        choice: plan.choice?.path ?? null,
+        summary: what.join(' · '),
+        captures: previewCaptures,
+        attackChoices: needsAttack ? routeAttackIds : [],
+        attackSelected: needsAttack ? attack : [],
+        hazards: previewHazards,
+        portalExits: previewPortals,
+      }
+    : null;
   const playSeat = royalPlaySeat(view, boardPlan?.characterId ?? null, boardPlan?.ends ?? []);
   const explainSeat = boardPlan && playSeat == null ? (view.players.find((p) => p.id === me)?.seat ?? null) : null;
+  const royalReach = (() => {
+    if (!plan || playSeat == null) return null;
+    const set = new Set<string>();
+    const here = view.characters[plan.characterId]?.node;
+    if (here) set.add(here);
+    for (const o of plan.options) for (const n of o.path) if (nodes[n]?.lane === 'final' || n === 'temple') set.add(n);
+    return set;
+  })();
+  const showDiplomacy = !!me && playing && ((view.trades?.length ?? 0) > 0 || myTurn);
+  const attackReady = !needsAttack || (attack.length >= (view.config.knightAttackMin ?? 2) && attack.length <= (view.config.knightAttackMax ?? 3));
 
   const turnLeft = view.turn.deadline ? view.turn.deadline - now : null;
   const matchLeft = view.endsAt ? view.endsAt - now : null;
@@ -574,8 +749,19 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
   } else if (plan?.choice && planChar) {
     const end = plan.choice.path[plan.choice.path.length - 1];
     const note = routeNote(view, plan.choice);
+    const arrival = arrivalFor(view, plan.characterId, end, plan.choice);
+    const blockers = end === 'temple' || plan.choice.finishes ? templeBlockersFor(view, plan.characterId) : [];
     headline = `Move your ${CHARACTER_INFO[planChar.kind].name} to ${nodeName(view.boardId, end)}?`;
-    sub = `${what.length ? what.join(' · ') + '. ' : ''}${note ? note + ' ' : ''}Tap “Move here”, tap the space again, or pick another glowing space.`;
+    sub = [
+      what.length ? what.join(' · ') : '',
+      note,
+      arrival ? `${arrival.name}: win — ${arrival.success}; lose — ${arrival.failure}` : '',
+      blockers.length ? `Temple gate: ${blockers.join('; ')}` : '',
+      needsAttack ? `Choose ${view.config.knightAttackMin}–${view.config.knightAttackMax} targets` : '',
+      'Tap Move here, tap the space again, or pick another glowing space.',
+    ]
+      .filter(Boolean)
+      .join(' · ');
   } else if (plan && planChar) {
     headline = `${CHARACTER_INFO[planChar.kind].name.toUpperCase()} — ${plan.note}`;
     sub = `${ends.size} ${ends.size === 1 ? 'place' : 'places'} to go — the whole roll must be used. Tap a glowing space to preview the route and its trade-offs, or drag the piece there.`;
@@ -596,13 +782,18 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
   const crowdPieces = crowd ? Object.values(view.characters).filter((c) => c.node === crowd) : [];
 
   return (
-    <div className={`flex min-h-[100dvh] flex-col ${tutorial?.reserveBottom ? 'pb-[46dvh] sm:pb-0' : ''}`}>
+    <div className={`flex min-h-[100dvh] flex-col pb-16 lg:pb-0! ${tutorial?.reserveBottom ? 'pb-[46dvh] sm:pb-0' : ''}`}>
       <header className="sticky top-0 z-30 flex min-h-12 flex-wrap items-center gap-1.5 bg-[#fffaf0]/85 px-2 py-1.5 backdrop-blur sm:px-4">
         <button className="btn btn-ghost icon-btn" onClick={() => setLeaveOpen(true)} aria-label="Leave game">
           <LogOut size={20} />
         </button>
+        {hostEndMatch && view.status === 'playing' && (
+          <button className="btn btn-ghost text-sm" onClick={hostEndMatch.onClick} disabled={hostEndMatch.busy} aria-label={hostEndMatch.label}>
+            {hostEndMatch.busy ? 'Ending…' : hostEndMatch.label}
+          </button>
+        )}
         <div className="font-display hidden text-lg font-bold tracking-tight md:block">
-          Kingdom <span className="text-[#e0532d]">Chaos</span> <span className="text-sm font-semibold text-[#6a3fd0]">Crown Quest</span>
+          Kingdom of <span className="text-[#e0532d]">Four Gems</span>
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-1.5">
           {matchLeft !== null && (
@@ -679,16 +870,18 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
             onPiece={onPiece}
             onNode={onNode}
             onEdge={onEdge}
-            onConfirm={() => plan?.choice && void commit(plan.characterId, plan.choice.path)}
+            onConfirm={() => plan?.choice && void tryCommit(plan.characterId, plan.choice.path)}
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDrop={onDrop}
             onCrowd={setCrowd}
             onExplain={(text) => setInspect({ kind: 'text', id: text })}
-            royal={{ playSeat, inspect: inspectPaths, explainSeat }}
+            onMarker={(_id, text) => setInspect({ kind: 'text', id: text })}
+            royal={{ playSeat, inspect: inspectPaths, explainSeat, reachNodes: royalReach }}
             platesDone={focusChar?.plates ?? null}
           />
           {dragging && <div className="sr-only">Dragging</div>}
+          <EventCard view={view} reduced={reducedMotion} />
           <BannerView banner={banners[0] ?? null} reduced={reducedMotion} />
           {(inspectedChar || inspectedNode || inspect?.kind === 'text') && (
             <div className="absolute bottom-2 left-2 z-10 max-w-[min(22rem,calc(100%-4.5rem))] rounded-2xl bg-white/95 p-3 shadow-lg" role="region" aria-label="Details">
@@ -762,8 +955,14 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
                     <span className={`rounded-full px-2 py-0.5 ${view.turn.moveDone ? 'bg-[#e6f6ec] text-[#155c36]' : 'bg-[#fff1c7] text-[#6b4a00]'}`}>Move: {view.turn.moveDone ? 'done' : rolled ? `rolled ${rolled.roll}` : 'to do'}</span>
                     <span className={`rounded-full px-2 py-0.5 ${view.turn.adventureDone ? 'bg-[#e6f6ec] text-[#155c36]' : 'bg-[#fff1c7] text-[#6b4a00]'}`}>Adventure: {view.turn.adventureDone ? 'done' : 'optional'}</span>
                     {(view.turn.extra || view.turn.bonus) && (
-                      <span className="rounded-full bg-[#2e9e62] px-2 py-0.5 text-white" data-extra-status>
-                        {view.turn.extra ? `Extra turn earned (${view.turn.extra === 'six' ? 'a 6' : 'a cut'})` : 'Extra turn'}
+                      <span className="rounded-full bg-[#2e9e62] px-2 py-0.5 text-white" data-extra-status data-bonus-reason={view.turn.extra ?? (view.turn.bonus ? 'pending' : undefined)}>
+                        {view.turn.extra === 'six'
+                          ? 'Bonus roll earned (rolled a 6)'
+                          : view.turn.extra === 'capture'
+                            ? 'Bonus roll earned (capture)'
+                            : view.turn.bonus
+                              ? 'Bonus roll — roll again'
+                              : 'Bonus roll'}
                       </span>
                     )}
                   </div>
@@ -771,21 +970,95 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
               </div>
             </div>
 
+            {(view.turn.extra || view.turn.bonus) && myTurn && (
+              <div className="mt-2 rounded-xl bg-[#e6f6ec] px-3 py-2 text-sm font-bold text-[#155c36]" data-bonus-banner role="status">
+                {view.turn.bonus
+                  ? 'Bonus roll: roll again this turn. Your Adventure action is still once per turn.'
+                  : view.turn.extra === 'six'
+                    ? 'You rolled a 6 — a bonus roll is waiting after this move.'
+                    : 'A capture earned a bonus roll after this move.'}
+              </div>
+            )}
+
             {plan?.choice && (
               <div className="mt-2.5 flex flex-wrap gap-1.5" data-move-preview>
-                <button className="btn btn-green flex-1 text-base" disabled={busy} onClick={() => void commit(plan.characterId, plan.choice!.path)} data-confirm>
+                <button className="btn btn-green min-h-11 flex-1 text-base" disabled={busy || !attackReady} onClick={() => void tryCommit(plan.characterId, plan.choice!.path)} data-confirm>
                   Move here
                 </button>
                 {alternatives(plan) > 1 && (
-                  <button className="btn btn-ghost text-sm" onClick={() => preview(plan.choice!.path[plan.choice!.path.length - 1])}>
+                  <button
+                    className="btn btn-ghost min-h-11 text-sm"
+                    data-route-cycle
+                    onClick={() => preview(plan.choice!.path[plan.choice!.path.length - 1])}
+                  >
                     <Repeat size={15} aria-hidden="true" /> Other route
                   </button>
                 )}
                 {ends.size > 1 && (
-                  <button className="btn btn-ghost text-sm" onClick={() => setSel({ characterId: plan.characterId, path: null })}>
+                  <button
+                    className="btn btn-ghost min-h-11 text-sm"
+                    onClick={() => {
+                      setSel({ characterId: plan.characterId, path: null });
+                      setAttack([]);
+                    }}
+                  >
                     Change
                   </button>
                 )}
+              </div>
+            )}
+
+            {plan?.choice && alternatives(plan) > 1 && (
+              <div className="mt-2 flex flex-wrap gap-1.5" data-route-chips role="group" aria-label="Routes to this space">
+                {(ends.get(plan.choice.path[plan.choice.path.length - 1]) ?? []).map((o, i) => {
+                  const on = o.path.join('>') === plan.choice!.path.join('>');
+                  return (
+                    <button
+                      key={o.path.join('>')}
+                      type="button"
+                      className={`btn min-h-11 text-sm ${on ? 'btn-primary' : 'btn-ghost'}`}
+                      aria-pressed={on}
+                      data-route-chip={i}
+                      onClick={() => {
+                        setSel({ characterId: plan.characterId, path: o.path });
+                        syncAttackFor(plan.characterId, o.path);
+                      }}
+                    >
+                      Route {i + 1}
+                      {o.witchPortal ? ' · portal' : ''}
+                      {o.landingCuts.length ? ' · capture' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {plan?.choice && needsAttack && (
+              <div className="mt-2 rounded-xl border border-[#c8281e]/35 bg-[#fff0ee] p-2.5" data-attack-picker>
+                <p className="text-sm font-extrabold text-[#8c2a10]">Choose {view.config.knightAttackMin}–{view.config.knightAttackMax} targets</p>
+                <p className="text-xs text-[#6b7086]">Final-space rivals stay locked in. Tap red-ringed pieces on the board.</p>
+                <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                  {routeAttackIds.map((id) => {
+                    const locked = lockedAttack(plan.characterId, plan.choice!.path, routeAttackIds).includes(id);
+                    const on = attack.includes(id);
+                    return (
+                      <li key={id}>
+                        <button
+                          type="button"
+                          className={`btn min-h-11 text-sm ${on ? 'btn-danger' : 'btn-ghost'}`}
+                          aria-pressed={on}
+                          disabled={locked}
+                          data-attack-target={id}
+                          data-attack-locked={locked ? 'true' : undefined}
+                          onClick={() => onPiece(id)}
+                        >
+                          {charLabel(view, id)}
+                          {locked ? ' (locked)' : ''}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
 
@@ -803,7 +1076,7 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
               <div className="mt-2.5">
                 <div className="mb-1 text-xs font-bold text-[#4a5374]">{rolled ? 'Who moves? (tap on the board or here)' : 'Your pieces'}</div>
                 <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Choose a piece">
-                  {mine.map((c) => {
+                  {mine.filter((c) => !c.finished).map((c) => {
                     const can = movable.has(c.id);
                     const on = plan?.characterId === c.id;
                     const gems = gemsOf(view, c);
@@ -811,12 +1084,17 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
                       <button
                         key={c.id}
                         type="button"
-                        className={`relative flex flex-col items-center rounded-xl border-2 px-1 pt-1 pb-0.5 text-[11px] font-bold transition ${on ? 'border-[#1d2440] bg-white' : can ? 'border-[#ffcf33] bg-[#fffbe8]' : 'border-transparent bg-white/60 text-[#6b7086]'}`}
+                        className={`relative flex min-h-11 flex-col items-center rounded-xl border-2 px-1 pt-1 pb-0.5 text-[11px] font-bold transition ${on ? 'border-[#1d2440] bg-white' : can ? 'border-[#ffcf33] bg-[#fffbe8]' : 'border-transparent bg-white/60 text-[#6b7086]'}`}
                         aria-pressed={on}
-                        aria-label={`${label(c)}, ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ''}${can ? ', can move' : rolled ? ', cannot move' : ''}`}
+                        aria-label={`${label(c)}, ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ''}${can ? ', can move' : rolled ? `, cannot move: ${whyStuck(view, c.id)}` : ''}`}
                         data-character={c.id}
-                        disabled={busy || (!!rolled && !can)}
-                        onClick={() => (rolled ? onPiece(c.id) : say('Roll the die first, then choose who moves.'))}
+                        data-stuck={rolled && !can ? 'true' : undefined}
+                        disabled={busy}
+                        onClick={() => {
+                          if (!rolled) return say('Roll the die first, then choose who moves.');
+                          if (!can) return say(`${label(c)} cannot move: ${whyStuck(view, c.id)}.`);
+                          onPiece(c.id);
+                        }}
                       >
                         <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={30} />
                         {CHARACTER_INFO[c.kind].name}
@@ -832,6 +1110,11 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
                     );
                   })}
                 </div>
+                {canPlan && movers.length === 0 && (
+                  <button className="btn btn-primary mt-2 min-h-11 w-full text-sm" disabled={busy} data-skip-move onClick={() => void run({ type: 'skipMove' })}>
+                    Skip movement
+                  </button>
+                )}
               </div>
             )}
 
@@ -868,17 +1151,38 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
             {myTurn && (
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {view.turn.moveDone && !view.turn.adventureDone && (
-                  <button className="btn btn-primary text-sm" disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-end-turn>
+                  <button className="btn btn-primary min-h-11 text-sm" disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-end-turn>
                     <SkipForward size={15} aria-hidden="true" /> End turn
                   </button>
                 )}
+                {showDiplomacy && (
+                  <button
+                    className="btn btn-ghost min-h-11 text-sm"
+                    data-diplomacy-open
+                    onClick={() => {
+                      setTradeRival(null);
+                      setTradeOpen(true);
+                    }}
+                  >
+                    Diplomacy
+                  </button>
+                )}
                 {selected && (
-                  <button className="btn btn-ghost text-sm" onClick={() => setCardId(null)}>
+                  <button className="btn btn-ghost min-h-11 text-sm" onClick={() => setCardId(null)}>
                     Cancel card
                   </button>
                 )}
               </div>
             )}
+            {!myTurn && (view.trades?.some((t) => t.to === me || t.from === me) ?? false) && (
+              <button className="btn btn-primary mt-2 min-h-11 w-full text-sm" data-diplomacy-open onClick={() => setTradeOpen(true)}>
+                Open Diplomacy
+              </button>
+            )}
+          </div>
+
+          <div className="hidden lg:block">
+            <KingdomProgress view={view} me={me} focusId={focusChar?.id ?? null} />
           </div>
 
           <details className="panel group p-3" data-tutorial="hand" open={handCards.length > 0}>
@@ -1010,6 +1314,43 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
           </button>
         </div>
       </Modal>
+      <TradePanel
+        view={view}
+        me={me}
+        busy={busy}
+        open={tradeOpen}
+        rivalId={tradeRival}
+        onClose={() => {
+          setTradeOpen(false);
+          setTradeRival(null);
+        }}
+        onSend={(action) => void run(action)}
+      />
+      {/* Mobile: progress + turn drawer */}
+      <div className="fixed inset-x-0 bottom-0 z-20 flex gap-2 border-t border-[#e6dcc6] bg-[#fffaf0]/95 p-2 backdrop-blur lg:hidden!" data-mobile-dock>
+        <button type="button" className="btn btn-ghost min-h-11 flex-1 text-sm" data-mobile-progress onClick={() => setSheet(sheet === 'progress' ? null : 'progress')}>
+          Progress
+        </button>
+        <button type="button" className="btn btn-ghost min-h-11 flex-1 text-sm" data-mobile-turn onClick={() => setSheet(sheet === 'turn' ? null : 'turn')}>
+          Turn
+        </button>
+        {showDiplomacy && (
+          <button type="button" className="btn btn-ghost min-h-11 flex-1 text-sm" data-diplomacy-open onClick={() => setTradeOpen(true)}>
+            Trade
+          </button>
+        )}
+      </div>
+      {sheet && (
+        <div className="fixed inset-x-0 bottom-0 z-30 max-h-[70dvh] overflow-y-auto rounded-t-3xl bg-[#fffaf0] p-3 shadow-xl lg:hidden!" data-mobile-sheet={sheet}>
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-display text-lg font-bold">{sheet === 'progress' ? 'Kingdom progress' : 'Your turn'}</h2>
+            <button type="button" className="btn btn-ghost min-h-11 px-3!" onClick={() => setSheet(null)}>
+              Close
+            </button>
+          </div>
+          {sheet === 'progress' ? <KingdomProgress view={view} me={me} focusId={focusChar?.id ?? null} compact /> : <p className="text-sm text-[#4a5374]">Use the turn column above, or scroll the board controls.</p>}
+        </div>
+      )}
       {tutorial?.overlay}
     </div>
   );

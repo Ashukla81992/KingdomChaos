@@ -1,10 +1,32 @@
 import { getBoard, other } from './board';
 import { travelDistances } from './graph';
 import { adventureOptions, movableCharacters, playableCards, type Mover, type QueryState } from './queries';
-import { companionOf, cutsMade, finalUnlocked, houseOf, isSafe, missingPlates, neededGems, type MoveOption } from './rules';
+import {
+  companionOf,
+  cutsMade,
+  houseOf,
+  isSafe,
+  missingPlates,
+  neededGems,
+  playerOf,
+  requiredGems,
+  royalPathOpen,
+  templeBlockers,
+  type MoveOption,
+} from './rules';
 import type { BoardState, CardInstance, CardTarget, Character, GameAction, GemKind, PlayerView } from './types';
 
 type MapChange = Partial<Pick<BoardState, 'bridges' | 'blocks' | 'transforms'>>;
+
+type AiMove = MoveOption;
+
+function pathOpen(s: QueryState, playerId: string): boolean {
+  return royalPathOpen(s, playerId);
+}
+
+function templeReady(s: QueryState, characterId: string): boolean {
+  return templeBlockers(s, characterId).length === 0;
+}
 
 /**
  * Practice AI. Plays by the same rules through the same action API and only reads its own
@@ -25,18 +47,23 @@ function distFn(s: QueryState) {
 
 /**
  * Where this character should be heading next: the temple once it may enter; home to bank with full
- * hands; otherwise the nearest of a needed gem station and a plate it has not touched.
+ * hands; otherwise the nearest of a needed gem station and a checkpoint it has not touched.
  */
 function goalOf(s: QueryState, ch: Character, carried: number, need: GemKind[], dist: (a: string, b: string) => number): string {
+  if (ch.finished) return ch.node;
   const house = houseOf(s, ch.owner);
   const { board, nodes } = getBoard(s.boardId);
-  if (finalUnlocked(s, ch.owner) && ch.lap >= 4) return board.temple;
+  if (templeReady(s, ch.id) || (pathOpen(s, ch.owner) && ch.plates.length >= 4 && cutsMade(s, ch.owner) >= s.config.cutsRequired)) {
+    return board.temple;
+  }
+  if (pathOpen(s, ch.owner) && ch.plates.length >= 4) return house.branch;
   if (carried >= Math.max(1, s.config.carryLimit ?? 1)) return house.entry;
   const here = nodes[ch.node].type === 'castle' ? house.entry : ch.node;
   const stations = carried < Math.max(1, s.config.carryLimit ?? 1) ? board.nodes.filter((n) => n.station && need.includes(n.station)).map((n) => n.id) : [];
   const plates = missingPlates(ch).map((seat) => board.houses.find((h) => h.seat === seat)!.plate);
   const goals = [...stations, ...plates];
   if (carried > 0) goals.push(house.entry);
+  if (pathOpen(s, ch.owner)) goals.push(house.branch);
   if (!goals.length) return house.branch;
   return goals.sort((a, b) => dist(here, a) - dist(here, b))[0];
 }
@@ -46,7 +73,7 @@ function danger(s: QueryState, owner: string, node: string, dist: (a: string, b:
   if (isSafe(s.boardId, node)) return 0;
   let d = 0;
   for (const o of Object.values(s.characters)) {
-    if (o.owner === owner) continue;
+    if (o.owner === owner || o.finished) continue;
     const steps = dist(o.node, node);
     if (steps >= 1 && steps <= 6) d += 1;
   }
@@ -55,22 +82,56 @@ function danger(s: QueryState, owner: string, node: string, dist: (a: string, b:
 
 export interface MovePick {
   characterId: string;
-  option: MoveOption;
+  option: AiMove;
   gain: number;
+  attack?: string[];
 }
 
 /** Roads run both ways, so steady progress toward the goal has to outweigh small detours. */
 const PROGRESS_WEIGHT = 2.5;
 
+function routeCaptures(_s: QueryState, _ch: Character, o: AiMove, attack?: string[]): string[] {
+  if (attack?.length) return attack;
+  return [...new Set(o.landingCuts ?? [])];
+}
+
+/** Prefer valuable captures; always include a final-space eligible rival when route-attacking. */
+function pickKnightAttack(s: QueryState, ch: Character, o: AiMove): string[] | undefined {
+  const targets = o.routeTargets ?? [];
+  const min = s.config.knightAttackMin ?? 2;
+  const max = s.config.knightAttackMax ?? 3;
+  if (targets.length < min) return undefined;
+  const end = o.path[o.path.length - 1];
+  const onEnd = targets.filter((id) => s.characters[id]?.node === end);
+  const scored = targets
+    .map((id) => {
+      const v = s.characters[id];
+      const score = (v?.carrying.length ?? 0) * 5 + (v?.plates.length ?? 0) * 1.2 + (cutsMade(s, ch.owner) === 0 ? 8 : 1);
+      return { id, score, must: onEnd.includes(id) };
+    })
+    .sort((a, b) => Number(b.must) - Number(a.must) || b.score - a.score);
+  const chosen: string[] = [];
+  for (const t of scored) {
+    if (chosen.length >= max) break;
+    if (t.must || chosen.length < min || t.score > 2) chosen.push(t.id);
+  }
+  while (chosen.length < min && scored.length > chosen.length) {
+    const next = scored.find((t) => !chosen.includes(t.id));
+    if (!next) break;
+    chosen.push(next.id);
+  }
+  return chosen.length >= min ? chosen.slice(0, max) : undefined;
+}
+
 /** Score one route by what actually happens along it. */
-function routeValue(s: QueryState, ch: Character, o: MoveOption, dist: (a: string, b: string) => number): number {
+function routeValue(s: QueryState, ch: Character, o: AiMove, dist: (a: string, b: string) => number, attack?: string[]): number {
   const { nodes, out } = getBoard(s.boardId);
   const house = houseOf(s, ch.owner);
   const end = o.path[o.path.length - 1];
   let need = neededGems(s, ch.owner);
   const limit = Math.max(1, s.config.carryLimit ?? 1);
   let carrying: GemKind[] = ch.carrying.map((id) => s.gems.find((g) => g.id === id)?.kind).filter((k): k is GemKind => !!k);
-  const banked = s.players.find((p) => p.id === ch.owner)!.gems;
+  const banked = playerOf(s, ch.owner).gems;
   const plates = new Set(ch.plates);
   let v = 0;
   if (nodes[ch.node].type === 'castle') v += 3;
@@ -94,18 +155,22 @@ function routeValue(s: QueryState, ch: Character, o: MoveOption, dist: (a: strin
       need = need.filter((k) => k !== st);
     }
   }
-  const cutVictims = [...o.landingCuts, ...(o.knightCut ? Object.values(s.characters).filter((c) => c.node === o.knightCut && c.owner !== ch.owner).map((c) => c.id) : [])];
-  for (const id of cutVictims) {
+  for (const id of routeCaptures(s, ch, o, attack)) {
     const victim = s.characters[id];
-    // A cut also earns an extra turn.
-    v += (cutsMade(s, ch.owner) === 0 ? 9 : 2.5) + 3 + victim.carrying.length * 5 + victim.lap * 1.2;
+    if (!victim) continue;
+    v += (cutsMade(s, ch.owner) === 0 ? 9 : 2.5) + 3 + victim.carrying.length * 5 + victim.plates.length * 1.2;
   }
   if (o.entersFinal) v += 25;
-  if (end === getBoard(s.boardId).board.temple) v += 1000;
+  if (o.finishes || end === getBoard(s.boardId).board.temple) v += 1000;
+  if (pathOpen(s, ch.owner) && end === house.branch) v += 6;
+  const kindsBanked = banked.length + (carrying.filter((k) => !banked.includes(k)).length ? 0 : 0);
+  if (kindsBanked < 4 && carrying.some((k) => !banked.includes(k)) && end === house.entry) v += 4;
   const tp = nodes[end].teleport;
   if (tp) v += tp.type === 'trap' ? -5 : 2;
   if (nodes[end].hazard) v -= 1.5 + plates.size * 0.3;
   if (nodes[end].dig && !carrying.length) v += 1;
+  if (o.arrival?.kind === 'spider') v += 4;
+  if (o.arrival?.kind === 'golem') v += 2;
   const goalBefore = goalOf(s, ch, ch.carrying.length, neededGems(s, ch.owner), dist);
   const startNode = nodes[ch.node].type === 'castle' ? house.entry : ch.node;
   v += (dist(startNode, goalBefore) - dist(end, goalBefore)) * PROGRESS_WEIGHT;
@@ -119,9 +184,12 @@ export function bestMove(s: QueryState, movers: Mover[], random: () => number = 
   let best: MovePick | null = null;
   for (const m of movers) {
     const ch = s.characters[m.characterId];
-    for (const o of m.options) {
-      const gain = routeValue(s, ch, o, dist) + random() * 0.05;
-      if (!best || gain > best.gain) best = { characterId: ch.id, option: o, gain };
+    if (ch.finished) continue;
+    for (const raw of m.options) {
+      const o = raw as AiMove;
+      const attack = ch.kind === 'knight' ? pickKnightAttack(s, ch, o) : undefined;
+      const gain = routeValue(s, ch, o, dist, attack) + random() * 0.05;
+      if (!best || gain > best.gain) best = { characterId: ch.id, option: o, gain, attack };
     }
   }
   return best;
@@ -138,7 +206,7 @@ function routeGain(s: QueryState, pid: string, change: MapChange): number {
   let mine = 0;
   let theirs = 0;
   for (const c of Object.values(s.characters)) {
-    if (nodes[c.node].lane === 'final' || nodes[c.node].map !== 'island') continue;
+    if (c.finished || nodes[c.node].lane === 'final' || nodes[c.node].map !== 'island') continue;
     const here = nodes[c.node].type === 'castle' ? houseOf(s, c.owner).entry : c.node;
     const goal = goalOf(s, c, c.carrying.length, neededGems(s, c.owner), before);
     const gain = before(here, goal) - after(here, goal);
@@ -184,20 +252,33 @@ function cardScore(s: QueryState, pid: string, card: CardInstance, target: CardT
       if (target.kind !== 'character') return 0;
       const c = s.characters[target.characterId];
       const risk = danger(s, pid, c.node, dist);
-      return risk && (c.carrying.length || c.lap >= 2) ? 30 + risk * 5 : 0;
+      return risk && (c.carrying.length || c.plates.length >= 2) ? 30 + risk * 5 : 0;
     }
     case 'magic_boots': {
       if (target.kind !== 'path') return 0;
       const c = s.characters[target.characterId];
-      const gain = routeValue(s, c, { path: target.path, cost: 2, witchPortal: false, knightCut: null, landingCuts: [], entersFinal: false }, dist);
+      const fake: AiMove = {
+        path: target.path,
+        cost: 2,
+        witchPortal: false,
+        landingCuts: [],
+        entersFinal: false,
+        routeTargets: [],
+        finishes: false,
+        arrival: null,
+      };
+      const gain = routeValue(s, c, fake, dist);
       return gain > 2 ? 15 + gain * 3 : 0;
     }
     case 'rescue': {
       if (target.kind !== 'character') return 0;
       const c = s.characters[target.characterId];
-      const banked = s.players.find((p) => p.id === pid)!.gems;
-      const useful = c.carrying.some((id) => { const k = s.gems.find((g) => g.id === id)?.kind; return k && !banked.includes(k); });
-      return useful && c.lap < 2 ? 45 : 0;
+      const banked = playerOf(s, pid).gems;
+      const useful = c.carrying.some((id) => {
+        const k = s.gems.find((g) => g.id === id)?.kind;
+        return k && !banked.includes(k);
+      });
+      return useful && c.plates.length < 2 ? 45 : 0;
     }
     case 'reveal_discovery':
       return 12;
@@ -226,6 +307,75 @@ interface Choice {
   score: number;
 }
 
+function missingKinds(s: QueryState, pid: string): GemKind[] {
+  const p = playerOf(s, pid);
+  return requiredGems(s).filter((k) => !(p.bank?.[k] >= 1 || p.gems.includes(k)));
+}
+
+function spareKinds(s: QueryState, pid: string): GemKind[] {
+  const p = playerOf(s, pid);
+  if (p.bank) return (Object.keys(p.bank) as GemKind[]).filter((k) => (p.bank[k] ?? 0) >= 2);
+  return [];
+}
+
+/** Optional free actions: Royal Guard, Alchemy, Diplomacy. */
+function freeActionChoices(view: PlayerView): Choice[] {
+  const s: QueryState = view;
+  const pid = view.viewerId!;
+  const p = playerOf(s, pid);
+  const out: Choice[] = [];
+  const moved = new Set(view.turn.moved ?? []);
+
+  if (!p.royalGuardUsed && (view.config.royalGuardPerMatch ?? 1) > 0) {
+    const king = Object.values(s.characters).find((c) => c.owner === pid && c.kind === 'king' && moved.has(c.id));
+    if (king) {
+      const { out: edges } = getBoard(s.boardId);
+      const here = king.node;
+      const adj = new Set(edges[here]?.map((e) => other(e, here)) ?? []);
+      adj.add(here);
+      for (const c of Object.values(s.characters)) {
+        if (c.owner !== pid || c.finished || c.guarded) continue;
+        if (c.id !== king.id && !adj.has(c.node)) continue;
+        const risk = danger(s, pid, c.node, distFn(s));
+        if (risk > 0 && (c.carrying.length || c.plates.length >= 3)) {
+          out.push({ action: { type: 'royalGuard', targetId: c.id }, score: 28 + risk * 4 });
+        }
+      }
+    }
+  }
+
+  if (view.turn.playerId === pid) {
+    const witch = Object.values(s.characters).find((c) => c.owner === pid && c.kind === 'witch' && !c.finished);
+    const miss = missingKinds(s, pid);
+    if (witch && miss.length) {
+      for (const gemId of witch.carrying) {
+        const gem = s.gems.find((g) => g.id === gemId);
+        if (!gem) continue;
+        const bankedCopy = (p.bank?.[gem.kind] ?? 0) >= 1 || p.gems.includes(gem.kind);
+        if (!bankedCopy) continue;
+        for (const to of miss) {
+          out.push({ action: { type: 'alchemy', characterId: witch.id, gemId, to }, score: 55 });
+        }
+      }
+    }
+
+    const queen = Object.values(s.characters).find((c) => c.owner === pid && c.kind === 'queen' && moved.has(c.id));
+    if (queen && !view.turn.diplomacyUsed) {
+      for (const give of spareKinds(s, pid)) {
+        for (const rival of s.players.filter((x) => x.id !== pid)) {
+          for (const want of spareKinds(s, rival.id)) {
+            if (missingKinds(s, pid).includes(want)) {
+              out.push({ action: { type: 'offerTrade', to: rival.id, give, want: { kind: 'gem', gem: want } }, score: 40 });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return out;
+}
+
 function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Choice[] {
   const out: Choice[] = [];
   const need = neededGems(s, pid);
@@ -242,7 +392,7 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
         if (!a.gem && full) out.push({ action: { ...a, discardCardId }, score });
         break;
       case 'enterDungeon':
-        score = !ch.carrying.length && need.length >= 2 && !finalUnlocked(s, pid) ? 20 : 0;
+        score = !ch.carrying.length && need.length >= 2 && !pathOpen(s, pid) ? 20 : 0;
         break;
       case 'leaveDungeon':
         score = ch.carrying.length || need.length === 0 ? 80 : 15;
@@ -255,7 +405,7 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
         break;
       case 'dragonFire': {
         const t = s.characters[a.targetId];
-        score = t.carrying.length ? 80 : t.lap >= 2 ? 45 : 20;
+        score = t.carrying.length ? 80 : t.plates.length >= 2 ? 45 : 20;
         break;
       }
       case 'sail':
@@ -263,7 +413,7 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
         const goal = goalOf(s, ch, ch.carrying.length, need, dist);
         const to = a.type === 'fly' ? a.to : getBoard(s.boardId).board.docks.find((d) => d !== ch.node)!;
         const gain = dist(ch.node, goal) - dist(to, goal);
-        score = gain > 6 && ch.lap < 1 ? 35 : 0;
+        score = gain > 6 && ch.plates.length < 1 ? 35 : 0;
         break;
       }
     }
@@ -280,12 +430,50 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
   return out.sort((a, b) => b.score - a.score);
 }
 
+/**
+ * Answer a trade offer aimed at this AI seat while it is not their turn.
+ * Accept when the AI gains a needed gem kind and keeps a spare copy of what it gives away
+ * (or can hand over a requested card).
+ */
+export function aiRespond(view: PlayerView, _random: () => number = Math.random): GameAction | null {
+  const pid = view.viewerId;
+  if (!pid || view.status !== 'playing') return null;
+  const s: QueryState = view;
+  const need = missingKinds(s, pid);
+  const mine = (view.trades ?? []).filter((t) => t.to === pid && t.give && t.want);
+  for (const offer of mine) {
+    if (!offer.give || !offer.want) continue;
+    if (!need.includes(offer.give)) {
+      return { type: 'respondTrade', offerId: offer.id, accept: false };
+    }
+    if (offer.want.kind === 'gem') {
+      if (!spareKinds(s, pid).includes(offer.want.gem)) {
+        return { type: 'respondTrade', offerId: offer.id, accept: false };
+      }
+      return { type: 'respondTrade', offerId: offer.id, accept: true };
+    }
+    if (offer.want.kind !== 'card') continue;
+    const cardType = offer.want.cardType;
+    const held = view.hand.filter((c) => c.type === cardType);
+    if (!held.length) return { type: 'respondTrade', offerId: offer.id, accept: false };
+    return { type: 'respondTrade', offerId: offer.id, accept: true, cardId: held[0].id };
+  }
+  return null;
+}
+
 export function chooseAiAction(view: PlayerView, random: () => number = Math.random): GameAction | null {
   const pid = view.viewerId;
-  if (!pid || view.status !== 'playing' || view.turn.playerId !== pid) return null;
+  if (!pid || view.status !== 'playing') return null;
+
+  // Off-turn: only trade responses.
+  if (view.turn.playerId !== pid) return aiRespond(view, random);
+
   const s: QueryState = view;
   const hand = view.hand;
   const t = view.turn;
+
+  const free = freeActionChoices(view).sort((a, b) => b.score - a.score)[0];
+  if (free && free.score >= 40) return free.action;
 
   if (!t.adventureDone) {
     const best = adventureChoices(s, pid, hand)[0];
@@ -295,7 +483,16 @@ export function chooseAiAction(view: PlayerView, random: () => number = Math.ran
     if (!t.move) return { type: 'roll' };
     const pick = bestMove(s, movableCharacters(s), random);
     if (!pick) return { type: 'skipMove' };
-    return { type: 'move', characterId: pick.characterId, path: pick.option.path, discardCardId: hand.length >= view.config.handLimit ? hand[0].id : null };
+    const action: GameAction = {
+      type: 'move',
+      characterId: pick.characterId,
+      path: pick.option.path,
+      discardCardId: hand.length >= view.config.handLimit ? hand[0].id : null,
+    };
+    if (pick.attack?.length) action.attack = pick.attack;
+    return action;
   }
+
+  if (free && free.score >= 25) return free.action;
   return { type: 'skipAdventure' };
 }

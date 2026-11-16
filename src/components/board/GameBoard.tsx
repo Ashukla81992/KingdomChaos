@@ -20,6 +20,7 @@ import {
   type NodeDef,
   type PlayerView,
 } from '@/engine';
+import { readMapMarkers } from '@/lib/mapMarkers';
 import { seatTheme } from '@/lib/seats';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
 import { PieceToken } from '../art/token';
@@ -45,6 +46,16 @@ export interface BoardPlan {
   choice: string[] | null;
   /** One-line summary shown beside the confirm button. */
   summary: string;
+  /** Rival pieces that would be captured on the previewed route (red). */
+  captures?: string[];
+  /** Knight route-attack candidates currently selected. */
+  attackSelected?: string[];
+  /** Knight route-attack candidates available on this route. */
+  attackChoices?: string[];
+  /** Portal exit node after a Witch hop or paired portal end. */
+  portalExits?: string[];
+  /** Known hazard / teleport landing spaces along the preview. */
+  hazards?: string[];
 }
 
 export interface GameBoardProps {
@@ -79,11 +90,14 @@ export interface GameBoardProps {
    * Royal Path drawing. `playSeat` is the one house whose path is part of the
    * selected move. `inspect` draws every path as a muted guide, not a move.
    * `explainSeat` keeps that house's spaces clickable so a locked path can
-   * explain itself, without drawing the line.
+   * explain itself, without drawing the line. `reachNodes` limits the live
+   * overlay to spaces the selected piece can actually use this roll.
    */
-  royal: { playSeat: number | null; inspect: boolean; explainSeat: number | null };
+  royal: { playSeat: number | null; inspect: boolean; explainSeat: number | null; reachNodes?: Set<string> | null };
   /** House plates the selected (or inspected) piece has already touched, ticked on the board. */
   platesDone?: number[] | null;
+  /** Tap a map marker (A3) for its explanation. */
+  onMarker?: (id: string, text: string) => void;
 }
 
 type Pt = [number, number];
@@ -388,6 +402,11 @@ export function GameBoard(props: GameBoardProps) {
   const planChar = plan ? view.characters[plan.characterId] : null;
   const planTheme = planChar ? seatTheme(seatOf(planChar.owner)) : null;
   const choiceRoute = plan?.choice ? plan.choice.slice(1).map((n, i) => routeBetween(adj, nodes, plan.choice![i], n)) : [];
+  const captureSet = useMemo(() => new Set(plan?.captures ?? []), [plan]);
+  const attackChoiceSet = useMemo(() => new Set(plan?.attackChoices ?? []), [plan]);
+  const attackSelectedSet = useMemo(() => new Set(plan?.attackSelected ?? []), [plan]);
+  const hazardSet = useMemo(() => new Set(plan?.hazards ?? []), [plan]);
+  const portalSet = useMemo(() => new Set(plan?.portalExits ?? []), [plan]);
   const dNode = dragonNode(view);
   const gemsHere = view.gems.filter((g) => g.node && nodes[g.node]?.map === map);
   const inDungeon = Object.values(view.characters).filter((c) => nodes[c.node]?.map === 'dungeon');
@@ -479,11 +498,14 @@ export function GameBoard(props: GameBoardProps) {
       );
   }
 
+  const reach = royal.reachNodes;
   for (const e of mapEdges) {
     if (e.lane !== 'final') continue;
     const seat = nodes[e.a].house ?? nodes[e.b].house;
     const mode = royalMode(seat);
     if (!mode || seat === undefined) continue;
+    // Live overlay: only the selected piece's reachable portion of its own path.
+    if ((mode === 'play' || mode === 'fading') && reach && reach.size > 0 && !(reach.has(e.a) && reach.has(e.b))) continue;
     const th = seatTheme(seat);
     const play = mode === 'play' || mode === 'fading';
     overlays.push(
@@ -500,6 +522,46 @@ export function GameBoard(props: GameBoardProps) {
     );
   }
 
+  // A3 map markers (distinct color + icon + label). Hidden effects stay off the map.
+  const markers = readMapMarkers(view).filter((m) => {
+    if (m.node) return nodes[m.node]?.map === map;
+    if (m.edgeId) {
+      const e = board.edges.find((x) => x.id === m.edgeId);
+      return !!e && nodes[e.a]?.map === map;
+    }
+    return false;
+  });
+  for (const m of markers) {
+    let at: Pt | null = null;
+    if (m.node && nodes[m.node]) at = nodes[m.node].xy;
+    else if (m.edgeId) {
+      const e = board.edges.find((x) => x.id === m.edgeId);
+      if (e) at = midpoint(e.route);
+    }
+    if (!at) continue;
+    const onExplain = () => (props.onMarker ? props.onMarker(m.id, m.explain) : props.onExplain?.(m.explain));
+    glyphs.push(
+      <g
+        key={`marker-${m.id}`}
+        transform={`translate(${at[0]} ${at[1]}) scale(${Math.max(1, ui * 0.75)})`}
+        role="button"
+        tabIndex={0}
+        aria-label={m.label}
+        data-map-marker={m.kind}
+        data-marker-id={m.id}
+        style={{ cursor: 'help' }}
+        onClick={() => onExplain()}
+        onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), onExplain())}
+      >
+        <circle r={16} fill={m.color} fillOpacity={0.92} stroke="#fff" strokeWidth={2} filter="url(#kc-soft)" />
+        {m.icon ? <image href={m.icon} x={-11} y={-11} width={22} height={22} /> : <circle r={5} fill="#fff" />}
+        <text y={26} textAnchor="middle" fontSize={9} fontWeight={800} fill={m.color} stroke="#fffaf0" strokeWidth={3} paintOrder="stroke">
+          {m.label}
+        </text>
+      </g>,
+    );
+  }
+
   // ---------------------------------------------------------------- spaces
   const renderNode = (n: NodeDef, top = false) => {
     const isEnd = ends.has(n.id);
@@ -511,6 +573,7 @@ export function GameBoard(props: GameBoardProps) {
     const entrance = royal.explainSeat == null ? null : board.houses.find((h) => h.seat === royal.explainSeat)?.final[0];
     const royalLook = n.lane === 'final' ? (royalMode(n.house) ?? (ends.has(n.id) ? 'play' : n.id === entrance ? 'locked' : null)) : null;
     if (n.lane === 'final' && !royalLook) return null;
+    if (n.lane === 'final' && (royalLook === 'play' || royalLook === 'fading') && reach && reach.size > 0 && !reach.has(n.id) && !ends.has(n.id)) return null;
     const house = n.house !== undefined ? seatTheme(n.house) : null;
     const entryOf = board.houses.find((h) => h.entry === n.id);
     const forkOf = board.houses.find((h) => h.branch === n.id);
@@ -604,6 +667,8 @@ export function GameBoard(props: GameBoardProps) {
         {deco}
         {isEnd && <circle r={r + 7} fill={chosen ? 'rgba(255,255,255,0.35)' : 'rgba(255,224,102,0.35)'} stroke={chosen ? '#fff' : '#ffcf33'} strokeWidth={chosen ? 4.5 : 3.5} className={chosen ? undefined : 'kc-pulse'} />}
         {(target || coached) && <circle r={r + 9} fill="rgba(47,123,245,0.18)" stroke="#2f7bf5" strokeWidth={3.5} className="kc-pulse" />}
+        {hazardSet.has(n.id) && <circle r={r + 10} fill="none" stroke="#f2a11a" strokeWidth={3} strokeDasharray="4 3" data-preview-hazard />}
+        {portalSet.has(n.id) && <circle r={r + 11} fill="none" stroke="#9b6cf0" strokeWidth={3} strokeDasharray="3 4" data-preview-portal />}
         {flash && <circle key={invalid!.at} r={r + 11} fill="none" stroke="#e0302d" strokeWidth={4} className="kc-flash" />}
       </g>
     );
@@ -724,24 +789,30 @@ export function GameBoard(props: GameBoardProps) {
           {/* Pieces. */}
           {pieces.map(({ c, node, x, y }) => {
             const theme = seatTheme(seatOf(c.owner));
-            const canMove = movable.has(c.id);
+            const canMove = movable.has(c.id) && !c.finished;
             const selected = plan?.characterId === c.id;
             const targeted = targets.characters.has(c.id);
+            const capture = captureSet.has(c.id);
+            const attackPick = attackChoiceSet.has(c.id);
+            const attackOn = attackSelectedSet.has(c.id);
             const companion = view.dragon.state === 'companion' && view.dragon.companion === c.id;
             const carried = gemsOf(view, c);
-            const label = `${pieceLabel(c)} at ${nodeName(view.boardId, c.node)}${carried.length ? `, carrying ${gemList(carried.map((g) => g.kind))}` : ''}, ${c.lap} of 4 plates${c.shield ? ', Shield' : ''}${c.immune ? ', Immune' : ''}${companion ? ', with the dragon' : ''}${canMove ? ', can move' : ''}${selected ? ', selected' : ''}`;
+            const label = `${pieceLabel(c)} at ${nodeName(view.boardId, c.node)}${carried.length ? `, carrying ${gemList(carried.map((g) => g.kind))}` : ''}, ${c.lap} of 4 plates${c.shield ? ', Shield' : ''}${c.immune ? ', Immune' : ''}${c.guarded ? ', Guarded' : ''}${companion ? ', with the dragon' : ''}${canMove ? ', can move' : ''}${selected ? ', selected' : ''}${capture ? ', capture target' : ''}${attackPick ? ', route attack choice' : ''}`;
             return (
               <g
                 key={c.id}
                 data-piece={c.id}
                 data-node={node}
-                data-owner={c.owner}
+                data-owner={c.owner === me ? 'you' : c.owner}
                 data-movable={canMove ? 'true' : undefined}
                 data-selected={selected ? 'true' : undefined}
+                data-capture={capture ? 'true' : undefined}
+                data-attack-choice={attackPick ? 'true' : undefined}
+                data-attack-selected={attackOn ? 'true' : undefined}
                 role="button"
-                tabIndex={canMove || targeted || c.owner === me ? 0 : -1}
+                tabIndex={canMove || targeted || attackPick || c.owner === me ? 0 : -1}
                 aria-label={label}
-                aria-pressed={canMove ? selected : undefined}
+                aria-pressed={canMove ? selected : attackPick ? attackOn : undefined}
                 onKeyDown={(k) => {
                   if (k.key === 'Enter' || k.key === ' ') {
                     k.preventDefault();
@@ -749,19 +820,22 @@ export function GameBoard(props: GameBoardProps) {
                   }
                 }}
                 onClick={(e) => {
-                  if (e.detail === 0 || !canMove) props.onPiece(c.id);
+                  if (e.detail === 0 || !canMove || attackPick) props.onPiece(c.id);
                 }}
                 style={{
                   transform: `translate(${x}px, ${y}px)`,
                   transition: reduced ? undefined : `transform ${fast ? 110 : 190}ms ease-out`,
-                  cursor: canMove ? 'grab' : 'pointer',
-                  opacity: ghost?.id === c.id ? 0.35 : 1,
+                  cursor: canMove || attackPick ? 'grab' : 'pointer',
+                  opacity: ghost?.id === c.id || c.finished ? 0.35 : 1,
                 }}
               >
                 <g transform={`scale(${pieceScale})`}>
                   <ellipse cx={0} cy={-22} rx={20} ry={30} fill="transparent" />
                   {(canMove || selected) && <ellipse cx={0} cy={-24} rx={18} ry={28} fill="none" stroke={selected ? '#fff' : '#ffe066'} strokeWidth={selected ? 3.5 : 2.6} strokeDasharray={selected ? undefined : '5 4'} className={selected ? undefined : 'kc-spin'} />}
-                  {targeted && <ellipse cx={0} cy={-24} rx={20} ry={30} fill="rgba(47,123,245,0.16)" stroke="#2f7bf5" strokeWidth={3} className="kc-pulse" />}
+                  {targeted && !capture && <ellipse cx={0} cy={-24} rx={20} ry={30} fill="rgba(47,123,245,0.16)" stroke="#2f7bf5" strokeWidth={3} className="kc-pulse" />}
+                  {(capture || attackPick) && (
+                    <ellipse cx={0} cy={-24} rx={21} ry={31} fill="rgba(200,40,30,0.18)" stroke={attackOn ? '#fff' : '#c8281e'} strokeWidth={attackOn ? 4 : 3.2} className="kc-pulse" />
+                  )}
                   <PieceToken kind={c.kind} theme={theme} />
                   {carried.map((g, i) => (
                     <g key={g.id} transform={`translate(11 ${9 - i * 12})`} data-carrying={g.kind}>
@@ -769,11 +843,11 @@ export function GameBoard(props: GameBoardProps) {
                       <GemShape kind={g.kind} size={9.5} />
                     </g>
                   ))}
-                  {(c.shield || c.immune) && (
+                  {(c.shield || c.immune || c.guarded) && (
                     <g transform="translate(-11 9)">
-                      <circle r={6} fill={c.immune ? '#ffd166' : '#2f7bf5'} stroke="#fff" strokeWidth={1.4} />
+                      <circle r={6} fill={c.immune ? '#ffd166' : c.guarded ? '#6a3fd0' : '#2f7bf5'} stroke="#fff" strokeWidth={1.4} />
                       <text y={2.6} textAnchor="middle" fontSize={7.5} fontWeight={800} fill={c.immune ? '#5a3d00' : '#fff'}>
-                        {c.immune ? 'I' : 'S'}
+                        {c.immune ? 'I' : c.guarded ? 'G' : 'S'}
                       </text>
                     </g>
                   )}

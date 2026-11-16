@@ -63,10 +63,19 @@ export function travelDistances(s: EdgeView, from: string, passable: (node: stri
 }
 
 /**
- * The anti-trapping guarantee for map cards: every castle and every character must still reach
- * the hub of its map. The main circuit is never changeable, so this only guards side routes.
+ * Anti-trapping for map cards: every castle and character must still reach its map hub, and every
+ * active kingdom must still reach its castle, all four house plates, and its Royal Path entry
+ * (fork). Returns false when a change would cut any of those off.
  */
 export function keepsEveryoneConnected(s: BoardState, change: Partial<Pick<BoardState, 'bridges' | 'blocks' | 'transforms'>>): boolean {
+  return connectionBreakReason(s, change) === null;
+}
+
+/** Why a proposed map change is refused, or null when it is safe. */
+export function connectionBreakReason(
+  s: BoardState,
+  change: Partial<Pick<BoardState, 'bridges' | 'blocks' | 'transforms'>>,
+): string | null {
   const next: EdgeView = {
     boardId: s.boardId,
     bridges: change.bridges ?? s.bridges,
@@ -76,14 +85,48 @@ export function keepsEveryoneConnected(s: BoardState, change: Partial<Pick<Board
   const { board, nodes } = getBoard(s.boardId);
   const hubs = Object.fromEntries(board.maps.map((m) => [m.id, m.hub]));
   const reach = Object.fromEntries(board.maps.map((m) => [m.id, walkingDistances(next, m.hub)]));
-  const mustReach = new Set<string>(s.players.map((p) => p.castle));
-  for (const c of Object.values(s.characters)) mustReach.add(c.node);
-  for (const node of mustReach) {
-    const map = nodes[node].map;
-    if (node !== hubs[map] && reach[map][node] === undefined) return false;
+  const reachable = (node: string) => {
+    const map = nodes[node]?.map;
+    if (!map) return false;
+    return node === hubs[map] || reach[map][node] !== undefined;
+  };
+
+  for (const p of s.players) {
+    if (!reachable(p.castle)) return `That change would cut ${p.name} off from their castle.`;
   }
-  return true;
+  for (const c of Object.values(s.characters)) {
+    if (!reachable(c.node)) return `That change would strand a piece at ${nodes[c.node]?.name ?? c.node}.`;
+  }
+
+  const islandHub = hubs.island;
+  if (islandHub) {
+    const islandReach = reach.island;
+    const plates = board.houses.map((h) => h.plate);
+    for (const plate of plates) {
+      if (plate !== islandHub && islandReach[plate] === undefined) {
+        return 'That change would cut a house plate off from the island.';
+      }
+    }
+    for (const h of board.houses) {
+      const active = s.players.some((p) => p.seat === h.seat);
+      if (!active) continue;
+      if (h.castle !== islandHub && islandReach[h.castle] === undefined) {
+        return `That change would cut ${h.name} off from their castle.`;
+      }
+      if (h.branch !== islandHub && islandReach[h.branch] === undefined) {
+        return `That change would cut ${h.name} off from their Royal Path entry.`;
+      }
+      for (const plate of plates) {
+        if (plate !== islandHub && islandReach[plate] === undefined) {
+          return `That change would cut ${h.name} off from a house plate.`;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 export const mapOf = (boardId: string, node: string) => getBoard(boardId).nodes[node].map;
 export const nodeName = (boardId: string, node: string) => getBoard(boardId).nodes[node]?.name ?? node;
+
+export { mapMarkers, type MapMarker, type MapMarkerKind } from './markers';

@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, type GameConfig } from './config';
 import { nodeName } from './graph';
 import { adventureOptions, dragonFireTargets, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
 import { CARD_INFO } from './rulesText';
-import { applyPower, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
+import { applyPower, clearGuards, expireTrades, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
 import {
   CARD_CATEGORY,
   handsFree,
@@ -185,10 +185,10 @@ export function createGame(opts: CreateGameOptions): GameState {
   return state;
 }
 
-function startTurn(ctx: Ctx, playerId: string, bonus: boolean) {
+function startTurn(ctx: Ctx, playerId: string, _bonus = false) {
   const s = ctx.state;
   const number = s.turn.number + 1;
-  const round = bonus ? s.turn.round : playerId === s.players[0].id ? s.turn.round + 1 : s.turn.round;
+  const round = playerId === s.players[0].id ? s.turn.round + 1 : s.turn.round;
   s.turn = {
     playerId,
     number,
@@ -199,7 +199,7 @@ function startTurn(ctx: Ctx, playerId: string, bonus: boolean) {
     witchPortalUsed: false,
     acted: false,
     extra: null,
-    bonus,
+    bonus: false,
     rolls: 0,
     moved: [],
     diplomacyUsed: false,
@@ -212,6 +212,7 @@ function startTurn(ctx: Ctx, playerId: string, bonus: boolean) {
     return;
   }
   s.stats[playerId].turns++;
+  clearGuards(ctx, playerId);
   for (const c of Object.values(s.characters)) {
     if (c.owner !== playerId) continue;
     c.immune = false;
@@ -226,26 +227,31 @@ function startTurn(ctx: Ctx, playerId: string, bonus: boolean) {
   ctx.events.push({ type: 'turnStarted', playerId, turn: number });
 }
 
-/** End the turn. An extra turn earned this turn starts now, for the same player. */
+/** End the turn, or grant a same-turn bonus roll when one is pending. */
 function finishTurn(ctx: Ctx) {
   const s = ctx.state;
   if (s.status !== 'playing') return;
   if (s.turn.extra) {
-    log(ctx, `${playerName(s, s.turn.playerId)} takes an extra turn.`, 'good', s.turn.playerId);
-    startTurn(ctx, s.turn.playerId, true);
+    log(ctx, `${playerName(s, s.turn.playerId)} takes a bonus roll.`, 'good', s.turn.playerId);
+    s.turn.moveDone = false;
+    s.turn.move = null;
+    s.turn.bonus = true;
+    s.turn.extra = null;
     return;
   }
-  const idx = s.players.findIndex((p) => p.id === s.turn.playerId);
+  const prev = s.turn.playerId;
+  expireTrades(ctx, prev);
+  const idx = s.players.findIndex((p) => p.id === prev);
   startTurn(ctx, s.players[(idx + 1) % s.players.length].id, false);
 }
 
-/** Grant the turn's one extra turn (a natural 6 and a cut in the same turn still give only one). */
+/** Grant at most one bonus roll for this roll (a 6 plus any number of captures is still one). */
 function earnExtra(ctx: Ctx, reason: 'six' | 'capture') {
   const t = ctx.state.turn;
   if (t.extra) return;
   t.extra = reason;
   ctx.events.push({ type: 'extraTurn', playerId: t.playerId, reason });
-  log(ctx, `${playerName(ctx.state, t.playerId)} earns an extra turn (${reason === 'six' ? 'rolled a 6' : 'made a cut'}). Finish this turn first.`, 'good', t.playerId);
+  log(ctx, `${playerName(ctx.state, t.playerId)} earns a bonus roll (${reason === 'six' ? 'rolled a 6' : 'made a cut'}).`, 'good', t.playerId);
 }
 
 /** End the turn once both actions are used; skip an Adventure action that has no legal option. */
@@ -314,11 +320,19 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       t.move = { roll: value, slowed: player.slowed };
       player.slowed = false;
       t.acted = true;
-      ctx.events.push({ type: 'rolled', playerId, value });
-      log(ctx, `${playerName(s, playerId)} rolled ${value}${t.move.slowed ? ` (slowed: at most ${cfg.slowDownMaxSteps})` : ''}.`, 'info', playerId);
+      t.rolls++;
+      let steps = value;
+      let penalty: 'dragon' | 'slowed' | null = null;
+      if (t.move.slowed && steps > cfg.slowDownMaxSteps) {
+        steps = cfg.slowDownMaxSteps;
+        penalty = 'slowed';
+      }
+      ctx.events.push({ type: 'rolled', playerId, value, steps, penalty, bonus: t.bonus });
+      log(ctx, `${playerName(s, playerId)} rolled ${value}${t.move.slowed ? ` (slowed: at most ${cfg.slowDownMaxSteps})` : ''}${t.bonus ? ' (bonus)' : ''}.`, 'info', playerId);
       if (cfg.extraTurnRoll > 0 && value === cfg.extraTurnRoll) earnExtra(ctx, 'six');
       if (movableCharacters(s).length === 0) {
         t.moveDone = true;
+        ctx.events.push({ type: 'noMove', playerId, steps });
         log(ctx, `${noMoveReason(s, playerId)} Movement skipped.`, 'info', playerId);
       }
       break;
@@ -327,17 +341,30 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       if (t.moveDone) return fail('You already moved this turn.');
       if (!t.move) return fail('Roll the die first.');
       const ch = mine(action.characterId);
-      if (!ch) return fail('Choose one of your own pieces.');
+      if (!ch || ch.finished) return fail('Choose one of your own pieces.');
       if (!Array.isArray(action.path) || action.path.length < 2 || action.path[0] !== ch.node) return fail('That route does not start where the piece stands.');
       const key = action.path.join('>');
       const option = legalMoves(s, ch.id).find((m) => m.path.join('>') === key);
       if (!option) return fail('That route is not legal any more (a piece, the dragon or a road changed). Pick a glowing space.');
+      const attack = action.attack;
+      if (option.routeTargets.length >= cfg.knightAttackMin) {
+        if (!attack || attack.length < cfg.knightAttackMin || attack.length > Math.min(cfg.knightAttackMax, option.routeTargets.length))
+          return fail(`Choose ${cfg.knightAttackMin}–${cfg.knightAttackMax} rivals for the route attack.`);
+        if (attack.some((id) => !option.routeTargets.includes(id))) return fail('Those targets are not eligible on this route.');
+        if (new Set(attack).size !== attack.length) return fail('Pick each rival only once.');
+        const end = option.path[option.path.length - 1];
+        const endMust = option.routeTargets.filter((id) => s.characters[id]?.node === end);
+        if (endMust.some((id) => !attack.includes(id))) return fail('An eligible rival on the final space must be included.');
+      } else if (attack?.length) {
+        return fail('This route has no route attack.');
+      }
       if (option.witchPortal) t.witchPortalUsed = true;
       t.moveDone = true;
       t.acted = true;
+      t.moved = [...t.moved, ch.id];
       ctx.events.push({ type: 'moved', characterId: ch.id, path: option.path });
       log(ctx, `${charLabel(s, ch.id)} moves to ${nodeName(s.boardId, option.path[option.path.length - 1])}${option.witchPortal ? ' (free portal hop)' : ''}.`, 'info', playerId);
-      walk(ctx, ch, option, action.discardCardId);
+      walk(ctx, ch, option, action.discardCardId, attack);
       if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
       break;
     }
@@ -346,6 +373,10 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       if (t.move && movableCharacters(s).length > 0) return fail('You have a legal move — every roll must be used when possible.');
       t.moveDone = true;
       t.acted = true;
+      if (t.move) {
+        const steps = t.move.slowed ? Math.min(t.move.roll, cfg.slowDownMaxSteps) : t.move.roll;
+        ctx.events.push({ type: 'noMove', playerId, steps });
+      }
       log(ctx, `${playerName(s, playerId)} skips their move.`, 'info', playerId);
       break;
     }
@@ -499,8 +530,13 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
       const ch = s.characters[pick.characterId];
       if (pick.option.witchPortal) s.turn.witchPortalUsed = true;
       s.turn.moveDone = true;
+      s.turn.moved = [...s.turn.moved, ch.id];
       ctx.events.push({ type: 'moved', characterId: ch.id, path: pick.option.path });
-      walk(ctx, ch, pick.option);
+      const autoAttack =
+        pick.option.routeTargets.length >= s.config.knightAttackMin
+          ? pick.option.routeTargets.slice(0, Math.min(s.config.knightAttackMax, pick.option.routeTargets.length))
+          : undefined;
+      walk(ctx, ch, pick.option, undefined, autoAttack);
     }
   }
   if (s.status === 'playing') {

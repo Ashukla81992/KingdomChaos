@@ -1,6 +1,6 @@
 'use client';
 
-import { CROWN_QUEST, FEATURE_INFO, LOCATION_INFO } from '@/engine';
+import { CROWN_QUEST, FEATURE_INFO, LOCATION_INFO, MAP_MARKER_INFO } from '@/engine';
 import { SEATS } from '@/lib/seats';
 import { EmblemShape } from '../art/art';
 import { PieceToken } from '../art/token';
@@ -16,6 +16,14 @@ function Svg({ children, vb = '-14 -14 28 28' }: { children: React.ReactNode; vb
 
 // eslint-disable-next-line @next/next/no-img-element
 const Art = ({ src }: { src: string }) => <img src={src} alt="" width={30} height={30} className="h-[30px] w-[30px] object-contain" />;
+
+function Swatch({ color }: { color: string }) {
+  return (
+    <Svg>
+      <circle r={9} fill={color} stroke="#fff" strokeWidth={1.8} />
+    </Svg>
+  );
+}
 
 function Row({ icon, name, children }: { icon: React.ReactNode; name: string; children: React.ReactNode }) {
   return (
@@ -48,7 +56,7 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
           }
           name="Pieces"
         >
-          The King, Queen, Witch and Knight in that house’s colours. A small gem badge means it carries a gem; S or I means Shield or Immunity. The painted seal under a piece stays visible.
+          The King, Queen, Witch and Knight in that house’s colours. A small gem badge means it carries a gem; S, I or G means Shield, Immunity or Royal Guard. The painted seal under a piece stays visible.
         </Row>
         <Row
           icon={
@@ -78,9 +86,9 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
               <EmblemShape emblem={SEATS[1].emblem} size={12} />
             </Svg>
           }
-          name="House gate and plate"
+          name="House gate and checkpoint"
         >
-          {FEATURE_INFO.entry} A green tick on a plate means the selected piece has already touched it.
+          {FEATURE_INFO.entry} A green tick on a gate means the selected piece has already touched that checkpoint.
         </Row>
         <Row
           icon={
@@ -122,39 +130,41 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
         <Row icon={<Art src="/art/gem-ruby.png" />} name="Gem stations">
           Ruby Mine, Sapphire Falls, Diamond Hill and Emerald Grove. {FEATURE_INFO.station}
         </Row>
-        <Row
-          icon={
-            <Svg>
-              <circle r={9} fill="#d64532" stroke="#fff" strokeWidth={1.8} />
-              <path d="M-3.5 -3.5 L3.5 3.5 M3.5 -1 L3.5 3.5 L-1 3.5" stroke="#fff" strokeWidth={1.8} fill="none" />
-            </Svg>
-          }
-          name="Trap"
-        >
-          Ending a move on the Landslide sweeps the piece to Willow Valley. The Hidden Pit drops it under Dragon Mountain. The River Current carries it to the west beach. Gems and plates are kept; plates on the way do not count.
+
+        <Row icon={<Swatch color={MAP_MARKER_INFO.landslide.color} />} name={MAP_MARKER_INFO.landslide.name}>
+          {MAP_MARKER_INFO.landslide.rule}
         </Row>
-        <Row
-          icon={
-            <Svg>
-              <path d="M0 -9 L9 7 L-9 7 Z" fill="#f2a11a" stroke="#6b3b00" strokeWidth={1.4} strokeLinejoin="round" />
-              <path d="M0 -4 L0 1.5 M0 4 L0 4.2" stroke="#3b2100" strokeWidth={1.8} strokeLinecap="round" />
-            </Svg>
-          }
-          name="Trap risk"
-        >
-          Trap risk on the Bramble Snare, the Spray Snare and the Crag Snare. A piece that stops there may spring a snare. Passing through is safe.
+        <Row icon={<Swatch color={MAP_MARKER_INFO.portal.color} />} name={MAP_MARKER_INFO.portal.name}>
+          {MAP_MARKER_INFO.portal.rule}
         </Row>
-        <Row
-          icon={
-            <Svg>
-              <circle r={9} fill="#18a38a" stroke="#fff" strokeWidth={1.8} />
-              <path d="M-3.5 3.5 L3.5 -3.5 M-1 -3.5 L3.5 -3.5 L3.5 1" stroke="#fff" strokeWidth={1.8} fill="none" />
-            </Svg>
-          }
-          name="Shortcut"
-        >
-          Ending a move on the Magic Lift carries the piece down the east coast. The Secret Passage leads north along the west coast. Plates on the skipped spaces do not count.
+        <Row icon={<Swatch color={MAP_MARKER_INFO.teleport.color} />} name={MAP_MARKER_INFO.teleport.name}>
+          {MAP_MARKER_INFO.teleport.rule}
         </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.crossingOpen.color} />} name={MAP_MARKER_INFO.crossingOpen.name}>
+          {MAP_MARKER_INFO.crossingOpen.rule}
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.crossingClosed.color} />} name={MAP_MARKER_INFO.crossingClosed.name}>
+          {MAP_MARKER_INFO.crossingClosed.rule}
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.trap.color} />} name={MAP_MARKER_INFO.trap.name}>
+          {MAP_MARKER_INFO.trap.rule} Landslide sweeps to Willow Valley; Hidden Pit drops under Dragon Mountain; River Current carries to the west beach.
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.shortcut.color} />} name={MAP_MARKER_INFO.shortcut.name}>
+          {MAP_MARKER_INFO.shortcut.rule} Magic Lift and Secret Passage are the painted shortcuts.
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.hazard.color} />} name={MAP_MARKER_INFO.hazard.name}>
+          {MAP_MARKER_INFO.hazard.rule}
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.encounter.color} />} name={MAP_MARKER_INFO.encounter.name}>
+          {MAP_MARKER_INFO.encounter.rule}
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.safeRoom.color} />} name={MAP_MARKER_INFO.safeRoom.name}>
+          {MAP_MARKER_INFO.safeRoom.rule}
+        </Row>
+        <Row icon={<Swatch color={MAP_MARKER_INFO.wildDragon.color} />} name={MAP_MARKER_INFO.wildDragon.name}>
+          {MAP_MARKER_INFO.wildDragon.rule}
+        </Row>
+
         <Row icon={<Art src="/art/icon-dig.png" />} name="Dig site">
           {FEATURE_INFO.dig} Lakeside Dig, Old Camp Dig, Glade Dig, Ruins Dig and Bone Dig.
         </Row>
@@ -167,24 +177,14 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
         <Row icon={<Art src="/art/icon-plane.png" />} name="Plane">
           {FEATURE_INFO.airfield}
         </Row>
-        <Row
-          icon={
-            <Svg>
-              <circle r={10} fill="none" stroke="#9b6cf0" strokeWidth={2.5} strokeDasharray="3 3" />
-            </Svg>
-          }
-          name="Moonstone Arch"
-        >
-          {FEATURE_INFO.portal}
-        </Row>
         <Row icon={<Art src="/art/icon-bridge.png" />} name="Bridge">
-          The Stone Bridge starts open and crosses the gorge. Collapse Bridge can close it if nobody would be stranded.
+          The Stone Bridge starts open and crosses the gorge. Collapse Bridge can close it when every house stays connected.
         </Row>
         <Row icon={<Art src="/art/icon-broken-bridge.png" />} name="Broken bridge">
           The Rope Bridge starts broken. Build Bridge or Repair opens it — for every house.
         </Row>
         <Row icon={<Art src="/art/icon-tunnel.png" />} name="Tunnel">
-          The Dragon Mountain Tunnel is one step of the main road, between the north road and the Crystal Mine. Cards cannot close it. The Crystal Mine Tunnel starts sealed; Dig Tunnel or a dig opens it.
+          The Dragon Mountain Tunnel is one step of the main road. Cards leave it open. The Crystal Mine Tunnel starts sealed; Dig Tunnel or a dig opens it.
         </Row>
         <Row icon={<Art src="/art/icon-dig.png" />} name="Road plot">
           The Camp Road and the Ruins Road start unbuilt. Build Road or a dig paves one.
@@ -196,7 +196,7 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
           Create River floods a terrain site and closes its paths. Repair clears it.
         </Row>
         <Row icon={<Art src="/art/dragon.png" />} name="Dragon">
-          {LOCATION_INFO.dragonChamber.rule} Nobody walks past a wild or guarding dragon.
+          {LOCATION_INFO.dragonChamber.rule} A wild or guarding dragon blocks most pieces; the Witch may pass a wild one.
         </Row>
         <Row icon={<Art src="/art/icon-chest.png" />} name="Dungeon">
           {LOCATION_INFO.monster.rule} {LOCATION_INFO.gemChamber.rule} {LOCATION_INFO.trap.rule}

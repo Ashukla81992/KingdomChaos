@@ -2,12 +2,12 @@ import {
   GEM_NAMES,
   getBoard,
   houseOf,
-  finalUnlocked,
   isProtected,
   legalMoves,
   neededGems,
   nodeName,
   other,
+  royalPathOpen,
   stepsFor,
   edgeOpen,
   type BoardState,
@@ -20,10 +20,17 @@ import {
 type S = BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
 
 /**
- * A local, uncommitted movement preview. A move always uses the whole roll on the island, so the
- * preview lists every legal end space; the player picks one, sees the route and what will happen
- * there, and confirms. Every option comes from the engine's own `legalMoves`, and the server checks
- * the route again on commit.
+ * Local, uncommitted movement preview for the board UI (Agent 4).
+ *
+ * API:
+ * - `startPlan(s, characterId) → Plan | null` — after a roll; null when no legal exact routes.
+ * - `destinations(plan) → Map<endId, MoveOption[]>` — every legal end with its routes.
+ * - `choose(plan, end) → Plan | null` — pick/cycle a route to that end.
+ * - `alternatives(plan)`, `consequences(s, id, option)`, `routeTrails`, `routeNote`, `whyNot`.
+ *
+ * Exact movement only: every option uses the full allowance (island and dungeon). There is no
+ * "Stop here" or split-move. Knight options may list `routeTargets`; the UI sends `attack` with
+ * 2–3 chosen ids (including any eligible rival on the final space).
  */
 export interface Plan {
   characterId: string;
@@ -38,7 +45,7 @@ const endOf = (o: MoveOption) => o.path[o.path.length - 1];
 
 export function startPlan(s: BoardState, characterId: string): Plan | null {
   const ch = s.characters[characterId];
-  if (!ch || !s.turn.move || s.turn.moveDone) return null;
+  if (!ch || ch.finished || !s.turn.move || s.turn.moveDone) return null;
   const options = legalMoves(s, characterId);
   if (!options.length) return null;
   const { steps, note } = stepsFor(s, characterId, s.turn.move.roll);
@@ -90,10 +97,9 @@ export function consequences(s: S, characterId: string, o: MoveOption): string[]
     const plate = nodes[node].plate;
     if (walked && plate !== undefined && !plates.has(plate)) {
       plates.add(plate);
-      const house = getBoard(s.boardId).board.houses.find((h) => h.seat === plate)!;
-      lines.push(plates.size === 4 ? `Touches the ${house.name} plate — lap complete!` : `Touches the ${house.name} plate (${plates.size} of 4)`);
+      const plateHouse = getBoard(s.boardId).board.houses.find((h) => h.seat === plate)!;
+      lines.push(plates.size === 4 ? `Touches the ${plateHouse.name} plate — lap complete!` : `Touches the ${plateHouse.name} plate (${plates.size} of 4)`);
     }
-    if (o.knightCut === node) for (const c of Object.values(s.characters).filter((x) => x.node === node && x.owner !== ch.owner)) lines.push(`Charges through and cuts ${name(c.id)}`);
     if (carrying.length && node === house.entry) {
       lines.push(`Banks the ${carrying.map((k) => GEM_NAMES[k]).join(' and the ')}`);
       carrying = [];
@@ -106,13 +112,17 @@ export function consequences(s: S, characterId: string, o: MoveOption): string[]
     }
     if (nodes[node].lane === 'final' && nodes[prev].lane !== 'final') lines.push('Turns onto your Royal Path');
   }
-  for (const id of o.landingCuts) lines.push(`Cuts ${name(id)} — sent home, and you earn an extra turn`);
-  if (o.knightCut) lines.push('The cut earns an extra turn');
+  if (o.routeTargets.length) {
+    lines.push(`Route attack: choose ${s.config.knightAttackMin}–${s.config.knightAttackMax} of ${o.routeTargets.map(name).join(', ')}`);
+  }
+  for (const id of o.landingCuts) lines.push(`Cuts ${name(id)} — sent home, and you earn a bonus roll`);
+  if (o.routeTargets.length || o.landingCuts.length) lines.push('A capture earns a bonus roll (one per roll)');
+  if (o.arrival) lines.push(`${o.arrival.name}: roll ${o.arrival.need}+ — ${o.arrival.success} / ${o.arrival.failure}`);
   const end = nodes[endOf(o)];
   if (end.hazard) lines.push(`Trap risk: stopping at the ${end.name} springs a snare on a roll of 1–2`);
   if (end.teleport) lines.push(`${end.teleport.name}: ${end.teleport.type === 'trap' ? 'falls' : 'rides'} to ${nodeName(s.boardId, end.teleport.to)} (plates on the way do not count)`);
   if (end.dig && !end.station) lines.push('Dig site: dig here as your adventure action');
-  if (end.id === getBoard(s.boardId).board.temple) lines.push('Reaches the Crown Temple — you win!');
+  if (o.finishes) lines.push('Enters the Crown Temple');
   if (end.safe && end.lane === 'circuit') lines.push('Safe space');
   return lines;
 }
@@ -147,14 +157,15 @@ export function whyNot(s: S, plan: Plan, node: string): string {
   if (target.type === 'castle') return target.house === s.players.find((p) => p.id === ch.owner)?.seat ? 'Pieces come home only when cut or rescued.' : 'Opponent castles are closed to you.';
   if (target.lane === 'final' && target.house !== s.players.find((p) => p.id === ch.owner)?.seat) return `That is another house's Royal Path.`;
   if (target.lane === 'final' || target.lane === 'temple') {
-    if (!finalUnlocked(s, ch.owner)) return 'Royal Path locked: bank all four gems and make a cut first.';
-    if (ch.lap < 4 && here.lane !== 'final') return `This piece has touched ${ch.lap} of 4 house plates. It needs all four before it can enter the Royal Path.`;
+    if (!royalPathOpen(s, ch.owner)) return 'Royal Path locked: bank all four gem kinds first.';
+    if (target.lane === 'temple' && here.lane === 'final') return 'The temple gate needs all four markers and a kingdom capture, plus the exact roll.';
     if (target.lane === 'temple') return 'You need the exact roll to land on the temple.';
   }
-  const others = Object.values(s.characters).filter((c) => c.node === node && c.id !== ch.id);
+  const others = Object.values(s.characters).filter((c) => !c.finished && c.node === node && c.id !== ch.id);
+  if (ch.kind === 'queen' && others.length) return 'The Queen must end on an empty space.';
   if (!target.safe && others.some((c) => c.owner === ch.owner)) return 'Your own piece is there, and it is not a safe space.';
   const prot = others.find((c) => c.owner !== ch.owner && isProtected(c));
-  if (!target.safe && prot) return `That piece is protected by ${prot.immune ? 'Immunity' : 'a Shield'}: you cannot land on it.`;
+  if (!target.safe && prot) return `That piece is protected by ${prot.guarded ? 'Royal Guard' : prot.immune ? 'Immunity' : 'a Shield'}: you cannot land on it.`;
   if (here.map === 'island') {
     const route = shortestOpen(s, ch.node, node);
     if (!route) return `No open road leads to ${name} right now (a bridge, tunnel or road on the way is closed).`;
@@ -164,8 +175,8 @@ export function whyNot(s: S, plan: Plan, node: string): string {
       const dragonAt = s.dragon.state === 'guarding' || s.dragon.state === 'wild' ? s.dragon.node : null;
       for (const id of route.slice(1, -1)) {
         if (id === dragonAt) return `The dragon at ${nodes[id].name} blocks the way.`;
-        const opp = Object.values(s.characters).filter((c) => c.node === id && c.owner !== ch.owner);
-        if (opp.length && !nodes[id].safe && ch.kind !== 'queen') return `An opponent at ${nodes[id].name} blocks the way${ch.kind === 'knight' ? ' (the Knight can charge through only one unprotected opponent)' : ''}.`;
+        const opp = Object.values(s.characters).filter((c) => !c.finished && c.node === id && c.owner !== ch.owner);
+        if (opp.length && !nodes[id].safe && ch.kind !== 'queen' && ch.kind !== 'knight') return `An opponent at ${nodes[id].name} blocks the way.`;
       }
     }
     if (d < plan.steps) return `${name} is only ${d} ${d === 1 ? 'space' : 'spaces'} away. A move must use all ${plan.steps} steps without stepping on any space twice, and no such route ends there.`;
