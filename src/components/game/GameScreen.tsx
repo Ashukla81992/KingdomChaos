@@ -45,7 +45,7 @@ import { SettingsPanel } from '../SettingsPanel';
 import { Modal } from '../ui/Modal';
 import { CardView } from './CardView';
 import { Die } from './Die';
-import { GuidePanel, PlateDots, plateLine } from './GuidePanel';
+import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
 import { MapGuide } from './MapGuide';
 import { ObjectiveStrip } from './ObjectiveStrip';
 import { ResultsOverlay } from './ResultsOverlay';
@@ -637,10 +637,14 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
 
       <ObjectiveStrip view={view} me={me} presence={controller.presence} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:grid-cols-[minmax(0,1fr)_360px] lg:px-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:grid-cols-[280px_minmax(0,1fr)_340px] lg:px-4">
+        <aside className="hidden min-h-0 lg:block lg:h-[calc(100dvh-7.25rem)]" data-play-column="rules">
+          <RulesRail />
+        </aside>
         <section
           className="panel relative mx-auto aspect-square w-full max-w-[min(100%,calc(100dvh-7.5rem))] overflow-hidden p-0! lg:max-w-none lg:aspect-auto lg:h-[calc(100dvh-7.25rem)]"
           data-tutorial="board"
+          data-play-column="board"
           aria-label={map === 'dungeon' ? 'Dungeon map' : 'Island map'}
         >
           <div className="absolute top-2 left-2 z-10 flex gap-1.5">
@@ -720,7 +724,7 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
           )}
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-2 lg:h-[calc(100dvh-7.25rem)] lg:overflow-y-auto">
+        <aside className="flex min-h-0 flex-col gap-2 lg:h-[calc(100dvh-7.25rem)] lg:overflow-y-auto" data-play-column="turn" aria-label="Your turn and cards">
           <div className="panel p-3" data-tutorial="actions">
             <div className="flex items-center gap-2 rounded-xl px-2 py-1 text-sm font-extrabold tracking-wide uppercase" style={{ background: theme.light, color: theme.dark }} data-turn-banner>
               <EmblemBadge theme={theme} size={20} />
@@ -875,10 +879,6 @@ export function GameScreen({ controller, onExit, results, tutorial }: Props) {
                 )}
               </div>
             )}
-          </div>
-
-          <div className="hidden lg:block">
-            <GuidePanel view={view} me={me} focusId={focusChar?.id ?? null} turn={guideTurn} />
           </div>
 
           <details className="panel group p-3" data-tutorial="hand" open={handCards.length > 0}>

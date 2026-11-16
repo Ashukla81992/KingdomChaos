@@ -167,7 +167,7 @@ export default function TutorialPage() {
         initial={reducedMotion ? false : { opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         exit={reducedMotion ? undefined : { opacity: 0, y: -8 }}
-        className="panel fixed inset-x-2 bottom-2 z-40 max-h-[45dvh] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[380px] sm:max-h-[70dvh]"
+        className="panel fixed inset-x-2 bottom-2 z-40 max-h-[45dvh] overflow-y-auto p-4 sm:inset-x-auto sm:bottom-4 sm:left-4 sm:w-[380px] sm:max-h-[70dvh] lg:left-[304px] lg:w-[min(420px,calc(100vw-668px))]"
         aria-labelledby="tutorial-title"
         aria-live="polite"
         data-testid="tutorial-card"

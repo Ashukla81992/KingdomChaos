@@ -33,7 +33,7 @@ export function PlateDots({ view, ch, size = 9 }: { view: PlayerView; ch: Charac
       {houses.map((h) => {
         const th = seatTheme(h.seat);
         const on = ch.plates.includes(h.seat);
-        return <span key={h.seat} className="inline-block rounded-full" style={{ width: size, height: size, background: on ? th.color : 'transparent', boxShadow: `inset 0 0 0 1.5px ${th.color}` }} />;
+        return <span key={h.seat} className="inline-block rounded-full" data-plate-check={h.key} data-done={on} style={{ width: size, height: size, background: on ? th.color : 'transparent', boxShadow: `inset 0 0 0 1.5px ${th.color}` }} />;
       })}
     </span>
   );
@@ -56,9 +56,55 @@ interface Props {
   compact?: boolean;
 }
 
+/** Searchable rule sections shared by the left-hand rules column and the phone guide. */
+export function RuleSections({ query }: { query: string }) {
+  const q = query.trim().toLowerCase();
+  const sections = useMemo(() => RULE_SECTIONS.filter((s) => !q || sectionText(s).some((t) => t.toLowerCase().includes(q))), [q]);
+  if (!sections.length) return <p className="text-sm text-[#4a5374]">No rules match “{query}”.</p>;
+  return (
+    <>
+      {sections.map((s) => (
+        <details key={`${s.id}-${q ? 'q' : ''}`} className="mb-1 rounded-lg bg-white/80 px-2 py-1" open={!!q} data-guide-section={s.id}>
+          <summary className="cursor-pointer text-sm font-bold">{s.title}</summary>
+          {s.paragraphs.map((p, i) => (
+            <p key={i} className="mt-1 text-xs leading-snug text-[#2c3558]">
+              {p}
+            </p>
+          ))}
+          {s.bullets && (
+            <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs leading-snug text-[#2c3558]">
+              {s.bullets.map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          )}
+        </details>
+      ))}
+    </>
+  );
+}
+
+/** Always-visible rules, sitting to the left of the board on a wide screen. */
+export function RulesRail() {
+  const [query, setQuery] = useState('');
+  return (
+    <div className="panel flex h-full min-h-0 flex-col p-3" data-rules-rail aria-label="Rules">
+      <h2 className="font-display text-base font-bold">Rules</h2>
+      <p className="mt-0.5 text-xs leading-snug text-[#2c3558]">Bank four gems, cut once, touch all four house plates with one character, then land exactly on the temple.</p>
+      <label className="relative mt-2 block">
+        <Search className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[#4a5374]" size={15} aria-hidden="true" />
+        <input type="search" aria-label="Search the rules" className="field py-1.5! pl-8 text-sm" placeholder="Search (e.g. dragon, cut, plate)" value={query} onChange={(e) => setQuery(e.target.value)} />
+      </label>
+      <div className="scrollbar-thin mt-2 min-h-0 flex-1 overflow-y-auto" data-guide-rules>
+        <RuleSections query={query} />
+      </div>
+    </div>
+  );
+}
+
 /**
- * The persistent guide: every house's progress, the selected piece, the turn, searchable rules and
- * recent events. Desktop shows it beside the board; phones open it as a drawer.
+ * Progress, the selected piece, and recent events. Phones open this as a drawer.
+ * On a wide screen the rules have their own column, so this panel is not shown there.
  */
 export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
   const [tab, setTab] = useState<Tab>('progress');
@@ -69,9 +115,6 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
   const extra = view.turn.extra;
 
   const focus = (picked && view.characters[picked]) || (focusId && view.characters[focusId]) || Object.values(view.characters).find((c) => c.owner === me) || null;
-
-  const q = query.trim().toLowerCase();
-  const sections = useMemo(() => RULE_SECTIONS.filter((s) => !q || sectionText(s).some((t) => t.toLowerCase().includes(q))), [q]);
 
   return (
     <div className="panel p-3" data-guide aria-label="Rules and guide">
@@ -217,24 +260,7 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
               <Search className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-[#4a5374]" size={15} aria-hidden="true" />
               <input type="search" aria-label="Search guide rules" className="field py-1.5! pl-8 text-sm" placeholder="Search (e.g. dragon, cut, plate)" value={query} onChange={(e) => setQuery(e.target.value)} />
             </label>
-            {!sections.length && <p className="text-sm text-[#4a5374]">No rules match “{query}”.</p>}
-            {sections.map((s) => (
-              <details key={`${s.id}-${q ? 'q' : ''}`} className="mb-1 rounded-lg bg-white/80 px-2 py-1" open={!!q} data-guide-section={s.id}>
-                <summary className="cursor-pointer text-sm font-bold">{s.title}</summary>
-                {s.paragraphs.map((p, i) => (
-                  <p key={i} className="mt-1 text-xs leading-snug text-[#2c3558]">
-                    {p}
-                  </p>
-                ))}
-                {s.bullets && (
-                  <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs leading-snug text-[#2c3558]">
-                    {s.bullets.map((b, i) => (
-                      <li key={i}>{b}</li>
-                    ))}
-                  </ul>
-                )}
-              </details>
-            ))}
+            <RuleSections query={query} />
           </div>
         )}
 

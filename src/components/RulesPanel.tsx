@@ -18,6 +18,80 @@ interface RulesPanelProps {
 
 const CARD_CATEGORIES: CardCategory[] = ['map', 'power', 'special'];
 const cardText = (t: CardType) => `${CARD_INFO[t].name} ${CARD_INFO[t].full} ${CARD_INFO[t].targets} ${CARD_INFO[t].restrictions}`;
+const GEMS = ['ruby', 'sapphire', 'emerald', 'diamond'] as const;
+
+const WIN_STEPS = [
+  { n: '1', title: 'Bank four gems', body: 'Pass a gem mine to pick one up. Reach your own gate to bank it. A piece can carry two.' },
+  { n: '2', title: 'Cut one rival', body: 'Land on an opponent on an ordinary road. They go home. A cut, or a roll of 6, earns one extra turn.' },
+  { n: '3', title: 'Touch four plates', body: 'One character must pass or land on every house seal — Red, Blue, Purple, Green — in any order.' },
+  { n: '4', title: 'Land on the temple', body: 'That same character walks your Royal Path and must stop exactly on the Crown Temple.' },
+];
+
+const TURN_STEPS = [
+  { title: 'Roll', body: 'One die. Then pick which of your four characters uses it.' },
+  { title: 'Move', body: 'Use every step. Roads run both ways, so several spaces glow. Tap one, then Move here.' },
+  { title: 'Adventure', body: 'Play a card, dig, or press End turn. You can do this before the move.' },
+];
+
+/** The first thing in How to play: the goal and a turn, before the full rule book. */
+function HowToPlay() {
+  return (
+    <div className="mb-5 space-y-3" data-how-to-play>
+      <div>
+        <h3 className="font-display text-lg font-semibold">Win in four steps</h3>
+        <p className="text-sm text-[#4a5374]">Every house has the same goal. The roads in between are your choice. The coast road is always open.</p>
+      </div>
+      <ol className="grid gap-2 sm:grid-cols-2">
+        {WIN_STEPS.map((step) => (
+          <li key={step.n} className="flex gap-3 rounded-2xl bg-white/80 p-3">
+            <span className="font-display grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#ffcf33] text-sm font-extrabold text-[#5a3d00]" aria-hidden="true">
+              {step.n}
+            </span>
+            <div>
+              <div className="font-display font-semibold">{step.title}</div>
+              {step.n === '1' && (
+                <div className="mt-1 flex gap-1" aria-hidden="true">
+                  {GEMS.map((gem) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img key={gem} src={`/art/gem-${gem}.png`} alt="" width={28} height={28} className="h-7 w-7 object-contain" />
+                  ))}
+                </div>
+              )}
+              <p className="mt-0.5 text-sm leading-snug text-[#3b4366]">{step.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+      <div className="rounded-2xl bg-white/80 p-3">
+        <h3 className="font-display font-semibold">On your turn</h3>
+        <ol className="mt-2 grid gap-2 sm:grid-cols-3">
+          {TURN_STEPS.map((step, i) => (
+            <li key={step.title} className="rounded-xl bg-[#fff6df] px-3 py-2">
+              <div className="font-display text-sm font-semibold">
+                <span className="text-[#8a6a3b]">{i + 1}. </span>
+                {step.title}
+              </div>
+              <p className="text-sm leading-snug text-[#3b4366]">{step.body}</p>
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div>
+        <p className="mb-1 text-sm font-semibold text-[#2c3558]">Each house plays these four</p>
+        <div className="flex items-center gap-2 overflow-x-auto">
+          {(['king', 'queen', 'witch', 'knight'] as CharacterKind[]).map((kind) => (
+            <div key={kind} className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/80 py-1 pr-3 pl-1">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={portrait(0, kind)} alt="" width={28} height={36} className="h-9 w-7 object-contain" />
+              <span className="text-sm font-semibold">{CHARACTER_INFO[kind].name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="text-sm text-[#4a5374]">The sections below are the full rules. Open one when you need it, or search.</p>
+    </div>
+  );
+}
 
 /** Every searchable string of a rules section (character abilities and card texts included). */
 export function sectionText(s: (typeof RULE_SECTIONS)[number]): string[] {
@@ -31,7 +105,8 @@ export function RulesContent({ query }: { query: string }) {
   const sections = useMemo(() => RULE_SECTIONS.filter((s) => !q || sectionText(s).some((t) => t.toLowerCase().includes(q))), [q]);
   if (!sections.length) return <p className="py-6 text-center text-[#4a5374]">No rules match “{query}”.</p>;
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
+      {!q && <HowToPlay />}
       {sections.map((s) => {
         const bullets = s.bullets && s.id !== 'characters' && (
           <ul className="ml-1 space-y-1">
@@ -44,10 +119,13 @@ export function RulesContent({ query }: { query: string }) {
           </ul>
         );
         return (
-          <section key={s.id} id={`rules-${s.id}`} aria-labelledby={`rules-h-${s.id}`}>
-            <h3 id={`rules-h-${s.id}`} className="mb-1.5 text-lg font-semibold">
-              {s.title}
-            </h3>
+          <details key={`${q}-${s.id}`} id={`rules-${s.id}`} open={!!q || s.id === 'objective'} className="group rounded-2xl bg-white/45 px-3 py-2" aria-labelledby={`rules-h-${s.id}`}>
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 py-1 [&::-webkit-details-marker]:hidden">
+              <h3 id={`rules-h-${s.id}`} className="text-lg font-semibold">
+                {s.title}
+              </h3>
+              <span aria-hidden="true" className="text-[#8a6a3b] transition group-open:rotate-180">▾</span>
+            </summary>
             {s.paragraphs.map((p, i) => (
               <p key={i} className="mb-1.5 leading-relaxed text-[#2c3558]">
                 {p}
@@ -97,7 +175,7 @@ export function RulesContent({ query }: { query: string }) {
             ) : (
               bullets
             )}
-          </section>
+          </details>
         );
       })}
     </div>

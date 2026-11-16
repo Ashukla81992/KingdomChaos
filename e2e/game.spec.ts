@@ -326,24 +326,27 @@ test('rules open mid-game without stopping the match timer', async ({ page }) =>
   await expect(timer).not.toHaveAttribute('aria-label', before!);
 });
 
-test('the guide panel shows progress, the selected piece’s plates and searchable rules', async ({ page }) => {
+test('rules sit left of the board, and the turn and cards sit on the right', async ({ page }) => {
   await tutorialStep(page, 4);
-  const guide = page.locator('[data-guide]').first();
-  await expect(guide).toBeVisible();
-  await expect(guide.locator('[data-guide-player="you"]')).toContainText(/Path locked/);
-  await expect(guide.locator('[data-guide-player="you"]')).toContainText(/not collected/);
+  const rules = page.locator('[data-rules-rail]');
+  const board = page.locator('[data-play-column="board"]');
+  const turn = page.locator('[data-play-column="turn"]');
+  await expect(rules).toBeVisible();
+  await expect(page.locator('[data-final="locked"]')).toBeVisible();
+  await expect(page.locator('[data-gem-state="needed"]').first()).toBeVisible();
+  const [rulesBox, boardBox, turnBox] = await Promise.all([rules.boundingBox(), board.boundingBox(), turn.boundingBox()]);
+  expect(rulesBox!.x + rulesBox!.width).toBeLessThanOrEqual(boardBox!.x + 4);
+  expect(turnBox!.x).toBeGreaterThanOrEqual(boardBox!.x + boardBox!.width - 4);
   await piece(page, 'you-witch').click();
-  await guide.locator('[data-guide-tab="piece"]').click();
-  await expect(guide.locator('[data-plate-check="blue"]')).toHaveAttribute('data-done', 'true');
-  await expect(guide.locator('[data-plate-check="red"]')).toHaveAttribute('data-done', 'false');
-  await guide.locator('[data-guide-tab="rules"]').click();
-  await guide.getByRole('searchbox').fill('dragon');
-  await expect(guide.locator('[data-guide-section="dragon"]')).toBeVisible();
-  await guide.getByRole('searchbox').fill('extra turn');
-  await expect(guide.locator('[data-guide-section="cuts"]')).toBeVisible();
-  await expect(guide.locator('[data-guide-section="dragon"]')).toHaveCount(0);
-  await guide.locator('[data-guide-tab="events"]').click();
-  await expect(guide.locator('[data-guide-events]')).toBeVisible();
+  await expect(page.locator('[data-character="you-witch"] [data-plate-check="blue"]')).toHaveAttribute('data-done', 'true');
+  await expect(page.locator('[data-character="you-witch"] [data-plate-check="red"]')).toHaveAttribute('data-done', 'false');
+  await rules.getByRole('searchbox').fill('dragon');
+  await expect(rules.locator('[data-guide-section="dragon"]')).toBeVisible();
+  await rules.getByRole('searchbox').fill('extra turn');
+  await expect(rules.locator('[data-guide-section="cuts"]')).toBeVisible();
+  await expect(rules.locator('[data-guide-section="dragon"]')).toHaveCount(0);
+  await expect(turn.locator('[data-tutorial="actions"]')).toBeVisible();
+  await expect(turn.locator('[data-tutorial="hand"]')).toBeVisible();
 });
 
 test('on a phone the guide opens as a Rules & Guide drawer', async ({ page }) => {
