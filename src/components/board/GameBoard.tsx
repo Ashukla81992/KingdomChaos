@@ -21,7 +21,6 @@ import {
   type PlayerView,
 } from '@/engine';
 import { seatTheme } from '@/lib/seats';
-import { EmblemShape } from '../art/art';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
 import { PieceToken } from '../art/token';
 
@@ -233,7 +232,7 @@ export function GameBoard(props: GameBoardProps) {
       const castle = nodes[node].type === 'castle';
       list.forEach((c, i) => {
         let off: Pt = [0, 0];
-        if (castle) off = [((i % 2) - 0.5) * 30, (Math.floor(i / 2) - 0.5) * 30];
+        if (castle) off = [((i % 2) - 0.5) * 46, (Math.floor(i / 2) - 0.5) * 52];
         else if (list.length > 1) {
           const a = (i / list.length) * Math.PI * 2 - Math.PI / 2;
           const r = list.length === 2 ? 12 : 15;
@@ -525,9 +524,7 @@ export function GameBoard(props: GameBoardProps) {
       const th = seatTheme(entryOf.seat);
       body = (
         <g data-plate={entryOf.seat} data-plate-done={platesDone ? String(platesDone.includes(entryOf.seat)) : undefined}>
-          <rect x={-r * 1.75} y={-r * 1.75} width={r * 3.5} height={r * 3.5} rx={r * 0.7} fill="#fff8e6" stroke={th.dark} strokeWidth={2} opacity={0.92} />
-          <circle r={r * 1.35} fill={th.color} stroke="#fff" strokeWidth={2} filter="url(#kc-soft)" />
-          <EmblemShape emblem={th.emblem} size={r * 1.3} />
+          <circle r={r * 1.7} fill={th.color} fillOpacity={0.16} stroke={th.color} strokeWidth={2} />
           {platesDone?.includes(entryOf.seat) && (
             <g transform={`translate(${r * 1.45} ${-r * 1.45})`}>
               <circle r={r * 0.75} fill="#2e9e62" stroke="#fff" strokeWidth={1.8} />
@@ -762,9 +759,9 @@ export function GameBoard(props: GameBoardProps) {
                 }}
               >
                 <g transform={`scale(${pieceScale})`}>
-                  <circle r={18} fill="transparent" />
-                  {(canMove || selected) && <circle r={17} fill="none" stroke={selected ? '#fff' : '#ffe066'} strokeWidth={selected ? 4 : 3} strokeDasharray={selected ? undefined : '5 4'} className={selected ? undefined : 'kc-spin'} />}
-                  {targeted && <circle r={19} fill="rgba(47,123,245,0.2)" stroke="#2f7bf5" strokeWidth={3.5} className="kc-pulse" />}
+                  <ellipse cx={0} cy={-22} rx={20} ry={30} fill="transparent" />
+                  {(canMove || selected) && <ellipse cx={0} cy={-24} rx={18} ry={28} fill="none" stroke={selected ? '#fff' : '#ffe066'} strokeWidth={selected ? 3.5 : 2.6} strokeDasharray={selected ? undefined : '5 4'} className={selected ? undefined : 'kc-spin'} />}
+                  {targeted && <ellipse cx={0} cy={-24} rx={20} ry={30} fill="rgba(47,123,245,0.16)" stroke="#2f7bf5" strokeWidth={3} className="kc-pulse" />}
                   <PieceToken kind={c.kind} theme={theme} />
                   {carried.map((g, i) => (
                     <g key={g.id} transform={`translate(11 ${9 - i * 12})`} data-carrying={g.kind}>

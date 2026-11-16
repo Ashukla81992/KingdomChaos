@@ -42,13 +42,13 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
       <ul className="divide-y divide-[#efe5cf]" data-map-guide>
         <Row
           icon={
-            <Svg vb="-16 -20 32 36">
+            <Svg vb="-22 -58 44 66">
               <PieceToken kind="king" theme={SEATS[0]} />
             </Svg>
           }
           name="Pieces"
         >
-          House colour, character symbol (crown King, tiara Queen, hat Witch, sword Knight) and the house crest: {SEATS.map((s) => `${s.kingdom} ${s.emblem}`).join(', ')}. A small gem badge means it carries a gem; S or I means Shield or Immunity.
+          The King, Queen, Witch and Knight in that house’s colours. A small gem badge means it carries a gem; S or I means Shield or Immunity. The painted seal under a piece stays visible.
         </Row>
         <Row
           icon={

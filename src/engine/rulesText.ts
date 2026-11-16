@@ -369,7 +369,7 @@ export const RULE_SECTIONS: RuleSection[] = [
   {
     id: 'characters',
     title: 'Characters',
-    paragraphs: ['Every house has a King, Queen, Witch and Knight, each a house-colour token with its symbol (crown, tiara, hat, sword).'],
+    paragraphs: ['Every house has a King, Queen, Witch and Knight, drawn in that house’s colours. They stand on the board with no backing plate, so the painted house seals stay visible.'],
     bullets: [
       'King — Royal Treasury: draws a card when he banks a new gem.',
       'Queen — Royal Passage: passes opponents without cutting them; only she can use Dragon Slayer.',

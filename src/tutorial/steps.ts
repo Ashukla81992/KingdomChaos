@@ -109,7 +109,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'welcome',
     title: 'Welcome to Crown Quest',
-    body: [QUICK_GOAL, 'You are the Red house (top left). Your King, Queen, Witch and Knight wait in your castle. Each token shows its symbol and your flame crest.'],
+    body: [QUICK_GOAL, 'You are the Red house (top left). Your King, Queen, Witch and Knight wait in your castle, in red.'],
     setup: () => withRoll(fresh(), 4),
     showCharacters: true,
     coach: () => ({ board: ['home-red', 'temple'] }),
