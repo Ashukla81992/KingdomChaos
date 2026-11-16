@@ -75,7 +75,7 @@ export default function PracticePage() {
         <Link href="/tutorial" className="btn btn-green w-full">
           <GraduationCap size={20} aria-hidden="true" /> Play the guided tutorial first
         </Link>
-        <p className="text-sm text-[#4a5374]">Practice runs entirely in your browser with the same rules engine as online play. The AI only sees its own cards.</p>
+        <p className="text-sm text-[#4a5374]">Practice uses the same Island Adventure rules engine as online play. The AI only sees its own redacted view and can answer Diplomacy offers aimed at it.</p>
       </form>
     </MenuShell>
   );

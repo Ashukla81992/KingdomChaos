@@ -21,16 +21,16 @@ const cardText = (t: CardType) => `${CARD_INFO[t].name} ${CARD_INFO[t].full} ${C
 const GEMS = ['ruby', 'sapphire', 'emerald', 'diamond'] as const;
 
 const WIN_STEPS = [
-  { n: '1', title: 'Bank four gems', body: 'Pass a gem mine to pick one up. Reach your own gate to bank it. A piece can carry two.' },
-  { n: '2', title: 'Cut one rival', body: 'Land on an opponent on an ordinary road. They go home. A cut, or a roll of 6, earns one extra turn.' },
-  { n: '3', title: 'Touch four plates', body: 'One character must pass or land on every house seal — Red, Blue, Purple, Green — in any order.' },
-  { n: '4', title: 'Land on the temple', body: 'That same character walks your Royal Path and must stop exactly on the Crown Temple.' },
+  { n: '1', title: 'Bank four gem kinds', body: 'Pass a gem mine to pick one up. Reach your own gate to bank it. One of each kind opens your Royal Path.' },
+  { n: '2', title: 'Touch four checkpoints', body: 'Each character you send to the temple must pass or land on every house gate — Red, Blue, Purple, Green.' },
+  { n: '3', title: 'Earn a capture', body: 'A movement capture credits your kingdom for the temple gate. A 6 or a capture also earns one bonus roll.' },
+  { n: '4', title: 'Finish all four', body: 'Walk each character up your Royal Path into the Crown Temple. The first house with all four inside wins.' },
 ];
 
 const TURN_STEPS = [
-  { title: 'Roll', body: 'One die. Then pick which of your four characters uses it.' },
-  { title: 'Move', body: 'Use every step. Roads run both ways, so several spaces glow. Tap one, then Move here.' },
-  { title: 'Adventure', body: 'Play a card, dig, or press End turn. You can do this before the move.' },
+  { title: 'Roll', body: 'One die. Then pick which of your four characters uses the exact allowance.' },
+  { title: 'Move', body: 'Use every step on one route. Roads run both ways, so several spaces glow. Tap one, then Move here.' },
+  { title: 'Adventure', body: 'Play a card, dig, or press End turn. You can do this before the move. Bonus rolls stay in the same turn.' },
 ];
 
 /** The first thing in How to play: the goal and a turn, before the full rule book. */
@@ -39,7 +39,7 @@ function HowToPlay() {
     <div className="mb-5 space-y-3" data-how-to-play>
       <div>
         <h3 className="font-display text-lg font-semibold">Win in four steps</h3>
-        <p className="text-sm text-[#4a5374]">Every house has the same goal. The roads in between are your choice. The coast road is always open.</p>
+        <p className="text-sm text-[#4a5374]">Every house has the same goal. The roads in between are your choice. The main road stays open.</p>
       </div>
       <ol className="grid gap-2 sm:grid-cols-2">
         {WIN_STEPS.map((step) => (

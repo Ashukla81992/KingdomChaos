@@ -77,7 +77,7 @@ describe('extra turns', () => {
     s = rollMove(s, 'a', 'a-king', 3, 'c11');
     expect(s.characters['b-witch'].node).toBe('home-purple');
     expect(s.turn).toMatchObject({ playerId: 'a', bonus: true });
-    expect(s.log.some((l) => /extra turn/i.test(l.text))).toBe(true);
+    expect(s.log.some((l) => /bonus roll/i.test(l.text))).toBe(true);
   });
 
   it('a 6 that also cuts still earns only one extra turn', () => {
@@ -129,12 +129,13 @@ describe('turn flow', () => {
     reject(s, 'a', { type: 'skipMove' }, /legal move/);
   });
 
-  it('explains and skips when no piece can use the roll', () => {
-    let s = noCards(unlock(game(), 'a'));
-    for (const k of ['king', 'queen', 'witch', 'knight']) place(s, `a-${k}`, 'f-red-5', { lap: 4 });
-    s = rollWith(s, 'a', 3);
-    expect(s.log.some((l) => /No legal move.*exactly/.test(l.text))).toBe(true);
-    expect(s.turn.playerId).toBe('b');
+  it('explains and skips when no piece can use the roll; pending bonus still resolves', () => {
+    let s = noCards(game(2, { finishersToWin: 5 }));
+    for (const k of ['king', 'queen', 'witch', 'knight']) place(s, `a-${k}`, 'temple', { finished: true, lap: 4 });
+    s = rollWith(s, 'a', 6);
+    expect(s.lastEvents.some((e) => e.type === 'noMove')).toBe(true);
+    expect(s.log.some((l) => /No legal move/.test(l.text))).toBe(true);
+    expect(s.turn).toMatchObject({ playerId: 'a', bonus: true, move: null, moveDone: false });
   });
 
   it('never lets a piece into an opponent castle or Royal Path', () => {

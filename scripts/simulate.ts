@@ -20,7 +20,7 @@ const args = Object.fromEntries(
 const games = Number(args.games ?? 100);
 const playerCounts = args.players ? [Number(args.players)] : [2, 3, 4];
 const secondsPerTurn = Number(args.secondsPerTurn ?? 20);
-const maxTurns = Number(args.maxTurns ?? 800);
+const maxTurns = Number(args.maxTurns ?? 2000);
 const carryLimit = args.carry ? { carryLimit: Number(args.carry) } : {};
 
 function runOne(players: number, seed: number) {
@@ -33,7 +33,8 @@ function runOne(players: number, seed: number) {
   let rng = seed;
   const random = () => (rng = (rng * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
   let rejected = 0;
-  for (let guard = 0; s.status === 'playing' && guard < 40_000 && s.turn.number <= maxTurns; guard++) {
+  let actions = 0;
+  for (let guard = 0; s.status === 'playing' && guard < 80_000 && s.turn.number <= maxTurns; guard++) {
     const actor = s.turn.playerId;
     const action = chooseAiAction(toPlayerView(s, actor), random);
     let r = action ? applyAction(s, { playerId: actor, action }, 0) : forceTimeout(s, 0);
@@ -42,9 +43,13 @@ function runOne(players: number, seed: number) {
       if (rejected < 5) console.warn(`AI action rejected: ${r.error}`, JSON.stringify(action));
       r = forceTimeout(s, 0);
     }
-    if (r.ok) s = r.state;
+    if (r.ok) {
+      s = r.state;
+      actions++;
+    }
   }
-  return { s, rejected };
+  const finishers = Object.values(s.characters).filter((c) => c.finished).length;
+  return { s, rejected, actions, finishers };
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
@@ -56,13 +61,17 @@ const pct = (xs: number[], p: number) => {
 for (const n of playerCounts) {
   const turns: number[] = [];
   const minutes: number[] = [];
+  const actionCounts: number[] = [];
+  const finisherCounts: number[] = [];
   let finished = 0;
   let rejected = 0;
   const totals: Partial<Record<keyof PlayerStats, number>> = {};
   const seatWins: Record<number, number> = {};
   for (let g = 0; g < games; g++) {
-    const { s, rejected: r } = runOne(n, 1000 + g);
+    const { s, rejected: r, actions, finishers } = runOne(n, 1000 + g);
     rejected += r;
+    actionCounts.push(actions);
+    finisherCounts.push(finishers);
     for (const st of Object.values(s.stats)) for (const [k, v] of Object.entries(st)) totals[k as keyof PlayerStats] = (totals[k as keyof PlayerStats] ?? 0) + v;
     if (s.status === 'finished' && s.result?.reason === 'temple') {
       finished++;
@@ -76,8 +85,10 @@ for (const n of playerCounts) {
   console.log(`\n=== ${n} players · ${games} games ===`);
   console.log(`temple wins: ${finished}/${games} (${((finished / games) * 100).toFixed(0)}%), AI rejections: ${rejected}`);
   console.log(`turns to win: mean ${mean(turns).toFixed(0)}, median ${pct(turns, 0.5)}, p90 ${pct(turns, 0.9)}`);
+  console.log(`actions/game: mean ${mean(actionCounts).toFixed(0)}, p90 ${pct(actionCounts, 0.9)}`);
+  console.log(`finishers at end: mean ${mean(finisherCounts).toFixed(2)} (victory needs all four characters in the temple)`);
   console.log(`estimated minutes at ${secondsPerTurn}s/turn (assumption): mean ${mean(minutes).toFixed(1)}, p90 ${pct(minutes, 0.9).toFixed(1)}`);
-  console.log(`per game: gems banked ${per('gemsBanked')}, cuts ${per('cuts')}, laps ${per('laps')}, traps ${per('traps')}, shortcuts ${per('shortcuts')}, vehicles ${per('vehicleTrips')}`);
+  console.log(`per game: gems banked ${per('gemsBanked')}, captures ${per('cuts')}, checkpoints ${per('laps')}, traps ${per('traps')}, shortcuts ${per('shortcuts')}, vehicles ${per('vehicleTrips')}`);
   console.log(`          discoveries ${per('discoveries')}, dungeon visits ${per('dungeonVisits')}, tames ${per('tames')}/${per('tameAttempts')}, fires ${per('dragonFires')}, slays ${per('slays')}/${per('slayAttempts')}, cards ${per('cardsPlayed')}`);
   console.log(`seat wins: ${JSON.stringify(seatWins)}`);
 }

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { dragonFireTargets, legalMoves, type GameState } from '@/engine';
-import { act, endsFor, freshTurn, game, hand, noCards, place, reject, rollWith, routeTo } from './helpers';
+import { dragonSpaceRule } from '@/engine/dungeon';
+import { act, carry, endsFor, freshTurn, game, hand, noCards, place, reject, rollWith, routeTo } from './helpers';
 
 const wild = (s: GameState, node: string) => {
   s.dragon = { state: 'wild', node, companion: null, recoverUntilTurn: 0, releasedBy: null };
@@ -54,9 +55,9 @@ describe('dragon', () => {
     expect(routeTo(s, 'a-king', 'c11')).toHaveLength(4);
   });
 
-  it('Dragon Fire hits within range 3, not castles or Royal Paths, blocked by Shield, and is not a cut', () => {
+  it('Dragon Fire hits within range 3, not castles, plates or Royal Paths, blocked by Shield, and is not a cut', () => {
     let s = noCards(companion(place(game(), 'a-king', 'c8'), 'a-king'));
-    place(s, 'b-king', 'c10');
+    place(s, 'b-king', 'c9');
     place(s, 'b-queen', 'c12');
     place(s, 'b-witch', 'f-purple-1');
     place(s, 'b-knight', 'c11', { shield: true });
@@ -64,6 +65,25 @@ describe('dragon', () => {
     s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
     expect(s.characters['b-king'].node).toBe('home-purple');
     expect(s.stats.a.cuts).toBe(0);
+  });
+
+  it('Witch is immune to Dragon Fire; fire drops gems and earns no cut credit', () => {
+    let s = noCards(companion(place(game(), 'a-king', 'c8'), 'a-king'));
+    place(s, 'b-witch', 'c9');
+    place(s, 'b-king', 'c7');
+    const gem = carry(s, 'b-king', 'ruby');
+    expect(dragonFireTargets(s, 'a').map((c) => c.id)).toEqual(['b-king']);
+    expect(dragonFireTargets(s, 'a').some((c) => c.kind === 'witch')).toBe(false);
+    s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
+    expect(s.characters['b-king'].node).toBe('home-purple');
+    expect(s.gems.find((g) => g.id === gem)).toMatchObject({ node: 'c7', carriedBy: null });
+    expect(s.stats.a.cuts).toBe(0);
+  });
+
+  it('Witch may pass a wild dragon space', () => {
+    const s = noCards(wild(game(), 'c3'));
+    expect(dragonSpaceRule(s, 'a-witch')).toBe('pass');
+    expect(dragonSpaceRule(s, 'a-king')).toBe('block');
   });
 
   it('Dragon Fire does not cross a blocked edge', () => {

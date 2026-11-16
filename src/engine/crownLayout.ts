@@ -1,4 +1,4 @@
-import type { GemKind } from './types';
+import type { EncounterDef, GemKind } from './types';
 
 /**
  * Crown Quest board data, in pixels of the island painting (public/board/island.jpg, 1024 × 1024).
@@ -298,6 +298,8 @@ export interface DungeonSpace {
   name: string;
   at: Pt;
   type: 'dEntrance' | 'path' | 'monster' | 'dragonChamber' | 'gemChamber' | 'trap' | 'vault' | 'safeRoom';
+  /** Arrival encounter (Stone Golem / Cave Spider). Separate from the Monster Den adventure fight. */
+  encounter?: EncounterDef;
 }
 
 export const DUNGEON_SPACES: DungeonSpace[] = [
@@ -312,11 +314,26 @@ export const DUNGEON_SPACES: DungeonSpace[] = [
   { id: 'd-vault', name: 'Old Vault', at: [135, 165], type: 'vault' },
   { id: 'd-c1', name: 'Pool Path', at: [380, 640], type: 'path' },
   { id: 'd-c2', name: 'Waterfall Pool', at: [355, 470], type: 'path' },
+  {
+    id: 'd-golem',
+    name: 'Stone Golem',
+    at: [250, 530],
+    type: 'path',
+    encounter: { monster: 'golem', name: 'Stone Golem', shortcutTo: 'd-e4', safeRoom: 'd-ruins' },
+  },
   { id: 'd-c3', name: 'Lair Steps', at: [330, 320], type: 'path' },
   { id: 'd-lair', name: 'Dragon Lair', at: [505, 185], type: 'dragonChamber' },
   { id: 'd-e2', name: 'Spike Hall', at: [700, 690], type: 'path' },
   { id: 'd-pit', name: 'Spike Pit', at: [820, 640], type: 'trap' },
   { id: 'd-e3', name: 'Crystal Path', at: [700, 520], type: 'path' },
+  {
+    id: 'd-spider',
+    name: 'Cave Spider',
+    at: [800, 450],
+    type: 'path',
+    encounter: { monster: 'spider', name: 'Cave Spider', safeRoom: 'd-safe-crystal' },
+  },
+  { id: 'd-safe-crystal', name: 'Crystal Niche', at: [850, 520], type: 'safeRoom' },
   { id: 'd-e4', name: 'Crystal Path', at: [700, 330], type: 'path' },
   { id: 'd-shrine', name: 'Crystal Shrine', at: [865, 345], type: 'gemChamber' },
 ];
@@ -332,11 +349,14 @@ export const DUNGEON_HALLS: [string, string, { guard?: true; name?: string }?][]
   ['d-w4', 'd-vault'],
   ['d-w1', 'd-c1'],
   ['d-c1', 'd-c2'],
+  ['d-c2', 'd-golem'],
   ['d-c2', 'd-c3'],
   ['d-c3', 'd-lair'],
   ['d-e1', 'd-e2'],
   ['d-e2', 'd-pit'],
   ['d-e2', 'd-e3'],
+  ['d-e3', 'd-spider'],
+  ['d-e3', 'd-safe-crystal'],
   ['d-e3', 'd-e4'],
   ['d-e4', 'd-shrine'],
   ['d-e4', 'd-lair'],

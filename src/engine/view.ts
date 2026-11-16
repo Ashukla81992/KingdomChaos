@@ -1,3 +1,4 @@
+import { tradesFor } from './powers';
 import type { GameState, PlayerView } from './types';
 
 /** What one player is allowed to see: their own hand only, no deck order, no discovery order, no RNG state. */
@@ -29,5 +30,6 @@ export function toPlayerView(s: GameState, viewerId: string | null): PlayerView 
     discardTop: s.discard.length ? s.discard[s.discard.length - 1].type : null,
     discardCount: s.discard.length,
     discoveryCount: s.discoveries.length,
+    trades: tradesFor(s, viewerId),
   };
 }

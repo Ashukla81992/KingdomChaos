@@ -1,2 +1,2 @@
-/** False when this build is hosted on Vercel, which cannot run the Socket.IO game server. */
-export const realtimeAvailable = process.env.NEXT_PUBLIC_REALTIME !== 'off';
+/** Online play uses HTTP polling and works on Vercel; always available. */
+export const realtimeAvailable = true;

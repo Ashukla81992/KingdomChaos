@@ -51,7 +51,7 @@ describe('move preview', () => {
     s = rollWith(s, 'a', 3);
     const text = consequences(s, 'a-king', choose(startPlan(s, 'a-king')!, 'c11')!.choice!).join(' | ');
     expect(text).toMatch(/Touches the Blue plate \(1 of 4\)/);
-    expect(text).toMatch(/extra turn/);
+    expect(text).toMatch(/bonus roll/);
 
     s = fresh();
     place(s, 'a-king', 'camp-west');
@@ -76,7 +76,7 @@ describe('move preview', () => {
     expect(whyNot(s, plan, 'c1')).toMatch(/whole roll/);
     expect(whyNot(s, plan, 'home-blue')).toMatch(/castle/i);
     expect(whyNot(s, plan, 'f-purple-1')).toMatch(/another house/);
-    expect(whyNot(s, plan, 'f-red-1')).toMatch(/four gems and make a cut/);
+    expect(whyNot(s, plan, 'f-red-1')).toMatch(/four gem/);
   });
 
   it('refuses a protected opponent and says why', () => {

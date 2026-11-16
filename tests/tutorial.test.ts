@@ -30,8 +30,11 @@ function playOnly(id: string) {
 }
 
 describe('tutorial', () => {
-  it('has 11 steps, each on a playable board', () => {
-    expect(TUTORIAL_STEPS).toHaveLength(11);
+  it('has guided first-turn steps on a playable board', () => {
+    expect(TUTORIAL_STEPS.length).toBeGreaterThanOrEqual(11);
+    expect(TUTORIAL_STEPS.map((s) => s.id)).toEqual(
+      expect.arrayContaining(['welcome', 'roll', 'move', 'bank', 'cut', 'bonus', 'shield', 'map-card', 'dungeon', 'royal-path', 'temple', 'more']),
+    );
     for (const st of TUTORIAL_STEPS) expect(st.setup().status).toBe('playing');
   });
 
@@ -43,17 +46,25 @@ describe('tutorial', () => {
     expect(step('move').done!(before, after, events)).toBe(true);
   });
 
-  it('banks the Ruby on the gate and completes the lap', () => {
+  it('banks the Ruby on the gate and completes the checkpoints', () => {
     const { before, after, events } = walk('bank');
     expect(step('bank').done!(before, after, events)).toBe(true);
     expect(after.characters['you-witch'].lap).toBe(4);
+    expect(after.characters['you-witch'].plates).toHaveLength(4);
   });
 
-  it('the Knight cuts the rival Witch and takes her Sapphire', () => {
+  it('the Knight captures the rival Witch and takes her Sapphire', () => {
     const { before, after, events } = walk('cut');
     expect(step('cut').done!(before, after, events)).toBe(true);
     expect(after.characters['you-knight'].node).toBe('c4');
     expect(after.gems.find((g) => g.carriedBy === 'you-knight')?.kind).toBe('sapphire');
+  });
+
+  it('bonus step starts with a pending bonus and accepts a roll', () => {
+    const s = step('bonus').setup();
+    expect(s.turn.extra === 'capture' || s.turn.bonus).toBe(true);
+    const r = play(s, { type: 'roll' });
+    expect(step('bonus').done!(s, r.state, r.events)).toBe(true);
   });
 
   it('Shield and Build Bridge each have a target and complete their step', () => {
@@ -81,7 +92,7 @@ describe('tutorial', () => {
     expect(step('dungeon').done!(s, out.state, out.events)).toBe(true);
   });
 
-  it('a lapped Queen chooses the Royal Path at the fork, then lands exactly on the temple', () => {
+  it('a ready Queen chooses the Royal Path at the fork, then finishes at the temple', () => {
     const rp = walk('royal-path');
     expect(step('royal-path').done!(rp.before, rp.after, rp.events)).toBe(true);
     const ends = new Set(legalMoves(rp.before, 'you-queen').map((o) => o.path[o.path.length - 1]));

@@ -1,3 +1,4 @@
+import * as ai from '../engine/ai';
 import {
   applyAction,
   chooseAiAction,
@@ -9,7 +10,14 @@ import {
   type GameAction,
   type GameEvent,
   type GameState,
+  type PlayerView,
 } from '../engine';
+
+/** Optional off-turn AI helper — A6 may export `aiRespond`. */
+function tryAiRespond(view: PlayerView, random?: () => number): GameAction | null {
+  const fn = (ai as { aiRespond?: (v: PlayerView, r?: () => number) => GameAction | null }).aiRespond;
+  return typeof fn === 'function' ? fn(view, random) : null;
+}
 
 export interface RunnerOptions extends Omit<CreateGameOptions, 'now'> {
   onUpdate: (state: GameState, events: GameEvent[]) => void;
@@ -17,14 +25,16 @@ export interface RunnerOptions extends Omit<CreateGameOptions, 'now'> {
   isConnected?: (playerId: string) => boolean;
   now?: () => number;
   aiRandom?: () => number;
+  /** Resume a saved match instead of creating a new one. */
+  initialState?: GameState;
 }
 
 export type DispatchResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Owns one match: applies actions through the pure engine, runs the match/turn/reaction clocks,
- * drives AI seats, and shortens turns of disconnected players so a match never stalls.
- * Runs unchanged on the server (online rooms) and in the browser (practice / hot-seat).
+ * drives AI seats (including off-turn trade replies), and shortens turns of disconnected players.
+ * Runs unchanged on the server helpers and in the browser (practice / hot-seat).
  */
 export class GameRunner {
   state: GameState;
@@ -35,7 +45,7 @@ export class GameRunner {
 
   constructor(private readonly opts: RunnerOptions) {
     this.now = opts.now ?? Date.now;
-    this.state = createGame({ ...opts, now: this.now() });
+    this.state = opts.initialState ? structuredClone(opts.initialState) : createGame({ ...opts, now: this.now() });
     this.lastProgressAt = this.now();
     this.schedule();
   }
@@ -78,10 +88,26 @@ export class GameRunner {
     return !this.isAI(pid) && this.opts.isConnected ? !this.opts.isConnected(pid) : false;
   }
 
+  private respondAiTrades(): boolean {
+    const offers = this.state.trades ?? [];
+    for (const offer of offers) {
+      if (!this.isAI(offer.to)) continue;
+      const action = tryAiRespond(toPlayerView(this.state, offer.to), this.opts.aiRandom);
+      if (!action) continue;
+      const r = applyAction(this.state, { playerId: offer.to, action }, this.now());
+      if (r.ok) {
+        this.commit(r.state, r.events);
+        return true;
+      }
+    }
+    return false;
+  }
+
   private schedule() {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     if (this.disposed || this.state.status !== 'playing') return;
+    if (this.respondAiTrades()) return;
     const s = this.state;
     const actor = s.turn.playerId;
     const wakeups: number[] = [];
@@ -89,6 +115,8 @@ export class GameRunner {
     if (s.turn.deadline !== null) wakeups.push(s.turn.deadline);
     if (this.isAI(actor)) wakeups.push(this.lastProgressAt + s.config.aiActionDelayMs);
     else if (this.isAway(actor)) wakeups.push(this.lastProgressAt + s.config.disconnectedTurnMs);
+    // Also wake soon if an AI has a pending trade offer.
+    if ((s.trades ?? []).some((t) => this.isAI(t.to))) wakeups.push(this.lastProgressAt + s.config.aiActionDelayMs);
     if (!wakeups.length) return;
     const delay = Math.max(0, Math.min(...wakeups) - this.now());
     this.timer = setTimeout(() => this.wake(), delay);
@@ -100,6 +128,7 @@ export class GameRunner {
     const now = this.now();
     const timed = tick(this.state, now);
     if (timed?.ok) return this.commit(timed.state, timed.events);
+    if (this.respondAiTrades()) return;
     const s = this.state;
     const actor = s.turn.playerId;
     if (this.isAI(actor) && now >= this.lastProgressAt + s.config.aiActionDelayMs) {

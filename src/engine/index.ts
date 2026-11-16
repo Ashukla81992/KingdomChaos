@@ -7,5 +7,8 @@ export * from './rules';
 export * from './cards';
 export * from './queries';
 export * from './engine';
+export * from './victory';
+export * from './powers';
+export * from './dungeon';
 export * from './view';
 export * from './ai';

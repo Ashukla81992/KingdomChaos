@@ -1,0 +1,10 @@
+{
+  "name": "Kingdom of Four Gems",
+  "short_name": "Four Gems",
+  "description": "Roll like Ludo. Think like Chess. Race for the crown. A free online board game for 2–4 players.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf0",
+  "theme_color": "#8fd4ff",
+  "icons": [{ "src": "/island.jpg", "sizes": "1024x1024", "type": "image/jpeg", "purpose": "any" }]
+}

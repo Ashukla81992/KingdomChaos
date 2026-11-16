@@ -68,6 +68,7 @@ describe('gems', () => {
     place(s, 'a-king', 'c37', { lap: 3 });
     s = rollMove(s, 'a', 'a-king', 3, 'c0');
     expect(player(s, 'a').gems.sort()).toEqual(['ruby', 'sapphire']);
+    expect(player(s, 'a').bank).toMatchObject({ ruby: 1, sapphire: 1, emerald: 0, diamond: 0 });
     expect(s.characters['a-king'].carrying).toEqual([]);
   });
 
@@ -85,6 +86,7 @@ describe('gems', () => {
 
   it('does not pick up a gem the kingdom already banked or is already carrying', () => {
     let s = noCards(game());
+    player(s, 'a').bank.ruby = 1;
     player(s, 'a').gems = ['ruby'];
     place(s, 'a-king', 'c0');
     s = rollMove(s, 'a', 'a-king', 4, 'c4');
@@ -111,6 +113,7 @@ describe('gems', () => {
     carry(s, 'a-king', 'emerald');
     s = rollMove(s, 'a', 'a-king', 4, 'c2');
     expect(player(s, 'a').gems).toEqual(['emerald']);
+    expect(player(s, 'a').bank.emerald).toBe(1);
     expect(s.hands.a).toHaveLength(1);
   });
 
@@ -133,23 +136,30 @@ describe('gems', () => {
     expect(s.hands.a.some((c) => c.type === 'shield')).toBe(false);
   });
 
-  it('a duplicate gem goes back to its station', () => {
+  it('keeps a duplicate gem as a spare in the bank', () => {
     let s = noCards(game());
+    player(s, 'a').bank.emerald = 1;
     player(s, 'a').gems = ['emerald'];
     place(s, 'a-king', 'c39');
     carry(s, 'a-king', 'emerald');
     s = rollMove(s, 'a', 'a-king', 1, 'c0');
     expect(player(s, 'a').gems).toEqual(['emerald']);
-    expect(s.lastEvents.some((e) => e.type === 'banked' && e.duplicate)).toBe(true);
+    expect(player(s, 'a').bank.emerald).toBe(2);
+    expect(s.gems.some((g) => g.kind === 'emerald' && g.carriedBy === 'a-king')).toBe(false);
+    expect(s.lastEvents.some((e) => e.type === 'banked' && e.duplicate && e.gem === 'emerald')).toBe(true);
   });
 
-  it('opens the Royal Path once all four gems are banked and a cut is made', () => {
+  it('opens the Royal Path once all four gems are banked, with no capture needed', () => {
     let s = noCards(game());
-    player(s, 'a').gems = ['ruby', 'sapphire', 'diamond'];
-    s.stats.a.cuts = 1;
+    const p = player(s, 'a');
+    p.bank = { ruby: 1, sapphire: 1, emerald: 0, diamond: 1 };
+    p.gems = ['ruby', 'sapphire', 'diamond'];
+    s.stats.a.cuts = 0;
     place(s, 'a-king', 'c39');
     carry(s, 'a-king', 'emerald');
     s = rollMove(s, 'a', 'a-king', 1, 'c0');
+    expect(player(s, 'a').bank.emerald).toBe(1);
+    expect(player(s, 'a').gems.sort()).toEqual(['diamond', 'emerald', 'ruby', 'sapphire']);
     expect(s.lastEvents.some((e) => e.type === 'finalUnlocked' && e.playerId === 'a')).toBe(true);
   });
 });
@@ -201,21 +211,24 @@ describe('laps (house plates)', () => {
     expect(s.log.some((l) => /all four house plates/i.test(l.text))).toBe(true);
   });
 
-  it('a cut resets the victim’s plates; its house keeps banked gems and its cut', () => {
+  it('a cut sends the victim home but keeps its plate progress; the house keeps banked gems and its cut', () => {
     let s = noCards(game());
+    player(s, 'b').bank.ruby = 1;
     player(s, 'b').gems = ['ruby'];
     s.stats.b.cuts = 1;
     place(s, 'b-witch', 'c11', { lap: 3 });
     place(s, 'a-knight', 'c8');
     s = rollMove(s, 'a', 'a-knight', 3, 'c11');
-    expect(s.characters['b-witch']).toMatchObject({ node: 'home-purple', plates: [], lap: 0 });
+    expect(s.characters['b-witch'].node).toBe('home-purple');
+    expect(s.characters['b-witch'].plates).toHaveLength(3);
+    expect(s.characters['b-witch'].lap).toBe(3);
     expect(player(s, 'b').gems).toEqual(['ruby']);
     expect(s.stats.b.cuts).toBe(1);
   });
 
-  it('a lapped piece turns in at its fork once the path is open, and must land exactly on the temple', () => {
+  it('an open path lets a piece turn in before its markers, and it must land exactly on the temple', () => {
     let s = noCards(unlock(game(), 'a'));
-    place(s, 'a-king', 'c0', { lap: 4 });
+    place(s, 'a-king', 'c0', { plates: [] });
     s = rollWith(s, 'a', 5);
     const ends = endsFor(s, 'a-king');
     expect(ends.has('f-red-4')).toBe(true);
@@ -228,22 +241,33 @@ describe('laps (house plates)', () => {
     expect(endsFor(s, 'a-king').has('temple')).toBe(false);
     freshTurn(s, 'a');
     s.turn.moveDone = false;
+    s.characters['a-king'].plates = [0, 1, 2, 3];
+    s.stats.a.cuts = 1;
     s = rollMove(s, 'a', 'a-king', 1, 'temple');
-    expect(s.status).toBe('finished');
-    expect(s.result).toMatchObject({ winners: ['a'], reason: 'temple' });
+    expect(s.status).toBe('playing');
+    expect(s.characters['a-king'].finished).toBe(true);
+    expect(s.result).toBeNull();
   });
 
-  it('the fork stays shut without the gems and the cut, or without all four plates', () => {
+  it('the fork stays shut until all four gems are banked; the temple gate checks markers and the capture', () => {
     const noFinal = (s: GameState) => [...endsFor(s, 'a-king')].every((n) => nodes[n].lane !== 'final');
     let s = noCards(game());
-    place(s, 'a-king', 'c0', { lap: 4 });
+    place(s, 'a-king', 'c0', { plates: [0, 1, 2, 3] });
+    s.stats.a.cuts = 1;
     s = rollWith(s, 'a', 3);
     expect(endsFor(s, 'a-king').has('c3')).toBe(true);
     expect(noFinal(s)).toBe(true);
+
     s = noCards(unlock(game(), 'a'));
-    place(s, 'a-king', 'c0', { plates: [0, 1, 2] });
-    s = rollWith(s, 'a', 3);
-    expect(noFinal(s)).toBe(true);
+    place(s, 'a-king', 'f-red-5', { plates: [0, 1, 2] });
+    s.stats.a.cuts = 1;
+    s = rollWith(s, 'a', 1);
+    expect(endsFor(s, 'a-king').has('temple')).toBe(false);
+    freshTurn(s, 'a');
+    s.characters['a-king'].plates = [0, 1, 2, 3];
+    s.stats.a.cuts = 0;
+    s = rollWith(s, 'a', 1);
+    expect(endsFor(s, 'a-king').has('temple')).toBe(false);
   });
 
   it('teleports skip the plates in between; a trap keeps plate progress', () => {

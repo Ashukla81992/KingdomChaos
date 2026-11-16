@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardTargets, legalMoves, adventureOptions, DEFAULT_DECK, getBoard, type CardType } from '@/engine';
+import { cardTargets, legalMoves, adventureOptions, DEFAULT_DECK, getBoard, keepsEveryoneConnected, type CardType } from '@/engine';
 import { act, carry, endsFor, freshTurn, game, hand, move, noCards, place, player, reject, rollMove, rollWith, routeTo } from './helpers';
 
 describe('Witch portal hop', () => {
@@ -111,14 +111,14 @@ describe('vehicles', () => {
 });
 
 describe('dungeon', () => {
-  it('enter from the Dragon Gate, move with early stops, and leave back to the gate', () => {
+  it('enter from the Dragon Gate, move with an exact roll, and leave back to the gate', () => {
     let s = noCards(game());
     place(s, 'a-king', 'c16');
     s = act(s, 'a', { type: 'enterDungeon', characterId: 'a-king' });
     expect(s.characters['a-king'].node).toBe('d-entrance');
-    s = rollWith(s, 'a', 3);
+    s = rollWith(s, 'a', 1);
     expect(endsFor(s, 'a-king').has('d-w1')).toBe(true);
-    expect(endsFor(s, 'a-king').has('d-c1')).toBe(true);
+    expect(endsFor(s, 'a-king').has('d-e1')).toBe(true);
     freshTurn(s, 'a');
     place(s, 'a-king', 'd-entrance');
     s = act(s, 'a', { type: 'leaveDungeon', characterId: 'a-king' });
@@ -203,7 +203,7 @@ describe('discoveries', () => {
     expect(s.characters['a-king'].node).toBe('c19');
     expect(s.bridges['ruins-road']).toBe(true);
     expect(s.bridges['camp-road']).toBe(false);
-    expect(s.lastEvents).toContainEqual({ type: 'edgeChanged', edgeId: 'pit~ruins' });
+    expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'edgeChanged', edgeId: 'pit~ruins', change: 'opened' }));
   });
 
   it('a hidden-route find opens the nearest closed route, or becomes a map card when all are open', () => {
@@ -215,7 +215,7 @@ describe('discoveries', () => {
     expect(s.bridges['broken-bridge']).toBe(false);
     expect(s.bridges['ruins-road']).toBe(false);
     expect(s.bridges['mine-tunnel']).toBe(false);
-    expect(s.lastEvents).toContainEqual({ type: 'edgeChanged', edgeId: 'camp-road-1~camp-east' });
+    expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'edgeChanged', edgeId: 'camp-road-1~camp-east', change: 'opened' }));
 
     s = noCards(game());
     for (const k of Object.keys(s.bridges)) s.bridges[k] = true;
@@ -296,7 +296,30 @@ describe('map cards', () => {
     ]);
     s = act(s, 'a', { type: 'playCard', cardId: s.hands.a[0].id, target: { kind: 'node', node: 'vale-road-1' } });
     expect(s.transforms['vale-road-1']).toBe('mountain');
+    expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'terrainChanged', node: 'vale-road-1', to: 'mountain', by: 'a' }));
     expect(cardTargets(s, 'a', 'repair')).toContainEqual({ kind: 'node', node: 'vale-road-1' });
+  });
+
+  it('connectivity guard refuses an objective-cutting collapse; bridge rebuild updates legalMoves', () => {
+    let s = game();
+    expect(keepsEveryoneConnected(s, { transforms: { c0: 'mountain' } })).toBe(false);
+    hand(s, 'a', ['collapse_bridge']);
+    place(s, 'a-king', 'bridge-east');
+    s.transforms.falls = 'mountain';
+    s.transforms.ruins = 'mountain';
+    expect(cardTargets(s, 'a', 'collapse_bridge')).toEqual([]);
+
+    s = noCards(game());
+    place(s, 'a-king', 'rope-1');
+    s = rollWith(s, 'a', 2);
+    expect(endsFor(s, 'a-king').has('c28')).toBe(false);
+    hand(s, 'a', ['build_bridge']);
+    freshTurn(s, 'a');
+    s = act(s, 'a', { type: 'playCard', cardId: s.hands.a[0].id, target: { kind: 'edge', edgeId: 'rope-west~rope-1' } });
+    place(s, 'a-king', 'rope-1');
+    freshTurn(s, 'a');
+    s = rollWith(s, 'a', 2);
+    expect(endsFor(s, 'a-king').has('c28')).toBe(true);
   });
 
   it('Dig Tunnel opens the Crystal Mine Tunnel', () => {

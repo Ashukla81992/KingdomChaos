@@ -59,7 +59,8 @@ describe('Crown Quest board', () => {
         expect(nodes[f].safe).toBe(true);
       }
       expect(out[h.castle].map((e) => e.b)).toEqual([h.entry]);
-      expect(out[h.branch].some((e) => e.b === h.final[0] && e.oneWay)).toBe(true);
+      // Royal Path edges run both ways (Island Adventure); the fork still connects to the first step.
+      expect(out[h.branch].some((e) => e.b === h.final[0] || e.a === h.final[0])).toBe(true);
     }
   });
 
@@ -139,5 +140,13 @@ describe('Crown Quest board', () => {
     const s = game();
     const dist = walkingDistances(s, 'd-entrance');
     for (const n of CROWN_QUEST.nodes.filter((x) => x.map === 'dungeon')) expect(dist[n.id], n.id).toBeDefined();
+  });
+
+  it('places Stone Golem and Cave Spider encounters with labeled safe rooms', () => {
+    expect(nodes['d-golem'].encounter).toMatchObject({ monster: 'golem', shortcutTo: 'd-e4', safeRoom: 'd-ruins' });
+    expect(nodes['d-spider'].encounter).toMatchObject({ monster: 'spider', safeRoom: 'd-safe-crystal' });
+    expect(nodes['d-ruins'].safe).toBe(true);
+    expect(nodes['d-safe-crystal'].safe).toBe(true);
+    expect(nodes['d-safe-crystal'].type).toBe('safeRoom');
   });
 });

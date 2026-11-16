@@ -106,7 +106,28 @@ export function rollMove(s: GameState, playerId: string, characterId: string, va
 
 /** Reset the turn so it is `playerId`'s fresh turn. */
 export function freshTurn(s: GameState, playerId: string) {
-  s.turn = { ...s.turn, playerId, moveDone: false, adventureDone: false, move: null, acted: false, witchPortalUsed: false, extra: null, bonus: false };
+  s.turn = {
+    ...s.turn,
+    playerId,
+    moveDone: false,
+    adventureDone: false,
+    move: null,
+    acted: false,
+    witchPortalUsed: false,
+    extra: null,
+    bonus: false,
+    rolls: 0,
+    moved: [],
+    diplomacyUsed: false,
+  };
+  return s;
+}
+
+/** Bank every gem kind (opens the Royal Path; temple gate still needs a capture). */
+export function bankAll(s: GameState, playerId: string) {
+  const p = player(s, playerId);
+  p.gems = ['ruby', 'sapphire', 'emerald', 'diamond'];
+  p.bank = { ruby: 1, sapphire: 1, emerald: 1, diamond: 1 };
   return s;
 }
 

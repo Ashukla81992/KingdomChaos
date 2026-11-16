@@ -28,7 +28,13 @@ export function ResultsOverlay({ view, primary, secondary }: { view: PlayerView;
           ? 'Still tied — the victory is shared.'
           : null;
   const reason =
-    r.reason === 'temple' ? 'Four gems banked, a cut made, all four house plates touched, and an exact landing on the Crown Temple.' : r.reason === 'rounds' ? `The ${r.rounds}-round limit was reached.` : 'The match clock ran out.';
+    r.reason === 'temple'
+      ? 'Four pieces entered the Crown Temple.'
+      : r.reason === 'rounds'
+        ? `The ${r.rounds}-round limit was reached.`
+        : r.reason === 'ended'
+          ? 'The host ended the match.'
+          : 'The match clock ran out.';
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-[#1d2440]/55 p-3 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="results-title">
       <motion.div

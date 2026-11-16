@@ -161,9 +161,10 @@ export function buildCrownQuest(): BoardDef {
       final.push(add({ id: `f-${h.key}-${k}`, map: 'island', type: 'final', lane: 'final', name: `${h.name} Royal Path`, xy: [x, y], house: seat, safe: true }).id);
     }
     final.push('temple');
+    // Royal Path edges run both ways so pieces can walk back onto the island.
     [branch.id, ...final].forEach((id, k, arr) => {
       if (k === arr.length - 1) return;
-      addEdge({ id: `${id}>${arr[k + 1]}`, a: id, b: arr[k + 1], kind: 'permanent', lane: 'final', oneWay: true, route: pieces[k] });
+      addEdge({ id: `${id}>${arr[k + 1]}`, a: id, b: arr[k + 1], kind: 'permanent', lane: 'final', route: pieces[k] });
     });
     return { seat, key: h.key, name: h.name, castle: castle.id, entry: entry.id, plate: entry.id, branch: branch.id, final };
   });
@@ -217,7 +218,7 @@ export function buildCrownQuest(): BoardDef {
     routeEdges.forEach(addEdge);
   }
 
-  // ---- dungeon
+  // ---- dungeon (A3: encounters, safe rooms, halls)
   for (const d of DUNGEON_SPACES) {
     add({
       id: d.id,
@@ -228,6 +229,7 @@ export function buildCrownQuest(): BoardDef {
       xy: d.at,
       safe: d.type === 'dEntrance' || d.type === 'safeRoom' || undefined,
       dig: d.type === 'vault' || d.type === 'gemChamber' || undefined,
+      encounter: d.encounter,
       teleport: d.type === 'trap' ? { type: 'trap', name: 'Dungeon Trapdoor', to: 'd-entrance', text: 'The floor gives way and the character slides back down to the Dungeon Entrance.' } : undefined,
     });
   }
