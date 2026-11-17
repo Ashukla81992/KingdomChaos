@@ -215,7 +215,7 @@ describe('online rooms (in-memory)', () => {
     expect(h.data.view && !('hands' in h.data.view)).toBe(true);
   });
 
-  it('expires unfinished rooms after 2h inactivity and GET polling does not extend', async () => {
+  it('expires unfinished rooms after 2h with nobody polling; polling never bumps move activity', async () => {
     const host = await account('ExpireHost');
     const guest = await account('ExpireGuest');
     const room = await createRoom({ accountId: host.id, username: host.username, seatCount: 2 });
@@ -238,6 +238,41 @@ describe('online rooms (in-memory)', () => {
     expect(gone.ok).toBe(false);
     if (!gone.ok) expect(gone.status).toBe(410);
     expect(await store.getRoom(room.code)).toBeNull();
+  });
+
+  it('keeps a match alive past 2h while seated players keep polling, even with no moves', async () => {
+    const host = await account('LongHost');
+    const guest = await account('LongGuest');
+    const room = await createRoom({ accountId: host.id, username: host.username, seatCount: 2 });
+    await joinRoom({ code: room.code, accountId: guest.id, username: guest.username });
+    await startRoom({ code: room.code, accountId: host.id });
+    const t0 = Date.now();
+    // Poll every 30 minutes for 6 hours without making a move.
+    for (let t = t0; t <= t0 + 6 * 60 * 60 * 1000; t += 30 * 60 * 1000) {
+      const got = await getRoomForAccount(room.code, guest.id, t);
+      expect(got.ok).toBe(true);
+    }
+    resetSweepThrottle();
+    expect(await cleanupExpired(t0 + 6 * 60 * 60 * 1000 + 1000)).toBe(0);
+    expect(await store.getRoom(room.code)).not.toBeNull();
+  });
+
+  it('does not let a poll overwrite a move saved in between', async () => {
+    const host = await account('RaceHost');
+    const guest = await account('RaceGuest');
+    const room = await createRoom({ accountId: host.id, username: host.username, seatCount: 2 });
+    await joinRoom({ code: room.code, accountId: guest.id, username: guest.username });
+    await startRoom({ code: room.code, accountId: host.id });
+    const stale = (await store.getRoom(room.code))!;
+    const fresh = (await store.getRoom(room.code))!;
+    fresh.version += 5;
+    fresh.state!.version = fresh.version;
+    await store.saveRoom(fresh);
+    const { progressRoom } = await import('@/server/rooms');
+    // Force the stale copy to "change" via a timeout far in the future.
+    stale.state!.turn.deadline = 1;
+    await progressRoom(stale, store, Date.now() + 10 * 60 * 60 * 1000);
+    expect((await store.getRoom(room.code))!.version).toBe(fresh.version);
   });
 
   it('keeps finished results for 24h then expires', async () => {

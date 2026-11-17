@@ -10,6 +10,8 @@ export interface Settings {
   motion: 'system' | 'reduced' | 'full';
   /** Shortens camera moves and the die tumble. */
   pace: 'normal' | 'fast';
+  /** Wide screens: show the rules column beside the board, or fold it away so the board gets the room. */
+  rulesRail?: 'open' | 'folded';
 }
 
 const DEFAULTS: Settings = { volume: 0.4, muted: false, motion: 'system', pace: 'normal' };

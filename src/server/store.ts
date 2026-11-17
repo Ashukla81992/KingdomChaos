@@ -51,6 +51,8 @@ export interface Store {
   updateRoom(code: string, expectedVersion: number, patch: Partial<RoomRecord>): Promise<RoomRecord | null>;
   /** Unconditional save (lobby mutations, expiry stamps after end, etc.). */
   saveRoom(room: RoomRecord): Promise<RoomRecord>;
+  /** Push expiry forward (never backward) without touching game state. Used as a presence heartbeat. */
+  touchRoom(code: string, expiresAt: number): Promise<void>;
   deleteRoom(code: string): Promise<void>;
   deleteExpired(now: number): Promise<number>;
 
@@ -60,8 +62,11 @@ export interface Store {
 
 const TWO_H = 2 * 60 * 60 * 1000;
 
+/** How long an open (lobby or playing) room survives once every seated player has stopped polling. */
+export const ROOM_IDLE_TTL_MS = TWO_H;
+
 export function defaultExpiresAt(now = Date.now()) {
-  return now + TWO_H;
+  return now + ROOM_IDLE_TTL_MS;
 }
 
 export function resultExpiresAt(endedAt: number) {
@@ -117,6 +122,11 @@ export class MemoryStore implements Store {
     const copy = cloneRoom(room);
     this.rooms.set(room.code, copy);
     return cloneRoom(copy);
+  }
+
+  async touchRoom(code: string, expiresAt: number) {
+    const cur = this.rooms.get(code.toUpperCase());
+    if (cur && cur.expiresAt < expiresAt) cur.expiresAt = expiresAt;
   }
 
   async deleteRoom(code: string) {
@@ -252,6 +262,13 @@ export class PostgresStore implements Store {
     return room;
   }
 
+  async touchRoom(code: string, expiresAt: number) {
+    await this.sql`
+      UPDATE kc_rooms SET expires_at = ${new Date(expiresAt)}
+      WHERE code = ${code.toUpperCase()} AND expires_at < ${new Date(expiresAt)}
+    `;
+  }
+
   async deleteRoom(code: string) {
     await this.sql`DELETE FROM kc_rooms WHERE code = ${code.toUpperCase()}`;
   }
@@ -318,6 +335,10 @@ let shared: Store | null = null;
 export function getStore(): Store {
   if (shared) return shared;
   const url = process.env.DATABASE_URL;
+  if (!url && process.env.VERCEL) {
+    // Each serverless instance would get its own memory, so rooms would vanish between requests.
+    console.error('[kingdom-chaos] DATABASE_URL is not set on Vercel: online rooms will not survive between requests.');
+  }
   shared = url ? new PostgresStore(url) : new MemoryStore();
   return shared;
 }

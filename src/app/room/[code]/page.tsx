@@ -52,12 +52,13 @@ export default function RoomPage() {
 
   const exit = () => router.push('/');
 
-  if (error && !lobby) {
+  // A 404/410 means the room is really gone (not a network blip), so stop showing "Reconnecting…".
+  if (error) {
     return (
       <MenuShell title="Room unavailable">
         <div className="panel space-y-4 p-5 text-center">
           <p role="alert" className="font-semibold">
-            {error}
+            {lobby ? 'This room has closed, so the match cannot continue.' : error}
           </p>
           <Link className="btn btn-primary" href={`/online?code=${code}`}>
             Join room {code}
