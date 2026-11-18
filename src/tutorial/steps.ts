@@ -261,7 +261,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     body: [
       'Roll and move your Witch onto the Dragon Gate, then press “enter the dungeon” (your adventure action). Alex takes a turn; then press “leave the dungeon” to climb back out.',
       'Inside, every special space is labelled; tap one to see what it does. Stone Golem and Cave Spider fight anyone who ends on them (roll 4+, Knight +1): beat the Golem and its shortcut stays open for your kingdom, beat the Spider for a power card.',
-      'They also roam: after every full round a monster die is rolled. 4–5: a monster attacks a piece within 3 steps inside (the Golem pushes it back 2 spaces, the Spider webs it so its next move is 2 shorter); 6: one climbs out and attacks near the Dragon Gate. Safe rooms protect you.',
+      'They also roam: after every full round a monster die is rolled. 4–5: a monster attacks a piece within 3 steps inside (the Golem pushes it back 2 spaces, the Spider webs it so its next move is 2 shorter); 6: one climbs out and attacks near the Dragon Gate. Safe rooms protect you. Each monster has 2 hearts: win its fight, Attack it from 1 step away, or burn it with Dragon Fire to wound it; at 0 hearts it is slain for good. The Old Vault, Fallen Ruins, Crystal Niche and Spike Pit each hide a reward too: hover or tap them to see it.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 2);
@@ -333,7 +333,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'more',
     title: 'You are ready',
     body: [
-      'Still to discover: Royal Guard, Queen Diplomacy, Witch Alchemy, Knight route attacks, roaming dungeon monsters, and the dragon. A tamed dragon breathes fire with no card: pick a rival within 3 spaces as your Adventure action and roll 4–6 on the attack die.',
+      'Still to discover: Royal Guard, Queen Diplomacy (trade spare gems your Queen collects), Witch Alchemy (in her palace, each kind once), the boat (free) and the plane (costs a card), Knight route attacks, roaming dungeon monsters, and the dragon. A tamed dragon breathes fire with no card: pick a rival within 3 spaces as your Adventure action and roll 4–6 on the attack die.',
       'Open the Rules rail or Legend any time during a match. Practice vs AI uses the same engine as online play.',
     ],
     setup: fresh,

@@ -98,8 +98,11 @@ describe('vehicles', () => {
     place(s, 'a-king', 'c35');
     reject(s, 'a', { type: 'fly', characterId: 'a-king', to: 'c12' }, /plane is not/);
     place(s, 'a-king', 'c12');
-    s = act(s, 'a', { type: 'fly', characterId: 'a-king', to: 'c35' });
+    reject(s, 'a', { type: 'fly', characterId: 'a-king', to: 'c35' }, /fuel/);
+    hand(s, 'a', ['shield', 'slow_down']);
+    s = act(s, 'a', { type: 'fly', characterId: 'a-king', to: 'c35', fuelCardId: s.hands.a[1].id });
     expect(s.vehicles.plane).toBe('c35');
+    expect(s.hands.a.map((c) => c.type)).toEqual(['shield']);
   });
 
   it('a dragon companion cannot ride', () => {

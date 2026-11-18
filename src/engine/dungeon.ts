@@ -108,7 +108,15 @@ export function resolveArrival(ctx: Ctx, ch: Character, discardCardId?: string |
       relocate(ctx, ch, to, 'shortcut', `${enc.name} shortcut`, discardCardId);
       return;
     }
-    const resting = monsterAt(s, ch.node);
+    const here = monsterAt(s, ch.node);
+    if (here?.slain) {
+      if (enc.monster === 'golem' && enc.shortcutTo) {
+        log(ctx, `The ${enc.name} is slain; its shortcut is open to everyone. ${charLabel(s, ch.id)} takes it to ${nodes[enc.shortcutTo]?.name ?? enc.shortcutTo}.`, 'good', ch.owner);
+        relocate(ctx, ch, enc.shortcutTo, 'shortcut', `${enc.name} shortcut`, discardCardId);
+      } else log(ctx, `The ${enc.name} is slain; ${charLabel(s, ch.id)} walks through its empty lair.`, 'info', ch.owner);
+      return;
+    }
+    const resting = here;
     if (resting && monsterResting(s, resting)) {
       log(ctx, `The ${enc.name} is still recovering from its defeat; ${charLabel(s, ch.id)} passes unchallenged.`, 'info', ch.owner);
       return;
@@ -124,14 +132,14 @@ export function resolveArrival(ctx: Ctx, ch: Character, discardCardId?: string |
       const to = enc.shortcutTo;
       const open = (s.shortcutsOpen ??= {});
       open[ch.node] = [...new Set([...(open[ch.node] ?? []), ch.owner])];
-      defeatMonster(s, ch.node);
+      damageMonster(ctx, 'golem', ch, 'encounter', value, total);
       ctx.events.push({ type: 'encounter', characterId: ch.id, monster: 'golem', roll: value, total, success: true, to });
       log(ctx, `${who} rolls ${value}${bonusNote} = ${total} and beats the ${enc.name}! The shortcut carries them to ${nodes[to]?.name ?? to}, and it stays open for their kingdom.`, 'good', ch.owner);
       relocate(ctx, ch, to, 'encounter', enc.name, discardCardId);
       return;
     }
     if (success && enc.monster === 'spider') {
-      defeatMonster(s, ch.node);
+      damageMonster(ctx, 'spider', ch, 'encounter', value, total);
       ctx.events.push({ type: 'encounter', characterId: ch.id, monster: 'spider', roll: value, total, success: true, to: ch.node });
       log(ctx, `${who} rolls ${value}${bonusNote} = ${total} and beats the ${enc.name}! A power card waits in the chest.`, 'good', ch.owner);
       drawCard(ctx, ch.owner, { category: 'power', discardCardId });
@@ -180,7 +188,7 @@ export type EncounterEvent = Extract<GameEvent, { type: 'encounter' | 'slay' }>;
 export function initialMonsters(boardId: string): MonsterState[] {
   return getBoard(boardId).board.nodes
     .filter((n) => n.encounter)
-    .map((n) => ({ id: n.encounter!.monster, name: n.encounter!.name, home: n.id, node: n.id, restUntilRound: 0 }));
+    .map((n) => ({ id: n.encounter!.monster, name: n.encounter!.name, home: n.id, node: n.id, restUntilRound: 0, hp: DEFAULT_CONFIG.monsterHearts }));
 }
 
 /** Monsters for any state, including matches saved before monsters existed. */
@@ -207,6 +215,8 @@ export function monsterConfig(s: Pick<BoardState, 'config'>) {
     push: c.golemPush ?? d.golemPush,
     web: c.webPenalty ?? d.webPenalty,
     rest: c.monsterRestRounds ?? d.monsterRestRounds,
+    hearts: c.monsterHearts ?? d.monsterHearts,
+    attackRange: c.monsterAttackRange ?? d.monsterAttackRange,
   };
 }
 
@@ -276,11 +286,11 @@ export function monsterPhase(ctx: Ctx, round: number): void {
   s.monsterRound = round;
   s.monsters = monstersOf(s).map((m) => ({ ...m, node: m.home }));
   const die = roll(s);
-  const active = s.monsters.filter((m) => !(m.restUntilRound >= round && m.restUntilRound > 0));
+  const active = s.monsters.filter((m) => !m.slain && !(m.restUntilRound >= round && m.restUntilRound > 0));
   const outside = die === cfg.outsideRoll;
   if (die <= cfg.quietMax || !active.length) {
     ctx.events.push({ type: 'monsterEvent', round, die, kind: 'quiet' });
-    log(ctx, `End of round ${round}: monster die ${die}. ${active.length ? 'The dungeon is quiet.' : 'Every monster is resting.'}`, 'info');
+    log(ctx, `End of round ${round}: monster die ${die}. ${active.length ? 'The dungeon is quiet.' : 'No monster is able to hunt.'}`, 'info');
   } else {
     const m = active[randomInt(s, active.length)];
     const { nodes, board } = getBoard(s.boardId);
@@ -291,23 +301,8 @@ export function monsterPhase(ctx: Ctx, round: number): void {
       log(ctx, `End of round ${round}: monster die ${die}. The ${m.name} ${outside ? 'prowls the Dragon Gate road' : 'patrols its tunnels'} but finds nobody within ${cfg.range} steps.`, 'info');
     } else {
       const c = pool[randomInt(s, pool.length)];
-      const who = charLabel(s, c.id);
-      const where = nodes[c.node]?.name ?? c.node;
-      const lead = `End of round ${round}: monster die ${die}. The ${m.name} ${outside ? 'climbs out of the Dragon Gate and ' : ''}attacks ${who} at ${where}`;
-      if (m.id === 'golem') {
-        const from = c.node;
-        const to = golemPushTarget(s, c, at);
-        ctx.events.push({ type: 'monsterEvent', round, die, kind: 'attack', monster: m.id, outside, at, characterId: c.id, effect: 'push', from, to });
-        if (to === from) log(ctx, `${lead}, but there is no legal space to throw them to.`, 'bad', c.owner);
-        else {
-          log(ctx, `${lead} and hurls them back to ${nodes[to]?.name ?? to}.`, 'bad', c.owner);
-          relocate(ctx, c, to, 'monster', m.name);
-        }
-      } else {
-        ctx.events.push({ type: 'monsterEvent', round, die, kind: 'attack', monster: m.id, outside, at, characterId: c.id, effect: 'web' });
-        log(ctx, `${lead}${c.webbed ? ': already webbed, the web does not stack.' : ` and webs them: their next move is ${cfg.web} shorter (minimum 1).`}`, 'bad', c.owner);
-        c.webbed = true;
-      }
+      const lead = `End of round ${round}: monster die ${die}. The ${m.name} ${outside ? 'climbs out of the Dragon Gate and ' : ''}attacks ${charLabel(s, c.id)} at ${nodes[c.node]?.name ?? c.node}`;
+      monsterStrike(ctx, m, c, at, lead, { round, die, outside });
     }
   }
   // Beaten monsters that have rested long enough take their posts again.
@@ -320,7 +315,101 @@ export function monsterPhase(ctx: Ctx, round: number): void {
   }
 }
 
+/** Golem push or Spider web on one piece (round events and counter-attacks). `lead` starts the log line. */
+function monsterStrike(ctx: Ctx, m: MonsterState, c: Character, at: string, lead: string, ev: { round: number; die: number; outside: boolean; counter?: boolean }) {
+  const s = ctx.state;
+  const cfg = monsterConfig(s);
+  const { nodes } = getBoard(s.boardId);
+  if (m.id === 'golem') {
+    const from = c.node;
+    const to = golemPushTarget(s, c, at);
+    ctx.events.push({ type: 'monsterEvent', ...ev, kind: 'attack', monster: m.id, at, characterId: c.id, effect: 'push', from, to });
+    if (to === from) log(ctx, `${lead}, but there is no legal space to throw them to.`, 'bad', c.owner);
+    else {
+      log(ctx, `${lead} and hurls them back to ${nodes[to]?.name ?? to}.`, 'bad', c.owner);
+      relocate(ctx, c, to, 'monster', m.name);
+    }
+  } else {
+    ctx.events.push({ type: 'monsterEvent', ...ev, kind: 'attack', monster: m.id, at, characterId: c.id, effect: 'web' });
+    log(ctx, `${lead}${c.webbed ? ': already webbed, the web does not stack.' : ` and webs them: their next move is ${cfg.web} shorter (minimum 1).`}`, 'bad', c.owner);
+    c.webbed = true;
+  }
+}
+
 /** Mark the monster on `node` beaten: it rests through the rest of this round and `monsterRestRounds` more. */
 export function defeatMonster(s: GameState, node: string): void {
   s.monsters = monstersOf(s).map((m) => (m.home === node ? { ...m, restUntilRound: s.turn.round + monsterConfig(s).rest } : m));
+}
+
+/** Hits left on a monster (older saves count as full). */
+export const monsterHp = (s: Pick<BoardState, 'config'>, m: MonsterState) => m.hp ?? monsterConfig(s).hearts;
+
+/** Can be fought, attacked or burned right now: not slain and not resting. */
+export const monsterActive = (s: Pick<BoardState, 'turn'>, m: MonsterState) => !m.slain && !monsterResting(s, m);
+
+/**
+ * One hit on a monster. It loses a heart; with hearts left it is knocked out and rests like a beaten
+ * monster; at 0 it is slain for the match. Slaying rewards the striker's kingdom: the Golem's shortcut
+ * then opens for everyone; the Spider's slayer draws a power card. Returns true when slain.
+ */
+export function damageMonster(ctx: Ctx, id: MonsterId, by: Character, how: 'encounter' | 'attack' | 'fire', value?: number, total?: number): boolean {
+  const s = ctx.state;
+  const list = monstersOf(s);
+  const m = list.find((x) => x.id === id);
+  if (!m) return false;
+  const hp = Math.max(0, monsterHp(s, m) - 1);
+  const slain = hp === 0;
+  s.monsters = list.map((x) => (x.id === id ? { ...x, hp, slain: slain || undefined, restUntilRound: slain ? 0 : s.turn.round + monsterConfig(s).rest } : x));
+  s.stats[by.owner].monsterHits = (s.stats[by.owner].monsterHits ?? 0) + 1;
+  ctx.events.push({ type: 'monsterHit', monster: id, characterId: by.id, how, roll: value, total, hit: true, hp, slain });
+  if (slain) {
+    log(ctx, `${charLabel(s, by.id)} slays the ${m.name}! It is gone for the rest of the match.${id === 'golem' ? ' Its shortcut is now open to every kingdom.' : ' Its hoard holds a power card.'}`, 'good', by.owner);
+    if (id === 'spider' && how !== 'encounter') drawCard(ctx, by.owner, { category: 'power' });
+  } else if (how !== 'encounter') {
+    log(ctx, `${charLabel(s, by.id)} wounds the ${m.name} (${hp} ${hp === 1 ? 'heart' : 'hearts'} left). It is knocked out until the end of next round.`, 'good', by.owner);
+  }
+  return slain;
+}
+
+/** Monsters a piece could strike with the Attack action: active, within `monsterAttackRange` open steps in the dungeon. */
+export function attackableMonsters(s: BoardState, characterId: string): MonsterState[] {
+  const ch = s.characters[characterId];
+  const { nodes } = getBoard(s.boardId);
+  if (!ch || ch.finished || nodes[ch.node]?.map !== 'dungeon') return [];
+  const dist = walkingDistances(s, ch.node, monsterConfig(s).attackRange);
+  return monstersOf(s).filter((m) => monsterActive(s, m) && dist[m.home] !== undefined && m.home !== ch.node);
+}
+
+/** Monsters a dragon companion can burn: active, within Dragon Fire range of its rider in the dungeon. */
+export function fireableMonsters(s: BoardState, riderId: string): MonsterState[] {
+  const ch = s.characters[riderId];
+  const { nodes } = getBoard(s.boardId);
+  if (!ch || nodes[ch.node]?.map !== 'dungeon') return [];
+  const dist = walkingDistances(s, ch.node, s.config.dragonFireRange);
+  return monstersOf(s).filter((m) => monsterActive(s, m) && dist[m.home] !== undefined);
+}
+
+/**
+ * Attack action: roll the encounter die (`encounterThreshold`+, Knight +`knightBonus`). Hit: one heart
+ * off. Miss: the monster strikes back at once (Golem push, Spider web).
+ */
+export function attackMonster(ctx: Ctx, ch: Character, id: MonsterId): void {
+  const s = ctx.state;
+  const m = monstersOf(s).find((x) => x.id === id)!;
+  const value = roll(s);
+  const bonus = ch.kind === 'knight' ? s.config.knightBonus : 0;
+  const total = value + bonus;
+  const need = s.config.encounterThreshold;
+  if (total >= need) {
+    log(ctx, `${charLabel(s, ch.id)} attacks the ${m.name}: ${value}${bonus ? ` (+${bonus} Knight)` : ''} = ${total} — a hit!`, 'good', ch.owner);
+    damageMonster(ctx, id, ch, 'attack', value, total);
+    return;
+  }
+  ctx.events.push({ type: 'monsterHit', monster: id, characterId: ch.id, how: 'attack', roll: value, total, hit: false, hp: monsterHp(s, m), slain: false });
+  const miss = `${charLabel(s, ch.id)} attacks the ${m.name}: ${value}${bonus ? ` (+${bonus} Knight)` : ''} = ${total} (needs ${need}+) — a miss!`;
+  if (!attackable(s, ch)) {
+    log(ctx, `${miss} It cannot reach them where they stand.`, 'info', ch.owner);
+    return;
+  }
+  monsterStrike(ctx, m, ch, m.home, `${miss} The ${m.name} strikes back`, { round: s.turn.round, die: value, outside: false, counter: true });
 }

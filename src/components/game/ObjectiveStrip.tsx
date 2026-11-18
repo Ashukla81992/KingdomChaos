@@ -91,7 +91,7 @@ export function ObjectiveStrip({ view, me, presence }: { view: PlayerView; me: s
                   data-player={p.id}
                   className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/85 py-1 pr-3 pl-1 text-xs"
                   style={{ boxShadow: active ? `0 0 0 3px ${t.color}` : '0 0 0 1px #e6dcc6' }}
-                  aria-label={`${p.name} (${t.kingdom}): ${p.gems.length} of ${view.config.gemsRequired} gems${pCut ? ', cut made' : ''}, best piece ${pLap} of 4 plates${pOpen ? ', Royal Path open' : ''}${active ? ', playing now' : ''}`}
+                  aria-label={`${p.name} (${t.kingdom}): ${p.gems.length} of ${view.config.gemsRequired} gems banked${GEM_KINDS.some((k) => st[k] === 'carrying') ? `, carrying ${GEM_KINDS.filter((k) => st[k] === 'carrying').map((k) => GEM_NAMES[k]).join(', ')}` : ''}${pCut ? ', cut made' : ''}, best piece ${pLap} of 4 plates${pOpen ? ', Royal Path open' : ''}${active ? ', playing now' : ''}`}
                 >
                   <EmblemBadge theme={t} size={20} />
                   <span className="max-w-[7rem] truncate font-semibold">
@@ -101,7 +101,9 @@ export function ObjectiveStrip({ view, me, presence }: { view: PlayerView; me: s
                   </span>
                   <span className="flex gap-0.5" aria-hidden="true">
                     {GEM_KINDS.map((k) => (
-                      <GemIcon key={k} kind={k} size={13} empty={st[k] === 'needed'} />
+                      <span key={k} className={`inline-flex rounded-full ${st[k] === 'carrying' ? 'ring-2 ring-[#ffcf33]' : ''}`} data-gem-state={st[k]}>
+                        <GemIcon kind={k} size={13} empty={st[k] === 'needed'} />
+                      </span>
                     ))}
                   </span>
                   {pCut && <Swords size={12} className="text-[#a3300b]" aria-hidden="true" />}

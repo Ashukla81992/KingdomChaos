@@ -265,3 +265,19 @@ svg :focus-visible {
 .scrollbar-thin {
   scrollbar-width: thin;
 }
+
+/* Landmark names on the board: hidden until the landmark is hovered, focused or chosen. */
+.kc-hover-cap {
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+g:hover > .kc-hover-cap,
+g:focus-visible > .kc-hover-cap,
+[data-show-captions='true'] .kc-hover-cap {
+  opacity: 1;
+}
+@media (hover: none) {
+  .kc-hover-cap {
+    transition: none;
+  }
+}

@@ -12,7 +12,16 @@ export interface Settings {
   pace: 'normal' | 'fast';
   /** Wide screens: show the rules column beside the board, or fold it away so the board gets the room. */
   rulesRail?: 'open' | 'folded';
+  /** How landmarks are drawn on the map. Names show on hover in the quieter styles. */
+  markers?: MarkerStyle;
 }
+
+export type MarkerStyle = 'minimal' | 'medallion' | 'labelled';
+export const MARKER_STYLES: { id: MarkerStyle; name: string; hint: string }[] = [
+  { id: 'minimal', name: 'Minimal', hint: 'Small icons, names on hover' },
+  { id: 'medallion', name: 'Medallion', hint: 'Framed icons, names on hover' },
+  { id: 'labelled', name: 'Labelled', hint: 'Framed icons with small names' },
+];
 
 const DEFAULTS: Settings = { volume: 0.4, muted: false, motion: 'system', pace: 'normal' };
 const KEY = 'kc:settings';

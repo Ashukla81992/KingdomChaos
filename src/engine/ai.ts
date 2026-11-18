@@ -1,3 +1,4 @@
+import { powerOptions } from './powers';
 import { getBoard, other } from './board';
 import { travelDistances } from './graph';
 import { adventureOptions, movableCharacters, playableCards, type Mover, type QueryState } from './queries';
@@ -345,18 +346,9 @@ function freeActionChoices(view: PlayerView): Choice[] {
   }
 
   if (view.turn.playerId === pid) {
-    const witch = Object.values(s.characters).find((c) => c.owner === pid && c.kind === 'witch' && !c.finished);
-    const miss = missingKinds(s, pid);
-    if (witch && miss.length) {
-      for (const gemId of witch.carrying) {
-        const gem = s.gems.find((g) => g.id === gemId);
-        if (!gem) continue;
-        const bankedCopy = (p.bank?.[gem.kind] ?? 0) >= 1 || p.gems.includes(gem.kind);
-        if (!bankedCopy) continue;
-        for (const to of miss) {
-          out.push({ action: { type: 'alchemy', characterId: witch.id, gemId, to }, score: 55 });
-        }
-      }
+    const alch = powerOptions(view, pid).find((o) => o.type === 'alchemy');
+    for (const row of alch?.usable ? (alch.alchemy ?? []) : []) {
+      for (const to of row.to) out.push({ action: { type: 'alchemy', characterId: row.characterId, gemId: row.gemId, to }, score: 55 });
     }
 
     const queen = Object.values(s.characters).find((c) => c.owner === pid && c.kind === 'queen' && moved.has(c.id));
@@ -397,6 +389,9 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
       case 'leaveDungeon':
         score = ch.carrying.length || need.length === 0 ? 80 : 15;
         break;
+      case 'explore':
+        score = 30;
+        break;
       case 'fightMonster':
         score = 15;
         break;
@@ -405,10 +400,18 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
         break;
       case 'dragonFire': {
         // Half the attack rolls miss, so only worth it against a juicy target.
-        const t = s.characters[a.targetId];
-        score = t.carrying.length ? 55 : t.plates.length >= 2 ? 35 : 15;
+        if (a.monster) {
+          score = 25;
+          break;
+        }
+        const t = s.characters[a.targetId ?? ''];
+        score = !t ? 0 : t.carrying.length ? 55 : t.plates.length >= 2 ? 35 : 15;
         break;
       }
+      case 'attackMonster':
+        // Worth a swing when the dungeon is in the way; the strike back on a miss is a real risk.
+        score = ch.kind === 'knight' ? 30 : 18;
+        break;
       case 'sail':
       case 'fly': {
         const goal = goalOf(s, ch, ch.carrying.length, need, dist);

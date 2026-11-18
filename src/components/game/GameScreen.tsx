@@ -12,6 +12,7 @@ import {
   STATUS_INFO,
   adventureOptions,
   DUNGEON_GUIDE,
+  monstersOf,
   templeBlockers,
   aGem,
   gemList,
@@ -155,9 +156,9 @@ function locationTip(node: NodeDef, view: PlayerView): string {
   if (entry) parts.push(`The ${entry.name} plate. ${FEATURE_INFO.entry}`);
   else if (fork) parts.push(`${fork.name} ${FEATURE_INFO.fork}`);
   else if (trail) parts.push(`${trail.name}: ${trail.perk} Risk: ${trail.risk}`);
-  else parts.push(LOCATION_INFO[node.type]?.rule ?? '');
+  else if (!(node.dungeonGate || node.dock || node.airfield || node.station || node.dig || node.teleport || node.hazard || node.safe || node.portal)) parts.push(LOCATION_INFO[node.type]?.rule ?? '');
   if (node.hazard) parts.push(FEATURE_INFO.hazard);
-  if (node.safe && node.type === 'circuit') parts.push(FEATURE_INFO.safe);
+  if (node.safe && (node.type === 'circuit' || entry)) parts.push('Safe space: pieces may share it and nobody is captured here.');
   if (node.station) parts.push(`${GEM_NAMES[node.station]} — ${FEATURE_INFO.station}`);
   if (node.dig && node.type !== 'gemChamber') parts.push(FEATURE_INFO.dig);
   if (node.dungeonGate) parts.push(FEATURE_INFO.dungeonGate);
@@ -182,7 +183,9 @@ function locationTip(node: NodeDef, view: PlayerView): string {
     parts.length = 1;
     parts.push(guide.rule);
     const m = view.monsters?.find((x) => x.home === node.id);
-    if (m && m.restUntilRound > 0 && m.restUntilRound >= view.turn.round) parts.push(`The ${m.name} is resting after a defeat until the end of round ${m.restUntilRound}: no fight here for now.`);
+    if (m?.slain) parts.push(`The ${m.name} is slain: no fight here any more.`);
+    else if (m) parts.push(`${m.hp ?? view.config.monsterHearts ?? 2} of ${view.config.monsterHearts ?? 2} hearts left. Attack it from 1 step away, burn it with Dragon Fire, or win its fight here: each hit takes a heart and knocks it out for a round; at 0 it is slain.`);
+    if (m && !m.slain && m.restUntilRound > 0 && m.restUntilRound >= view.turn.round) parts.push(`The ${m.name} is resting after a defeat until the end of round ${m.restUntilRound}: no fight here for now.`);
     if (node.encounter?.monster === 'golem' && view.viewerId && view.shortcutsOpen?.[node.id]?.includes(view.viewerId)) parts.push('Your kingdom beat the Golem: your pieces take the shortcut here without a fight.');
   }
   if (node.lane === 'final') parts.push('Not a shortcut. A piece can enter only after that house has banked four gems and made a cut, and that piece has touched all four house plates.');
@@ -357,6 +360,12 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         fx.push({ id: ++fxId.current, node: c.node, text: 'Dragon Fire!', tone: 'cut' });
         lines.push(`${nm(e.characterId)} was burned by Dragon Fire and sent home.`);
         if (c.owner === me) news.push({ title: `YOUR ${CHARACTER_INFO[c.kind].name.toUpperCase()} WAS BURNED!`, sub: `${PRONOUN[c.kind]} returns to your castle.`, tone: 'bad' });
+      } else if (e.type === 'monsterHit') {
+        const mName = e.monster === 'golem' ? 'Stone Golem' : 'Cave Spider';
+        const home = monstersOf(view).find((m) => m.id === e.monster)?.home;
+        if (home) fx.push({ id: ++fxId.current, node: home, text: !e.hit ? 'Missed!' : e.slain ? `${mName} slain!` : `Hit! ${e.hp} ♥ left`, tone: !e.hit ? 'blocked' : 'good' });
+        lines.push(!e.hit ? `${nm(e.characterId)} missed the ${mName} (rolled ${e.roll}).` : e.slain ? `${nm(e.characterId)} slew the ${mName}!` : `${nm(e.characterId)} wounded the ${mName}: ${e.hp} heart${e.hp === 1 ? '' : 's'} left.`);
+        if (e.slain) news.push({ title: `${mName.toUpperCase()} SLAIN!`, sub: e.monster === 'golem' ? 'Its shortcut is open to everyone.' : 'The slayer takes a power card.', tone: 'gold' });
       } else if (e.type === 'monsterEvent') {
         const c = e.characterId ? view.characters[e.characterId] : null;
         const mName = e.monster === 'golem' ? 'Stone Golem' : e.monster === 'spider' ? 'Cave Spider' : 'Monster';
@@ -771,7 +780,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       else if (x.kind === 'swap') t.characters.add(x.targetId);
       else if (x.kind === 'path') t.nodes.add(x.path[x.path.length - 1]);
     }
-    if (!shownTargets.length && !plan?.choice) for (const o of fireOptions) if (o.action.type === 'dragonFire') t.characters.add(o.action.targetId);
+    if (!shownTargets.length && !plan?.choice) for (const o of fireOptions) if (o.action.type === 'dragonFire' && o.action.targetId) t.characters.add(o.action.targetId);
     return t;
   }, [shownTargets, fireOptions, plan?.choice]);
   const coach = useMemo(() => new Set(tutorial?.coach ?? []), [tutorial?.coach]);
@@ -972,6 +981,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           </div>
           <GameBoard
             view={view}
+            markerStyle={settings.markers ?? 'minimal'}
+            describeNode={(id) => {
+              const n = getBoard(view.boardId).nodes[id];
+              return n ? locationTip(n, view) : '';
+            }}
             map={map}
             me={me}
             movable={movable}
@@ -1261,6 +1275,40 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               </div>
             )}
 
+            {mine.length > 0 && !(myTurn && !view.turn.moveDone) && (
+              <div className="mt-2.5" data-piece-roster>
+                <div className="mb-1 text-xs font-bold text-[#4a5374]">Your pieces</div>
+                <ul className="grid grid-cols-2 gap-1.5">
+                  {mine.map((c) => {
+                    const gems = gemsOf(view, c);
+                    const where = c.finished ? 'In the Crown Temple' : nodeName(view.boardId, c.node);
+                    const notes = [c.shield && 'Shield', c.immune && 'Immunity', c.guarded && 'Royal Guard', c.webbed && 'Webbed'].filter(Boolean) as string[];
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-1.5 rounded-xl bg-white/70 px-1.5 py-1 text-left text-[11px] leading-tight"
+                          data-roster={c.id}
+                          aria-label={`${label(c)} at ${where}: ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ', carrying nothing'}${notes.length ? `, ${notes.join(', ')}` : ''}`}
+                          onClick={() => onPiece(c.id)}
+                        >
+                          <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={24} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-bold">{CHARACTER_INFO[c.kind].name}</span>
+                            <span className="block truncate text-[#6b7086]">{where}</span>
+                            {notes.length > 0 && <span className="block truncate text-[#173e8c]">{notes.join(' · ')}</span>}
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end gap-0.5" data-carrying={gems.map((g) => g.kind).join(',')}>
+                            {gems.length ? gems.map((g) => <GemIcon key={g.id} kind={g.kind} size={16} title={`Carrying ${aGem(g.kind)}`} />) : <span className="text-[10px] text-[#9aa0b5]">no gems</span>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
             {fireChoice && mayAdventure && (
               <div className="mt-2.5 rounded-xl bg-[#fff1e6] p-2" data-dragon-fire="armed">
                 <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire · no card needed · uses your Adventure action</div>
@@ -1307,7 +1355,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                         className={`btn text-sm ${a.type === 'dragonFire' ? 'btn-danger' : 'btn-green'}`}
                         disabled={busy}
                         title={o.detail}
-                        onClick={() => (a.type === 'dragonFire' ? setFireTarget(a.targetId) : void run(withDiscard))}
+                        onClick={() => (a.type === 'dragonFire' && a.targetId ? setFireTarget(a.targetId) : void run(withDiscard))}
                         data-adventure-option={a.type}
                       >
                         {gem && <GemIcon kind={gem} size={16} />}
@@ -1348,7 +1396,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       setTradeOpen(true);
                     }}
                   >
-                    Diplomacy
+                    Diplomacy &amp; powers
                   </button>
                 )}
                 {selected && (

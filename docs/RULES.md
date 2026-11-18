@@ -25,15 +25,28 @@ the Crown Temple.
 | Character | Ability |
 | --- | --- |
 | King | Card draw when banking a new gem kind; **Royal Guard** once per match after he moved |
-| Queen | Passes opponents; must end on an empty space; **Diplomacy** after she moved; **Dragon Slayer** on the wild dragon |
-| Witch | Portal hop; **Alchemy**; walks through the wild dragon; immune to Dragon Fire |
+| Queen | Passes opponents; never captures, must end on an empty (or safe) space; collects spare gems; **Diplomacy** after she moved; **Dragon Slayer** on the wild dragon |
+| Witch | Portal hop; collects spare gems; **Alchemy** only in her palace (castle or own gate), each kind once per match; walks through the wild dragon; immune to Dragon Fire |
 | Knight | +1 vs monsters/encounters; **route attack** 2–3 eligible rivals when the route allows |
 
 ## Captures, gems, path, temple
 
-- King/Witch capture by landing. Knight may route-attack. Queen never captures by landing.
+- King/Witch/Knight capture by ending a move on a rival on an **unsafe** space. Knight may route-attack.
+  Queen never captures (she cannot stop on an occupied unsafe space).
+- **Safe spaces** never allow a capture; rivals may share them: the four gold-star road stones, the
+  four kingdom gates (plates), castles, Royal Paths, the temple, the Dungeon Entrance and the two
+  dungeon safe rooms. Shield, Immunity and Royal Guard also make a piece uncapturable (landing on it is
+  refused). `tests/captureSweep.test.ts` checks every space on both maps for King, Witch and Knight.
+  Landing on a safe space beside a rival logs "safe space … no capture here", and the move preview says so.
 - Captured pieces keep their checkpoints. Capture credit is the kingdom’s temple requirement.
 - Banking adds copies to `bank`; duplicates are spares for Diplomacy and Alchemy.
+- **Spare gems**: the Queen and the Witch pick up a station's gem even when the kingdom already has
+  that kind (one per kind carried). Banked, it is a spare.
+- **Alchemy** (Witch, free, own turn): only in her palace (her castle or her kingdom's gate). Turns a
+  spare (second banked copy, or a carried gem of a kind already banked) into a kind the kingdom lacks;
+  it is banked at once. Each kind of stone may be transmuted once per match (`alchemyUsed`).
+- **Diplomacy** (Queen, after she moved): offer a spare for a rival's spare or a power card. The panel
+  explains what is missing when it cannot be used.
 - Royal Path opens on four different banked kinds alone. Enter early; walk back.
 - Temple gate: four checkpoints on that piece **and** kingdom capture credit. Four finishers win.
 
@@ -41,8 +54,23 @@ the Crown Temple.
 
 - Stone Golem / Cave Spider: end on their space, roll 4+ (Knight +1). Win: Golem shortcut to the
   Crystal Path / Spider power card. Fail → safe room.
-- Monster Den: Adventure fight, 4+ (Knight +1) opens the Vault Door this visit (or use a key).
-  Old Vault: dig. Crystal Shrine: take a needed gem. Spike Pit: back to the entrance.
+- Monster Den: Adventure fight, 4+ (Knight +1) opens the Vault Door this visit **and drops a dungeon key**.
+- Room perks (once per piece per visit, cleared when it leaves the dungeon or goes home):
+  - **Old Vault**: loot the hoard: a power card plus a discovery; vault traps are disarmed.
+  - **Fallen Ruins** (safe room): search: draw a map card.
+  - **Crystal Niche** (safe room): attune: clears a web, next move +2 (`crystalBoost`).
+- Crystal Shrine: take a needed gem.
+- **Spike Pit**: chute to the Dungeon Entrance (a fast way out); roll on the way down, 4–6
+  (`spikeTreasure`) draws a power card.
+- **Crystal Mine Tunnel** (island, sealed until Dig Tunnel): shortcut from the Sapphire station to the
+  north road; its diamond vein gives each kingdom one Diamond the first time one of its pieces walks
+  through with a free hand while it still needs one (`mined`).
+- **Killing monsters**: each has **2 hearts** (`monsterHearts`). A hit comes from winning its encounter,
+  the **Attack** Adventure action from ≤1 step (`monsterAttackRange`; 4+, Knight +1; a miss and it
+  strikes back at once with its push/web unless the attacker is on a safe space or protected), or
+  **Dragon Fire** from ≤3 steps (4+, no strike back). Each hit knocks it out (rests like a defeat). At 0
+  hearts it is **slain** for the match: no events, no fight; a slain Golem's shortcut opens for everyone;
+  the Spider's slayer draws a power card.
 - **Roaming monsters** (Stone Golem, Cave Spider; neutral, attack any house). After every full round
   (the last seat's turn ends; bonus rolls are inside a turn so never count) roll one monster die,
   exactly once per round (`monsterRound` is saved with the match):
@@ -63,6 +91,11 @@ the Crown Temple.
   - Tunables: `monsterEvents`, `monsterRange`, `monsterQuietMax`, `monsterOutsideRoll`, `golemPush`,
     `webPenalty`, `monsterRestRounds`.
 - Companion −2 steps (min 1).
+- **Vehicles** (Adventure action, plates on the way do not count, the vehicle stays where it arrives):
+  boat between the two docks is free; the plane to another airfield also burns one card as fuel
+  (`fuelCardId`, default the oldest card). Why: each skips a long walk (the option shows the steps saved)
+  and nothing can capture you on the way.
+- Dragon Fire can also target a monster in range (see Killing monsters).
 - **Dragon Fire** needs no card: it is an Adventure action of the dragon companion. Choose an
   eligible target (≤3 open spaces), then roll a separate attack die: **4–6 hits** (`dragonFireHit`),
   1–3 misses and the action is still spent. The attack die never earns a bonus roll. A hit sends the

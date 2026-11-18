@@ -1,5 +1,6 @@
 import { getBoard } from './board';
 import { CARDS, canTameHere } from './cards';
+import { attackableMonsters, fireableMonsters, monsterHp } from './dungeon';
 import { mapOf, walkingDistances } from './graph';
 import { CARD_INFO } from './rulesText';
 import {
@@ -46,6 +47,11 @@ export function stepsFor(s: BoardState, characterId: string, value: number, slow
   if (isCompanion(s, ch.id)) {
     steps = Math.max(cfg.dragonMinMove, value - cfg.dragonMovePenalty);
     note += ` − Dragon ${cfg.dragonMovePenalty}`;
+  }
+  if (ch.boosted) {
+    const boost = cfg.crystalBoost ?? 2;
+    steps += boost;
+    note += ` + Crystal ${boost}`;
   }
   if (ch.webbed) {
     const web = cfg.webPenalty ?? 2;
@@ -134,6 +140,11 @@ export function dragonFireTargets(s: BoardState, playerId: string): Character[] 
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
+
+/** Road steps between two spaces along open roads (for "skips an N-space walk"). */
+function walkSteps(s: BoardState, from: string, to: string): number | string {
+  return walkingDistances(s, from)[to] ?? 'long';
+}
 export const odds = (sides: number, need: number) => pct(Math.max(0, Math.min(1, (sides - need + 1) / sides)));
 
 const label = (s: BoardState, c: Character) => `${playerOf(s, c.owner).name}'s ${CHAR_NAMES[c.kind]}`;
@@ -163,6 +174,15 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
         if (handsFree(s, c))
           for (const gem of neededGems(s, playerId))
             out.push({ action: { type: 'dig', characterId: c.id, gem }, characterId: c.id, label: `${name}: take ${aGem(gem)}`, detail: 'The Crystal Shrine holds every gem. Carry it to your gate to bank it.' });
+      } else if (node.type === 'vault') {
+        if (!c.roomsUsed?.includes(c.node))
+          out.push({
+            action: { type: 'dig', characterId: c.id },
+            characterId: c.id,
+            label: `${name}: loot the Old Vault`,
+            detail: `Once per visit: take a power card plus a discovery (a gem, a card, a key or a secret route). Traps in the vault are disarmed.${full ? ' Your hand is full, so a found card needs a discard.' : ''}`,
+            mayDraw: full,
+          });
       } else
         out.push({
           action: { type: 'dig', characterId: c.id },
@@ -178,7 +198,29 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
         action: { type: 'fightMonster', characterId: c.id },
         characterId: c.id,
         label: `${name}: fight the monster`,
-        detail: `Roll ${cfg.monsterThreshold}+${bonus ? ` (Knight +${bonus})` : ''} — ${odds(cfg.dieSides, cfg.monsterThreshold - bonus)}. Win: the Vault Door opens for this visit. Lose: retreat to a safe room.`,
+        detail: `Roll ${cfg.monsterThreshold}+${bonus ? ` (Knight +${bonus})` : ''} — ${odds(cfg.dieSides, cfg.monsterThreshold - bonus)}. Win: the Vault Door opens for this visit and you keep a dungeon key. Lose: retreat to a safe room.`,
+      });
+    }
+    if ((node.id === 'd-ruins' || node.id === 'd-safe-crystal') && !c.roomsUsed?.includes(node.id)) {
+      const ruins = node.id === 'd-ruins';
+      out.push({
+        action: { type: 'explore', characterId: c.id },
+        characterId: c.id,
+        label: ruins ? `${name}: search the Fallen Ruins` : `${name}: attune at the Crystal Niche`,
+        detail: ruins
+          ? `Once per visit: draw a map card (build or break roads).${full ? ' Your hand is full, so it needs a discard.' : ''}`
+          : `Once per visit: clear any web, and this piece's next move is ${cfg.crystalBoost ?? 2} longer.`,
+        mayDraw: ruins && full,
+      });
+    }
+    for (const m of attackableMonsters(s, c.id)) {
+      const bonus = c.kind === 'knight' ? cfg.knightBonus : 0;
+      const hp = monsterHp(s, m);
+      out.push({
+        action: { type: 'attackMonster', characterId: c.id, monster: m.id },
+        characterId: c.id,
+        label: `${name}: attack the ${m.name}`,
+        detail: `Roll ${cfg.encounterThreshold}+${bonus ? ` (Knight +${bonus})` : ''} — ${odds(cfg.dieSides, cfg.encounterThreshold - bonus)}. Hit: it loses a heart (${hp} left) and is knocked out until the end of next round; at 0 it is slain for good. Miss: it strikes back at once.`,
       });
     }
     if (canTameHere(s, playerId, c.id))
@@ -186,11 +228,22 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
     if (!isCompanion(s, c.id)) {
       if (node.dock && s.vehicles.boat === c.node) {
         const to = board.docks.find((d) => d !== c.node)!;
-        if (canArrive(s, to, c.id)) out.push({ action: { type: 'sail', characterId: c.id }, characterId: c.id, label: `${name}: sail to ${nodes[to].name}`, detail: 'The boat carries you across the water and stays there. Plates on the way do not count.' });
+        if (canArrive(s, to, c.id))
+          out.push({
+            action: { type: 'sail', characterId: c.id },
+            characterId: c.id,
+            label: `${name}: sail to ${nodes[to].name}`,
+            detail: `Free, costs only your Adventure action. Skips a ${walkSteps(s, c.node, to)}-space walk; gems ride safely. The boat waits at ${nodes[to].name} for the next rider. Plates on the way do not count.`,
+          });
       }
       if (node.airfield && s.vehicles.plane === c.node)
-        for (const to of board.airfields.filter((a) => a !== c.node && canArrive(s, a, c.id)))
-          out.push({ action: { type: 'fly', characterId: c.id, to }, characterId: c.id, label: `${name}: fly to ${nodes[to].name}`, detail: 'The plane flies you there and stays there. Plates on the way do not count.' });
+        for (const to of board.airfields.filter((a) => hand.length > 0 && a !== c.node && canArrive(s, a, c.id)))
+          out.push({
+            action: { type: 'fly', characterId: c.id, to },
+            characterId: c.id,
+            label: `${name}: fly to ${nodes[to].name}`,
+            detail: `Costs your Adventure action and one card as fuel (${CARD_INFO[hand[0].type].name}, your oldest card). Skips a ${walkSteps(s, c.node, to)}-space walk. The plane stays there. Plates on the way do not count.`,
+          });
     }
   }
   if (comp) {
@@ -201,6 +254,14 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
         characterId: comp.id,
         label: `Dragon Fire at ${label(s, t)}`,
         detail: `Uses your Adventure action, no card. Roll the attack die: ${need}–${cfg.dieSides} hits (${odds(cfg.dieSides, need)}), 1–${need - 1} misses. A hit sends them home (not a cut, no bonus roll) and drops their gems where they stood. Range ${cfg.dragonFireRange}.`,
+      });
+    }
+    for (const m of fireableMonsters(s, comp.id)) {
+      out.push({
+        action: { type: 'dragonFire', monster: m.id },
+        characterId: comp.id,
+        label: `Dragon Fire at the ${m.name}`,
+        detail: `Uses your Adventure action. Roll the attack die: ${need}–${cfg.dieSides} hits (${odds(cfg.dieSides, need)}). A hit takes one of its ${monsterHp(s, m)} hearts and knocks it out; at 0 it is slain. No strike back.`,
       });
     }
   }

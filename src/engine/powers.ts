@@ -11,8 +11,10 @@ import {
   playerName,
   playerOf,
   syncGems,
+  bankGem,
   type Ctx,
 } from './rules';
+import { getBoard } from './board';
 import {
   GEM_KINDS,
   type CardType,
@@ -100,16 +102,33 @@ function royalGuardTargets(s: PowerView, playerId: string): string[] {
   return out;
 }
 
+/** The Witch's palace: her own castle or her kingdom's gate (where gems are banked). */
+function atPalace(s: PowerView, playerId: string, node: string): boolean {
+  const p = playerOf(s, playerId);
+  const house = getBoard(s.boardId).board.houses.find((h) => h.seat === p.seat);
+  return node === p.castle || node === house?.entry;
+}
+
+/**
+ * Alchemy sources: a carried gem of a kind already banked, or a spare banked copy (`bank:<kind>`). Each
+ * kind may be transmuted once per match, and only into a kind the kingdom has not banked.
+ */
 function alchemyChoices(s: PowerView, playerId: string): PowerOptionInfo['alchemy'] {
   const witch = witchOf(s, playerId);
-  if (!witch || witch.finished) return [];
-  const bank = ensureBank(playerOf(s, playerId));
+  if (!witch || witch.finished || !atPalace(s, playerId, witch.node)) return [];
+  const player = playerOf(s, playerId);
+  const bank = ensureBank(player);
+  const used = new Set(player.alchemyUsed ?? []);
+  const to = (from: GemKind) => GEM_KINDS.filter((k) => k !== from && (bank[k] ?? 0) === 0);
   const out: NonNullable<PowerOptionInfo['alchemy']> = [];
   for (const gemId of witch.carrying) {
     const gem = s.gems.find((g) => g.id === gemId);
-    if (!gem || (bank[gem.kind] ?? 0) < 1) continue;
-    const to = GEM_KINDS.filter((k) => k !== gem.kind && (bank[k] ?? 0) === 0);
-    if (to.length) out.push({ characterId: witch.id, gemId, from: gem.kind, to });
+    if (!gem || (bank[gem.kind] ?? 0) < 1 || used.has(gem.kind)) continue;
+    if (to(gem.kind).length) out.push({ characterId: witch.id, gemId, from: gem.kind, to: to(gem.kind) });
+  }
+  for (const k of GEM_KINDS) {
+    if ((bank[k] ?? 0) < 2 || used.has(k) || out.some((o) => o.from === k)) continue;
+    if (to(k).length) out.push({ characterId: witch.id, gemId: `bank:${k}`, from: k, to: to(k) });
   }
   return out;
 }
@@ -140,9 +159,12 @@ export function powerOptions(s: PowerView, playerId: string): PowerOptionInfo[] 
     const alchemy = alchemyChoices(s, playerId);
     let reason = 'Alchemy can convert a carried gem.';
     let usable = false;
+    const witch = witchOf(s, playerId);
     if (!ownTurn) reason = 'Alchemy is only available on your turn.';
-    else if (!witchOf(s, playerId)) reason = 'You have no Witch.';
-    else if (!alchemy?.length) reason = 'Carry a gem your kingdom has banked, and convert it into a kind you still need.';
+    else if (!witch || witch.finished) reason = 'You have no Witch on the board.';
+    else if (!atPalace(s, playerId, witch.node)) reason = 'Alchemy works only in the Witch’s palace: her castle or your kingdom’s gate.';
+    else if (!alchemy?.length)
+      reason = 'She needs a spare: a second banked copy of a gem, or a carried gem of a kind you already banked. Each kind can be transmuted only once per match, into a kind you still lack.';
     else usable = true;
     out.push({ type: 'alchemy', usable, reason, alchemy: usable ? alchemy : [] });
   }
@@ -219,17 +241,33 @@ function applyAlchemy(ctx: Ctx, playerId: string, characterId: string, gemId: st
   const ch = s.characters[characterId];
   if (!ch || ch.owner !== playerId || ch.kind !== 'witch') return 'Alchemy requires your Witch.';
   if (ch.finished) return 'A finished Witch cannot use Alchemy.';
-  const gem = s.gems.find((g) => g.id === gemId);
-  if (!gem || gem.carriedBy !== ch.id) return 'That gem is not carried by this Witch.';
-  const bank = ensureBank(playerOf(s, playerId));
-  if ((bank[gem.kind] ?? 0) < 1) return 'Alchemy needs a banked copy of the gem your Witch carries.';
+  if (!atPalace(s, playerId, ch.node)) return 'Alchemy works only in the Witch’s palace: her castle or your kingdom’s gate.';
+  const player = playerOf(s, playerId);
+  const bank = ensureBank(player);
+  const fromBank = gemId.startsWith('bank:') ? (gemId.slice(5) as GemKind) : null;
+  const gem = fromBank ? null : s.gems.find((g) => g.id === gemId);
+  if (!fromBank && (!gem || gem.carriedBy !== ch.id)) return 'That gem is not carried by this Witch.';
+  const from = fromBank ?? gem!.kind;
+  if (!GEM_KINDS.includes(from)) return 'Choose a gem to transmute.';
+  if (fromBank ? (bank[from] ?? 0) < 2 : (bank[from] ?? 0) < 1) return fromBank ? 'Alchemy needs a spare: a second banked copy of that gem.' : 'Alchemy needs a banked copy of the gem your Witch carries.';
+  if ((player.alchemyUsed ?? []).includes(from)) return `Your Witch has already transmuted ${aGem(from)} this match. Each kind only once.`;
   if (!GEM_KINDS.includes(to)) return 'Choose a gem kind to convert into.';
-  if (to === gem.kind) return 'Alchemy converts a gem into a different kind.';
+  if (to === from) return 'Alchemy converts a gem into a different kind.';
   if ((bank[to] ?? 0) >= 1) return 'Alchemy only creates a kind your kingdom has not banked yet.';
-  const from = gem.kind;
-  gem.kind = to;
+  player.alchemyUsed = [...(player.alchemyUsed ?? []), from];
   ctx.events.push({ type: 'alchemy', characterId: ch.id, from, to });
-  log(ctx, `${charLabel(s, ch.id)} transmutes ${aGem(from)} into ${aGem(to)}. Carry it home to bank it.`, 'good', playerId);
+  if (fromBank) {
+    const was = finalUnlocked(s, playerId);
+    bank[from] -= 1;
+    bank[to] = (bank[to] ?? 0) + 1;
+    syncGems(player);
+    log(ctx, `${charLabel(s, ch.id)} transmutes a spare ${aGem(from).replace(/^an? /, '')} in the treasury into ${aGem(to)}. It is banked at once.`, 'good', playerId);
+    announceUnlock(ctx, playerId, was);
+  } else {
+    gem!.kind = to;
+    log(ctx, `${charLabel(s, ch.id)} transmutes ${aGem(from)} into ${aGem(to)} and banks it.`, 'good', playerId);
+    bankGem(ctx, ch, gem!);
+  }
   return null;
 }
 

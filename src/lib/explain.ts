@@ -131,8 +131,8 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
           const target = piece(view, e.characterId);
           cards.push({
             kind: `monster-${e.effect}`,
-            title: `${name} attacks${e.outside ? ' outside the Dragon Gate' : ''}!`,
-            why: `Monster die ${e.die}: it picked ${target}, ${view.config.monsterRange ?? 3} steps or closer`,
+            title: e.counter ? `${name} strikes back!` : `${name} attacks${e.outside ? ' outside the Dragon Gate' : ''}!`,
+            why: e.counter ? `${target} attacked it and missed` : `Monster die ${e.die}: it picked ${target}, ${view.config.monsterRange ?? 3} steps or closer`,
             now:
               e.effect === 'push'
                 ? e.to && e.to !== e.from
@@ -142,6 +142,20 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
             tone: 'bad',
           });
         }
+        break;
+      }
+      case 'monsterHit': {
+        const name = e.monster === 'golem' ? 'Stone Golem' : 'Cave Spider';
+        const how = e.how === 'fire' ? 'Dragon Fire' : e.how === 'attack' ? 'an attack' : 'winning its fight';
+        if (!e.hit) {
+          if (e.how === 'fire') cards.push({ kind: 'monster-miss', title: `Dragon Fire missed the ${name}`, why: `Attack die ${e.roll}, needed ${view.config.dragonFireHit ?? 4}+`, now: 'The Adventure action is spent.', tone: 'warn' });
+          break;
+        }
+        cards.push(
+          e.slain
+            ? { kind: 'monster-slain', title: `${name} slain!`, why: `${piece(view, e.characterId)} landed the last hit with ${how}`, now: e.monster === 'golem' ? 'It is gone for the match. Its shortcut is open to every kingdom.' : 'It is gone for the match. The slayer takes a power card from its hoard.', tone: 'gold' }
+            : { kind: 'monster-hit', title: `${name} wounded`, why: `${piece(view, e.characterId)} hit it with ${how}`, now: `${e.hp} ${e.hp === 1 ? 'heart' : 'hearts'} left. It is knocked out until the end of next round: no attacks, no fight.`, tone: 'good' },
+        );
         break;
       }
       case 'monsterRecovered':

@@ -5,7 +5,7 @@ import { DEFAULT_CONFIG, type GameConfig } from './config';
 import { nodeName } from './graph';
 import { adventureOptions, dragonFireTargets, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
 import { CARD_INFO } from './rulesText';
-import { initialMonsters, monsterPhase } from './dungeon';
+import { attackableMonsters, attackMonster, damageMonster, fireableMonsters, initialMonsters, monsterPhase, monstersOf } from './dungeon';
 import { applyPower, clearGuards, expireTrades, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
 import {
   CARD_CATEGORY,
@@ -15,6 +15,7 @@ import {
   charLabel,
   companionOf,
   drawDiscovery,
+  drawCard,
   finishGame,
   isCompanion,
   log,
@@ -372,6 +373,7 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       ctx.events.push({ type: 'moved', characterId: ch.id, path: option.path });
       log(ctx, `${charLabel(s, ch.id)} moves to ${nodeName(s.boardId, option.path[option.path.length - 1])}${option.witchPortal ? ' (free portal hop)' : ''}.`, 'info', playerId);
       ch.webbed = false;
+      ch.boosted = false;
       walk(ctx, ch, option, action.discardCardId, attack);
       if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
       break;
@@ -420,9 +422,36 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
         newGem(ctx, ch, kind, node.name);
         break;
       }
+      if (node.type === 'vault') {
+        // The Old Vault's hoard: a power card plus a discovery whose traps are disarmed. Once per visit.
+        if (ch.roomsUsed?.includes(ch.node)) return fail('This piece already looted the Old Vault on this visit. Leave the dungeon and come back.');
+        adventure();
+        ch.roomsUsed = [...(ch.roomsUsed ?? []), ch.node];
+        log(ctx, `${charLabel(s, ch.id)} opens the Old Vault's hoard…`, 'good', playerId);
+        drawCard(ctx, playerId, { category: 'power', discardCardId: action.discardCardId });
+        drawDiscovery(ctx, ch, action.discardCardId, { disarm: true });
+        break;
+      }
       adventure();
       log(ctx, `${charLabel(s, ch.id)} digs at ${node.name}…`, 'info', playerId);
       drawDiscovery(ctx, ch, action.discardCardId);
+      break;
+    }
+    case 'explore': {
+      const ch = mine(action.characterId);
+      const node = ch ? nodes[ch.node] : undefined;
+      if (!ch || !node || (node.id !== 'd-ruins' && node.id !== 'd-safe-crystal')) return fail('Explore in the Fallen Ruins or the Crystal Niche.');
+      if (ch.roomsUsed?.includes(node.id)) return fail(`This piece already used ${node.name} on this visit. Leave the dungeon and come back.`);
+      adventure();
+      ch.roomsUsed = [...(ch.roomsUsed ?? []), node.id];
+      if (node.id === 'd-ruins') {
+        log(ctx, `${charLabel(s, ch.id)} searches the Fallen Ruins and finds an old road map.`, 'good', playerId);
+        drawCard(ctx, playerId, { category: 'map' });
+      } else {
+        ch.boosted = true;
+        ch.webbed = false;
+        log(ctx, `${charLabel(s, ch.id)} attunes to the crystals: webs fall away and their next move is ${cfg.crystalBoost ?? 2} longer.`, 'good', playerId);
+      }
       break;
     }
     case 'fightMonster': {
@@ -436,7 +465,8 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       ctx.events.push({ type: 'monster', characterId: ch.id, roll: value, total, success });
       if (success) {
         ch.beatMonster = true;
-        log(ctx, `${charLabel(s, ch.id)} rolls ${total} and beats the monster! The Vault Door opens for this visit.`, 'good', playerId);
+        playerOf(s, playerId).keys++;
+        log(ctx, `${charLabel(s, ch.id)} rolls ${total} and beats the monster! The Vault Door opens for this visit, and the Den Beast drops a dungeon key.`, 'good', playerId);
       } else {
         log(ctx, `${charLabel(s, ch.id)} rolls ${total} — the monster drives them back.`, 'bad', playerId);
         retreat(ctx, ch);
@@ -454,19 +484,48 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       // The dragon's own power: no card. It spends the Adventure action, then a separate attack die decides it.
       const comp = companionOf(s, playerId);
       if (!comp) return fail('You need a dragon companion.');
-      if (!dragonFireTargets(s, playerId).some((c) => c.id === action.targetId)) return fail('That target is out of range, protected, or in a castle or Royal Path.');
-      adventure();
       const need = cfg.dragonFireHit ?? 4;
+      if (action.monster) {
+        // Dragon Fire also scorches a dungeon monster in range: a hit takes one of its hearts.
+        const m = fireableMonsters(s, comp.id).find((x) => x.id === action.monster);
+        if (!m) return fail('That monster is out of range, resting or already slain.');
+        adventure();
+        const value = roll(s);
+        s.stats[playerId].dragonFires++;
+        if (value < need) {
+          ctx.events.push({ type: 'monsterHit', monster: m.id, characterId: comp.id, how: 'fire', roll: value, total: value, hit: false, hp: m.hp ?? cfg.monsterHearts ?? 2, slain: false });
+          log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at the ${m.name}: attack die ${value} (needed ${need}+) — it misses.`, 'dragon', playerId);
+          break;
+        }
+        log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at the ${m.name}: attack die ${value} — a hit!`, 'dragon', playerId);
+        damageMonster(ctx, m.id, comp, 'fire', value, value);
+        break;
+      }
+      const targetId = action.targetId ?? '';
+      if (!dragonFireTargets(s, playerId).some((c) => c.id === targetId)) return fail('That target is out of range, protected, or in a castle or Royal Path.');
+      adventure();
       const value = roll(s);
       const hit = value >= need;
       s.stats[playerId].dragonFires++;
-      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId: action.targetId, roll: value, hit });
+      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId, roll: value, hit });
       if (!hit) {
-        log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, action.targetId)}: attack die ${value} (needed ${need}+) — it misses.`, 'dragon', playerId);
+        log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, targetId)}: attack die ${value} (needed ${need}+) — it misses.`, 'dragon', playerId);
         break;
       }
-      log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, action.targetId)}: attack die ${value} — a hit!`, 'dragon', playerId);
-      burn(ctx, comp.id, action.targetId);
+      log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, targetId)}: attack die ${value} — a hit!`, 'dragon', playerId);
+      burn(ctx, comp.id, targetId);
+      break;
+    }
+    case 'attackMonster': {
+      const ch = mine(action.characterId);
+      if (!ch || ch.finished) return fail('Choose one of your own pieces.');
+      const m = monstersOf(s).find((x) => x.id === action.monster);
+      if (!m) return fail('There is no such monster.');
+      if (m.slain) return fail(`The ${m.name} is already slain.`);
+      if (!attackableMonsters(s, ch.id).some((x) => x.id === m.id))
+        return fail(`Stand within ${cfg.monsterAttackRange ?? 1} step of the ${m.name} to attack it (and it must not be resting).`);
+      adventure();
+      attackMonster(ctx, ch, m.id);
       break;
     }
     case 'sail':
@@ -481,10 +540,20 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       const to = boat ? stops.find((d) => d !== at)! : action.type === 'fly' ? action.to : '';
       if (!stops.includes(to) || to === at) return fail('Choose another airfield.');
       if (!canArrive(s, to, ch.id)) return fail(`${nodeName(s.boardId, to)} is occupied.`);
+      // The plane burns one card as fuel; the boat is free (it only goes to the other dock and waits there).
+      let fuel: string | null = null;
+      if (!boat) {
+        const hand = s.hands[playerId];
+        const idx = action.type === 'fly' && action.fuelCardId ? hand.findIndex((c) => c.id === action.fuelCardId) : 0;
+        if (!hand.length || idx < 0) return fail('The plane needs fuel: discard one card from your hand to fly.');
+        const [card] = hand.splice(idx, 1);
+        s.discard.push(card);
+        fuel = CARD_INFO[card.type].name;
+      }
       adventure();
       s.vehicles = boat ? { ...s.vehicles, boat: to } : { ...s.vehicles, plane: to };
       s.stats[playerId].vehicleTrips++;
-      log(ctx, `${charLabel(s, ch.id)} ${boat ? 'sails' : 'flies'} to ${nodeName(s.boardId, to)}.`, 'info', playerId);
+      log(ctx, `${charLabel(s, ch.id)} ${boat ? 'sails' : 'flies'} to ${nodeName(s.boardId, to)}${fuel ? `, burning ${fuel} as fuel` : ''}.`, 'info', playerId);
       relocate(ctx, ch, to, boat ? 'boat' : 'plane');
       break;
     }
@@ -549,6 +618,7 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
       s.turn.moved = [...s.turn.moved, ch.id];
       ctx.events.push({ type: 'moved', characterId: ch.id, path: pick.option.path });
       ch.webbed = false;
+      ch.boosted = false;
       const autoAttack =
         pick.option.routeTargets.length >= s.config.knightAttackMin
           ? pick.option.routeTargets.slice(0, Math.min(s.config.knightAttackMax, pick.option.routeTargets.length))

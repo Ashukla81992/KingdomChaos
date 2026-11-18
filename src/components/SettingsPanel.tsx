@@ -2,6 +2,7 @@
 
 import { Volume2, VolumeX } from 'lucide-react';
 import { useSettings } from '@/lib/settings';
+import { MarkerStylePicker } from './MarkerStylePicker';
 import { Modal } from './ui/Modal';
 
 export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -75,6 +76,7 @@ export function SettingsPanel({ open, onClose }: { open: boolean; onClose: () =>
             ))}
           </div>
         </fieldset>
+        <MarkerStylePicker />
       </div>
     </Modal>
   );

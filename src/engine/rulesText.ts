@@ -50,7 +50,7 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Dig Tunnel',
     category: 'map',
     short: 'Open a marked tunnel.',
-    full: 'Open the Crystal Mine Tunnel on the Sapphire Falls Roads. It stays sealed until someone digs it. The Dragon Mountain Tunnel is one step of the main road and is already open.',
+    full: 'Open the Crystal Mine Tunnel on the Sapphire Falls Roads. It stays sealed until someone digs it. Once open it is a shortcut from the Sapphire station to the north road, and its diamond vein gives each kingdom one Diamond (the first time one of its pieces walks through with a free hand while it still needs one). The Dragon Mountain Tunnel is one step of the main road and is already open.',
     usesAction: A,
     targets: 'A marked tunnel site',
     duration: 'Permanent',
@@ -243,12 +243,12 @@ export const CHARACTER_INFO: Record<CharacterKind, CharacterText> = {
   queen: {
     name: 'Queen',
     abilityName: 'Royal Passage & Diplomacy',
-    ability: `Passes through opponents and must end on an empty space (safe spaces included). After she moved this turn, once per turn, offer a spare banked gem for a rival’s spare gem or a power card. Only she may use Dragon Slayer by ending on the wild dragon.`,
+    ability: `Passes through opponents but never captures: she must end on an empty space (safe spaces included). She collects spare gems at stations (Diplomacy currency). After she moved this turn, once per turn, offer a spare banked gem for a rival’s spare gem or a power card. Only she may use Dragon Slayer by ending on the wild dragon.`,
   },
   witch: {
     name: 'Witch',
     abilityName: 'Alchemy & Portal Hop',
-    ability: `Once per turn, hop between the East and West Moonstone Arches for free during her move. On her turn, Alchemy converts a gem she carries into a kind her kingdom is missing when a copy of the carried kind is already banked. She walks through the wild dragon’s space and is immune to Dragon Fire.`,
+    ability: `Once per turn, hop between the East and West Moonstone Arches for free during her move. Alchemy, only in her palace (her castle or her kingdom’s gate): turn a spare gem (a second banked copy, or a carried gem of a kind already banked) into a kind her kingdom is missing; it is banked at once. Each kind of stone can be transmuted only once per match. She also collects spare gems at stations. She walks through the wild dragon’s space and is immune to Dragon Fire.`,
   },
   knight: {
     name: 'Knight',
@@ -291,15 +291,15 @@ export const LOCATION_INFO: Record<NodeType, LocationText> = {
 };
 
 export const FEATURE_INFO = {
-  safe: 'Safe space: captures are refused here, and several pieces (even opponents) may share it.',
+  safe: 'Safe space (gold star): you can stop here beside a rival, but nobody is captured. Safe spaces are the four starred road stones, the four kingdom gates, castles, Royal Paths, the Dungeon Entrance and the two dungeon safe rooms. Everywhere else, ending your move on a rival captures it, unless it has a Shield, Immunity or Royal Guard. The Queen never captures: she must stop on an empty or safe space.',
   entry:
     'House gate and public checkpoint: its pieces leave the castle here and bank gems here. Any piece of any house that passes or lands here touches this checkpoint.',
   fork: 'Fork: once your Royal Path is open, a piece may turn in here — even before it has every checkpoint. The temple gate still checks checkpoints and capture credit.',
   station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom still needs that kind.',
   dig: 'Dig site: adventure action to draw a discovery — a gem, a card, a key, a hidden route opened for everyone, or a buried trap.',
   dungeonGate: `Dragon Gate, on the east coast: Enter Dungeon here as an Adventure action (you arrive at the Dungeon Entrance). On a monster die of ${C.monsterOutsideRoll} a monster climbs out and attacks along this road within ${C.monsterRange} steps.`,
-  dock: 'Dock: when the boat is here, sail to the other dock (adventure action; checkpoints on the way stay untouched).',
-  airfield: 'Airfield: when the plane is here, fly to the other airfield (adventure action; checkpoints on the way stay untouched).',
+  dock: 'Dock: when the boat is here, sail to the other dock. Cost: your Adventure action only. Why: it skips a long walk round the coast, and gems ride safely. The boat then waits at the far dock, so a rival may take it back. Plates on the way do not count.',
+  airfield: 'Airfield: when the plane is here, fly to another airfield. Cost: your Adventure action and one card from your hand as fuel. Why: the fastest jump across the island, ideal to rush gems home or reach a far plate. The plane stays where it lands. Plates on the way do not count.',
   portal: 'East and West Moonstone Arches: the Witch may hop from one to the other once per turn for free.',
   terrainSite: 'Terrain site: Raise Mountain or Create River can close this space.',
   hazard: `Trap risk: a piece that stops here rolls the die; on 1–${HAZARD_ROLL_MAX} a snare drags it back to the nearest main-road space. It keeps its gems and checkpoints. Passing through is safe.`,
@@ -335,6 +335,9 @@ export const MAP_MARKER_INFO = {
 /** Prowling dungeon monsters, in one sentence. */
 export const MONSTER_RULE = `Roaming monsters: the Stone Golem and the Cave Spider attack any house. After every full round (bonus rolls do not count) roll the monster die once: 1–${C.monsterQuietMax} nothing happens; ${C.monsterQuietMax + 1}–${C.monsterOutsideRoll - 1} one random active monster attacks a random piece within ${C.monsterRange} connected steps of it in the dungeon; ${C.monsterOutsideRoll} one climbs out of the Dragon Gate and attacks a piece on the road within ${C.monsterRange} steps of the gate, then goes back inside. With nobody in reach it just patrols. Stone Golem: pushes the piece back ${C.golemPush} legal spaces. Cave Spider: webs it, so its next move is ${C.webPenalty} shorter (minimum 1, webs do not stack). Safe spaces, castles, Royal Paths, the temple, Shield, Immunity and Royal Guard are never attacked. Blocked or unbuilt roads stop a monster’s reach.`;
 
+/** How to beat the roaming monsters for good. */
+export const MONSTER_KILL_RULE = `Killing monsters: each monster has ${C.monsterHearts} hearts. Three ways to strike one: win its fight by ending your move on its space; use the Attack action from within ${C.monsterAttackRange} step of it (roll ${C.encounterThreshold}+, Knight +${C.knightBonus}; a miss and it strikes back at once unless you stand on a safe space or are protected); or breathe Dragon Fire at it from up to ${C.dragonFireRange} steps (${C.dragonFireHit}+ on the attack die, no strike back). Each hit takes a heart and knocks it out until the end of the next round. At 0 hearts it is slain for the rest of the match: no more attacks, no fight on its space. A slain Golem leaves its shortcut open to every kingdom; whoever slays the Spider takes a power card from its hoard.`;
+
 export interface DungeonGuideEntry {
   /** Board node the entry describes (for labels and tooltips). */
   node: string;
@@ -347,15 +350,15 @@ export interface DungeonGuideEntry {
 /** What every special dungeon space does, in the order a visitor meets them. */
 export const DUNGEON_GUIDE: DungeonGuideEntry[] = [
   { node: 'd-entrance', name: 'Dungeon Entrance', tag: 'Start · exit · safe', rule: 'Where you arrive from the Dragon Gate. Safe from captures and monsters. Adventure action here: climb back out to the Dragon Gate.' },
-  { node: 'd-ruins', name: 'Fallen Ruins', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Losers of the Monster Den and the Stone Golem retreat here.' },
-  { node: 'd-safe-crystal', name: 'Crystal Niche', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Losers of the Cave Spider retreat here.' },
+  { node: 'd-ruins', name: 'Fallen Ruins', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Why visit: once per visit, use your Adventure action to search the ruins and draw a map card. Losers of the Monster Den and the Stone Golem retreat here.' },
+  { node: 'd-safe-crystal', name: 'Crystal Niche', tag: 'Safe room', rule: `Safe room: no captures, no monster attacks. Why visit: once per visit, use your Adventure action to attune to the crystals: any web falls away and your next move is ${C.crystalBoost} longer. Losers of the Cave Spider retreat here.` },
   { node: 'd-golem', name: 'Stone Golem', tag: 'Fight · shortcut', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: the shortcut carries you to the Crystal Path by the Crystal Shrine and stays open for your whole kingdom (later pieces walk through free); the Golem rests for a round. Lose: retreat to the Fallen Ruins. It roams: after a round it may push a piece within ${C.monsterRange} steps back ${C.golemPush} spaces.` },
   { node: 'd-spider', name: 'Cave Spider', tag: 'Fight · chest', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: open its chest and draw a power card; the Spider rests for a round. Lose: retreat to the Crystal Niche. It roams: after a round it may web a piece within ${C.monsterRange} steps (next move −${C.webPenalty}, minimum 1).` },
-  { node: 'd-monster', name: 'Monster Den', tag: 'Fight · opens vault', rule: `Adventure action: fight the Den Beast. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit; a dungeon key also opens it. Lose: retreat to a safe room.` },
-  { node: 'd-vault', name: 'Old Vault', tag: 'Dig · locked', rule: 'Behind the Vault Door (beat the Den Beast or use a dungeon key). Adventure action: dig for a discovery: a gem, a card, a key, a hidden route or a trap.' },
+  { node: 'd-monster', name: 'Monster Den', tag: 'Fight · key', rule: `Adventure action: fight the Den Beast. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}). Win: the Vault Door opens for this visit and the beast drops a dungeon key you keep (it opens the door once later). Lose: retreat to a safe room.` },
+  { node: 'd-vault', name: 'Old Vault', tag: 'Hoard · locked', rule: 'Behind the Vault Door (beat the Den Beast or use a dungeon key). Why visit: once per visit, use your Adventure action to loot the hoard: a power card plus a discovery (a gem, a card, a key or a hidden route). Traps in the vault are disarmed.' },
   { node: 'd-shrine', name: 'Crystal Shrine', tag: 'Free gem', rule: 'Adventure action: take any gem your kingdom still needs (hands must be free). Carry it to your gate to bank it.' },
   { node: 'd-lair', name: 'Dragon Lair', tag: 'Tame dragon', rule: `The dragon guards and recovers here. End your move here, then use your Adventure action to tame it: roll ${C.tameThreshold}+. A tamed dragon can breathe fire as an Adventure action, no card: ${C.dragonFireHit}+ on the attack die hits.` },
-  { node: 'd-pit', name: 'Spike Pit', tag: 'Trap', rule: 'Trap: ending a move here drops you through the trapdoor back to the Dungeon Entrance.' },
+  { node: 'd-pit', name: 'Spike Pit', tag: 'Trap · treasure', rule: `Ending a move here drops you down the chute to the Dungeon Entrance: a fast way out of the deep dungeon. On the way down roll the die: ${C.spikeTreasure}–6 and you grab a treasure among the spikes (a power card).` },
 ];
 
 export interface RuleSection {
@@ -438,7 +441,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'A movement capture sends the rival home, keeps their checkpoints, and transfers carried gems while your hands are free. Capture credit (`stats.cuts`) is the kingdom’s temple requirement.',
     ],
     bullets: [
-      'Safe spaces (gold-star stones, castles, gates, Royal Paths, dungeon safe rooms) refuse captures and can hold several pieces.',
+      'Safe spaces (gold-star stones, the four kingdom gates, castles, Royal Paths, the Dungeon Entrance and dungeon safe rooms) refuse captures and can hold several pieces. Everywhere else, ending on a rival captures it unless it is shielded, immune or guarded. The Queen never captures.',
       'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first.',
       'Knight route attack: choose 2–3 eligible rivals among those he passes or lands on; an eligible rival on the final space must be included.',
       'One bonus roll per movement roll: a natural 6 or at least one movement capture. Chains re-check the same rule. Dragon Fire and card effects earn none.',
@@ -454,7 +457,8 @@ export const RULE_SECTIONS: RuleSection[] = [
       `Each piece carries up to ${C.carryLimit} gems. A piece only picks up kinds its kingdom still needs.`,
       'Banking adds a copy to your bank. Duplicates stay as spares; your gem list shows the distinct kinds.',
       'Queen Diplomacy: after she moved this turn, offer one spare banked gem for a rival’s spare gem or a power card they hold. Accept swaps atomically; a full hand cannot take a card. Offers expire when your turn ends.',
-      'Witch Alchemy: on her turn, convert a carried gem into a missing kind when a copy of the carried kind is already banked.',
+      'Witch Alchemy: on her turn, only in her palace (her castle or her kingdom’s gate), turn a spare gem into a kind your kingdom is missing. It banks at once. Each kind of stone can be transmuted only once per match.',
+      'Spare gems: the Queen and the Witch pick up a station’s gem even when your kingdom already has that kind. Banked, it becomes a spare: Diplomacy and Alchemy currency.',
       'The dungeon’s Crystal Shrine offers any gem you still need; a lucky dig can turn one up.',
     ],
   },
@@ -464,8 +468,8 @@ export const RULE_SECTIONS: RuleSection[] = [
     paragraphs: ['Every house has a King, Queen, Witch and Knight in that house’s colours.'],
     bullets: [
       'King — Royal Treasury draws on banking a new kind; Royal Guard once per match after he moved.',
-      'Queen — passes opponents, ends on empty spaces, Diplomacy once per turn after she moved; Dragon Slayer duel on the wild dragon.',
-      'Witch — Portal Hop once per turn, Alchemy on her turn, walks through the wild dragon, immune to Dragon Fire.',
+      'Queen — passes opponents, never captures, ends on empty or safe spaces, collects spare gems, Diplomacy once per turn after she moved; Dragon Slayer duel on the wild dragon.',
+      'Witch — Portal Hop once per turn, Alchemy in her palace (each kind once per match), collects spare gems, walks through the wild dragon, immune to Dragon Fire.',
       `Knight — +${C.knightBonus} vs monsters and encounters; route attack ${C.knightAttackMin}–${C.knightAttackMax} when the route allows.`,
     ],
   },
@@ -481,7 +485,10 @@ export const RULE_SECTIONS: RuleSection[] = [
   {
     id: 'structures',
     title: 'Bridges, tunnels and terrain',
-    paragraphs: ['Inner routes have marked sites: bridges, tunnels, road plots, passes and terrain sites. Opening or closing one changes the roads for every player at once.'],
+    paragraphs: [
+      'Inner routes have marked sites: bridges, tunnels, road plots, passes and terrain sites. Opening or closing one changes the roads for every player at once.',
+      'Crystal Mine Tunnel: sealed until someone plays Dig Tunnel. Then it links the Sapphire station to the north road, and its diamond vein gives each kingdom one free Diamond the first time one of its pieces walks through with a free hand while it still needs one.',
+    ],
     bullets: [
       'Build Bridge, Dig Tunnel and Build Road open closed sites. Collapse Bridge, Landslide, Raise Mountain and Create River close open ones. Repair undoes a closure.',
       'Closed until a card or a dig: the Rope Bridge, the Camp Road, the Ruins Road and the Crystal Mine Tunnel. The Stone Bridge starts open.',
@@ -513,6 +520,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       `Monster Den (adventure fight): roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit. A dungeon key also opens it once.`,
       'Crystal Shrine: take any needed gem. Old Vault: dig. Spike Pit: drops you to the entrance. Leaving returns you to the Dragon Gate.',
       MONSTER_RULE,
+      MONSTER_KILL_RULE,
       'Safe rooms (Fallen Ruins, Crystal Niche) and the Dungeon Entrance are safe from captures and monsters. A beaten Golem or Spider rests through the next full round, then guards again; a kingdom that beat the Golem keeps its shortcut.',
     ],
   },
@@ -532,7 +540,10 @@ export const RULE_SECTIONS: RuleSection[] = [
   {
     id: 'vehicles',
     title: 'Boats and planes',
-    paragraphs: ['The boat sails between the Harbour and East Landing; the plane flies between the airfields. Using one is an adventure action and it stays where it arrives.'],
+    paragraphs: [
+      'The boat sails between the two docks; the plane flies between the airfields. Using either is your Adventure action, and the vehicle stays where it arrives (so it may not be there next time).',
+      'Boat: free. Plane: also burn one card from your hand as fuel. Why ride: each trip skips a long walk (the option shows how many spaces), and nothing can capture you on the way. Plates you fly or sail over do not count.',
+    ],
     bullets: ['Checkpoints on the way stay untouched. Dragon companions stay off the vehicles.'],
   },
   {

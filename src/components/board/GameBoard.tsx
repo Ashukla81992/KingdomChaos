@@ -25,6 +25,7 @@ import {
 import { monsterResting, monstersOf, monsterTargets } from '@/engine/dungeon';
 import { readMapMarkers } from '@/lib/mapMarkers';
 import { seatTheme } from '@/lib/seats';
+import type { MarkerStyle } from '@/lib/settings';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
 import { PieceToken } from '../art/token';
 
@@ -112,7 +113,18 @@ export interface GameBoardProps {
   fireTarget?: string | null;
   /** Spaces where one of the viewer's pieces can take an Adventure action right now (landmarks glow green). */
   actionNodes?: Set<string>;
+  /** Landmark look: small icons with names on hover (default), framed icons, or framed icons with names. */
+  markerStyle?: MarkerStyle;
+  /** Hover text for a space (shown in a translucent box when a mouse rests on it). */
+  describeNode?: (id: string) => string;
 }
+
+/** Size and caption rules for each landmark style. Names show on hover or focus unless `labels` is set. */
+const MARKER_LOOK: Record<MarkerStyle, { glyph: number; frame: boolean; labels: boolean; dig: number; gate: number }> = {
+  minimal: { glyph: 0.85, frame: false, labels: false, dig: 26, gate: 46 },
+  medallion: { glyph: 1.05, frame: true, labels: false, dig: 30, gate: 54 },
+  labelled: { glyph: 1, frame: true, labels: true, dig: 28, gate: 52 },
+};
 
 /** Distinct colours for the dungeon's special spaces (also used by the legend). */
 export const DUNGEON_TONE: Record<string, string> = {
@@ -176,6 +188,19 @@ export function GameBoard(props: GameBoardProps) {
   }, [royal.playSeat]);
   const { board, nodes, adj } = getBoard(view.boardId);
   const svgRef = useRef<SVGSVGElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  /** The translucent hover box: what the thing under the mouse is and does. */
+  const [hover, setHover] = useState<{ text: string; x: number; y: number; w: number; h: number } | null>(null);
+  const hoverOn = (text: string | (() => string)) => ({
+    onPointerEnter: (e: React.PointerEvent) => {
+      if (e.pointerType !== 'mouse' || !wrapRef.current) return;
+      const t = typeof text === 'function' ? text() : text;
+      if (!t) return;
+      const r = wrapRef.current.getBoundingClientRect();
+      setHover({ text: t, x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height });
+    },
+    onPointerLeave: () => setHover(null),
+  });
   const layerRef = useRef<SVGGElement>(null);
   const [px, setPx] = useState(0.6);
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
@@ -208,6 +233,9 @@ export function GameBoard(props: GameBoardProps) {
   // Every space keeps a touch target of at least 44 CSS px across.
   const hitR = Math.min(64, Math.max(dungeon ? 34 : 15, 22 / scale));
   const pulse = reduced ? undefined : 'kc-pulse';
+  const look = MARKER_LOOK[props.markerStyle ?? 'minimal'];
+  /** Caption class: hidden until the landmark is hovered or focused, unless the style shows names. */
+  const capClass = look.labels ? undefined : 'kc-hover-cap';
 
   const clamp = useCallback((z: { k: number; x: number; y: number }) => {
     const k = Math.min(4, Math.max(1, z.k));
@@ -446,6 +474,7 @@ export function GameBoard(props: GameBoardProps) {
   };
 
   const explainProps = (text: string) => ({
+    ...hoverOn(text),
     role: 'button' as const,
     tabIndex: 0,
     style: { cursor: 'help' },
@@ -455,13 +484,14 @@ export function GameBoard(props: GameBoardProps) {
 
   /** Landmark glyph: big enough to read on a phone, with its name underneath. Tapping a path's glyph acts on the path. */
   const glyph = (key: string, at: Pt, icon: string, label: string, text: string, size = 30, opts: { caption?: string; edgeId?: string; tone?: string } = {}) => {
-    const big = size * 1.6;
+    const big = size * look.glyph;
     const tap = opts.edgeId
       ? {
           role: 'button' as const,
           tabIndex: 0,
           style: { cursor: 'pointer' },
           'data-edge': opts.edgeId,
+          ...hoverOn(text),
           onClick: () => props.onEdge(opts.edgeId!, text),
           onKeyDown: (k: React.KeyboardEvent) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onEdge(opts.edgeId!, text)),
         }
@@ -470,10 +500,14 @@ export function GameBoard(props: GameBoardProps) {
     return (
       <g key={key} transform={`translate(${at[0]} ${at[1]}) scale(${gs})`} aria-label={label} data-glyph={key} {...tap}>
         <circle r={Math.max(big / 2 + 3, 22 / (scale * gs))} fill="transparent" />
-        <circle r={big / 2 + 3} fill="#fffaf0" fillOpacity={0.82} stroke={opts.tone ?? '#6b5232'} strokeWidth={2.5} filter="url(#kc-soft)" />
-        <image href={icon} x={-big / 2} y={-big / 2} width={big} height={big} />
+        {look.frame ? (
+          <circle r={big / 2 + 2} fill="#fffaf0" fillOpacity={0.78} stroke={opts.tone ?? '#6b5232'} strokeWidth={1.8} filter="url(#kc-soft)" />
+        ) : (
+          <circle r={big / 2 + 1} fill="none" stroke={opts.tone ?? '#6b5232'} strokeWidth={1.6} opacity={0.85} />
+        )}
+        <image href={icon} x={-big / 2} y={-big / 2} width={big} height={big} filter={look.frame ? undefined : 'url(#kc-soft)'} />
         {opts.caption && (
-          <text y={big / 2 + 15} textAnchor="middle" fontSize={12} fontWeight={800} fill="#2b1d14" stroke="#fffaf0" strokeWidth={3.5} paintOrder="stroke" pointerEvents="none">
+          <text className={capClass} y={big / 2 + (look.labels ? 11 : 14)} textAnchor="middle" fontSize={look.labels ? 9.5 : 12} fontWeight={800} fill="#2b1d14" stroke="#fffaf0" strokeWidth={3.5} paintOrder="stroke" pointerEvents="none">
             {opts.caption}
           </text>
         )}
@@ -684,7 +718,7 @@ export function GameBoard(props: GameBoardProps) {
 
   // ---------------------------------------------------------------- monsters
   const lastMonster = view.lastEvents.find((e) => e.type === 'monsterEvent');
-  const monsterSprites = monstersOf(view).flatMap((m) => {
+  const monsterSprites = monstersOf(view).filter((m) => !m.slain).flatMap((m) => {
     const ev = lastMonster && lastMonster.type === 'monsterEvent' && lastMonster.monster === m.id ? lastMonster : null;
     const resting = monsterResting(view, m);
     const attacking = !!ev && ev.kind === 'attack';
@@ -739,8 +773,13 @@ export function GameBoard(props: GameBoardProps) {
                 </text>
               </g>
             )}
+            <g transform="translate(0 40)" data-monster-hearts={m.hp ?? view.config.monsterHearts ?? 2} pointerEvents="none">
+              {Array.from({ length: view.config.monsterHearts ?? 2 }, (_, i) => (
+                <path key={i} transform={`translate(${(i - ((view.config.monsterHearts ?? 2) - 1) / 2) * 13} 0) scale(0.55)`} d="M0 6 C-12 -4 -6 -14 0 -7 C6 -14 12 -4 0 6 Z" fill={i < (m.hp ?? view.config.monsterHearts ?? 2) ? '#d63a4a' : '#5b4a3a'} stroke="#fff" strokeWidth={2} />
+              ))}
+            </g>
             {state === 'defeated' && (
-              <text y={44} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff" stroke="#2b1d14" strokeWidth={3} paintOrder="stroke">
+              <text y={56} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff" stroke="#2b1d14" strokeWidth={3} paintOrder="stroke">
                 resting
               </text>
             )}
@@ -779,6 +818,9 @@ export function GameBoard(props: GameBoardProps) {
       body = (
         <g data-plate={entryOf.seat} data-plate-done={platesDone ? String(platesDone.includes(entryOf.seat)) : undefined}>
           <circle r={r * 1.7} fill={th.color} fillOpacity={0.16} stroke={th.color} strokeWidth={2} />
+          {/* The gate is a safe space like the starred ones: no captures here. */}
+          <circle r={r} fill="url(#kc-stone)" stroke="#c58b00" strokeWidth={2.4} />
+          <path d="M0 -4.5 L1.3 -1.4 L4.6 -1.4 L1.9 0.6 L2.9 3.9 L0 2 L-2.9 3.9 L-1.9 0.6 L-4.6 -1.4 L-1.3 -1.4 Z" fill="#c58b00" transform={`scale(${r / 7})`} data-safe-star />
           {platesDone?.includes(entryOf.seat) && (
             <g transform={`translate(${r * 1.45} ${-r * 1.45})`}>
               <circle r={r * 0.75} fill="#2e9e62" stroke="#fff" strokeWidth={1.8} />
@@ -813,10 +855,10 @@ export function GameBoard(props: GameBoardProps) {
     const icon = (href: string, dx: number, dy: number, size: number) => <image key={href} href={href} x={dx - size / 2} y={dy - size / 2} width={size} height={size} pointerEvents="none" />;
     const iconSize = Math.max(26, 22 / scale);
     /** Landmarks (dig sites, the Dragon Gate) read at about 36 CSS px whatever the board size. */
-    const landmark = Math.max(40, 36 / scale);
+    const landmark = Math.max(look.dig + 4, look.dig / scale);
     const cs = Math.max(1, ui * 0.9);
     const caption = (key: string, text: string, dy: number, tone = '#2b1d14') => (
-      <g key={key} transform={`translate(0 ${dy}) scale(${cs})`} pointerEvents="none" data-caption={text}>
+      <g key={key} className={capClass} transform={`translate(0 ${dy}) scale(${cs * (look.labels ? 0.7 : 0.9)})`} pointerEvents="none" data-caption={text}>
         <rect x={-(text.length * 3.7 + 8)} y={-8.5} width={text.length * 7.4 + 16} height={17} rx={8.5} fill={tone} stroke="#fffaf0" strokeWidth={1.5} opacity={0.94} />
         <text y={4} textAnchor="middle" fontSize={11} fontWeight={800} fill="#fff">
           {text}
@@ -826,30 +868,29 @@ export function GameBoard(props: GameBoardProps) {
     const ready = props.actionNodes?.has(n.id);
     if (n.station) deco.push(icon(`/art/gem-${n.station}.png`, 0, -iconSize * 0.75, iconSize));
     if (n.dig && n.map === 'island') {
-      deco.push(<circle key="dig-ring" cy={-landmark * 0.7} r={landmark * 0.58} fill="#fffaf0" fillOpacity={0.85} stroke={ready ? '#2e9e62' : '#8a5a1f'} strokeWidth={ready ? 4 : 2.5} className={ready ? pulse : undefined} pointerEvents="none" />);
-      deco.push(icon('/art/icon-dig.png', 0, -landmark * 0.7, landmark));
-      deco.push(caption('dig-cap', n.name, landmark * 0.22 + r + 6 * cs, '#8a5a1f'));
+      if (look.frame || ready) deco.push(<circle key="dig-ring" cy={-landmark * 0.6} r={landmark * 0.56} fill={look.frame ? '#fffaf0' : 'none'} fillOpacity={0.8} stroke={ready ? '#2e9e62' : '#8a5a1f'} strokeWidth={ready ? 3.5 : 1.8} className={ready ? pulse : undefined} pointerEvents="none" />);
+      deco.push(<image key="dig-icon" href="/art/icon-dig.png" x={-landmark / 2} y={-landmark * 1.1} width={landmark} height={landmark} data-landmark="dig" />);
+      deco.push(caption('dig-cap', n.name, r + 9 * cs, '#8a5a1f'));
     }
     const entranceArt = n.dungeonGate || n.type === 'dEntrance';
     if (entranceArt) {
-      // The way into (and out of) the dungeon: the gate painting in a gold frame, always labelled.
-      const w = Math.max(dungeon ? 120 : 84, 70 / scale);
-      const h = w * 0.77;
-      const cy = -h * 0.72 - r;
+      // The way into (and out of) the dungeon: the gate's dragon head, cut out, perched over the space.
+      const w = Math.max(look.gate * (dungeon ? 1.5 : 1), (look.gate * 0.9) / scale);
+      const h = w * (194 / 240);
+      const cy = -h * 0.55 - r;
       deco.push(
-        <g key="entrance" pointerEvents="none" data-entrance={n.dungeonGate ? 'gate' : 'start'}>
-          {!reduced && <rect x={-w / 2 - 7} y={cy - h / 2 - 7} width={w + 14} height={h + 14} rx={14} fill="none" stroke="#ffcf33" strokeWidth={4} className="kc-pulse" />}
-          <rect x={-w / 2 - 3} y={cy - h / 2 - 3} width={w + 6} height={h + 6} rx={11} fill="#2b1d14" stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={4} />
-          <image href="/art/dungeon-entrance.jpg" x={-w / 2} y={cy - h / 2} width={w} height={h} preserveAspectRatio="xMidYMid slice" style={{ clipPath: 'inset(0 round 9px)' }} />
+        <g key="entrance" data-entrance={n.dungeonGate ? 'gate' : 'start'}>
+          {look.frame && <ellipse cy={cy + h * 0.05} rx={w * 0.52} ry={h * 0.55} fill="#2b1d14" fillOpacity={0.55} stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={2} />}
+          <image href="/art/dungeon-dragon-face.png" x={-w / 2} y={cy - h / 2} width={w} height={h} filter="url(#kc-soft)" />
         </g>,
       );
-      deco.push(caption('entrance-cap', n.dungeonGate ? 'Enter Dungeon' : 'Start · Exit', cy + h / 2 + 12 * cs, '#7a1d0b'));
-      deco.push(<circle key="entrance-ring" r={r + 6} fill="none" stroke="#ffcf33" strokeWidth={4} pointerEvents="none" />);
+      deco.push(caption('entrance-cap', n.dungeonGate ? 'Enter Dungeon' : 'Start · Exit', r + 10 * cs, '#7a1d0b'));
+      deco.push(<circle key="entrance-ring" r={r + 4} fill="none" stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={3} className={ready ? pulse : undefined} pointerEvents="none" />);
     }
     const guide = n.map === 'dungeon' ? GUIDE.get(n.id) : undefined;
     if (guide && n.type !== 'dEntrance') {
       const tone = n.encounter ? DUNGEON_TONE.encounter : (DUNGEON_TONE[n.type] ?? '#5b6676');
-      deco.push(<circle key="guide-ring" r={r + 5} fill="none" stroke={ready ? '#2e9e62' : tone} strokeWidth={ready ? 5 : 3.5} className={ready ? pulse : undefined} pointerEvents="none" />);
+      deco.push(<circle key="guide-ring" r={r + 4} fill="none" stroke={ready ? '#2e9e62' : tone} strokeWidth={ready ? 4 : 2.5} className={ready ? pulse : undefined} pointerEvents="none" />);
       deco.push(caption('guide-cap', `${guide.name} · ${guide.tag}`, r + 14 * cs, tone));
     }
     if (n.type === 'vault') deco.push(icon('/art/icon-chest.png', 0, -iconSize, iconSize * 1.3));
@@ -883,6 +924,7 @@ export function GameBoard(props: GameBoardProps) {
         tabIndex={interactive ? 0 : undefined}
         aria-label={interactive ? label : undefined}
         style={{ cursor: interactive ? 'pointer' : 'help' }}
+        {...hoverOn(() => props.describeNode?.(n.id) ?? '')}
         onClick={() => props.onNode(n.id)}
         onKeyDown={(k) => {
           if (interactive && (k.key === 'Enter' || k.key === ' ')) {
@@ -891,7 +933,7 @@ export function GameBoard(props: GameBoardProps) {
           }
         }}
       >
-        <title>{entryOf ? `${n.name} — the ${entryOf.name} plate` : n.hazard ? `${n.name} — trap risk` : guide ? `${guide.name}: ${guide.rule}` : n.dungeonGate ? `${n.name}: Enter Dungeon here (Adventure action).` : n.name}</title>
+        {!props.describeNode && <title>{entryOf ? `${n.name} — the ${entryOf.name} plate` : n.hazard ? `${n.name} — trap risk` : guide ? `${guide.name}: ${guide.rule}` : n.dungeonGate ? `${n.name}: Enter Dungeon here (Adventure action).` : n.name}</title>}
         <circle r={top ? r + 8 : Math.max(hitR, r + 4)} fill="transparent" />
         {body}
         {deco}
@@ -924,7 +966,22 @@ export function GameBoard(props: GameBoardProps) {
   })();
 
   return (
-    <div className="relative h-full w-full" onKeyDown={onKeyDown}>
+    <div ref={wrapRef} className="relative h-full w-full" onKeyDown={onKeyDown} onPointerLeave={() => setHover(null)}>
+      {hover && (
+        <div
+          className="pointer-events-none absolute z-30 max-w-[19rem] rounded-xl border border-white/70 bg-[#fffaf0]/75 px-3 py-2 text-xs leading-snug text-[#2b1d14] shadow-lg backdrop-blur-sm"
+          style={{
+            left: hover.x + 16 + 304 > hover.w ? undefined : hover.x + 16,
+            right: hover.x + 16 + 304 > hover.w ? Math.max(8, hover.w - hover.x + 16) : undefined,
+            top: hover.y + 16 + 140 > hover.h ? undefined : hover.y + 16,
+            bottom: hover.y + 16 + 140 > hover.h ? Math.max(8, hover.h - hover.y + 16) : undefined,
+          }}
+          role="tooltip"
+          data-hover-tip
+        >
+          {hover.text}
+        </div>
+      )}
       <svg
         ref={svgRef}
         className="board-svg h-full w-full select-none"
@@ -934,6 +991,8 @@ export function GameBoard(props: GameBoardProps) {
         aria-label={dungeon ? 'Dungeon board' : 'Island board'}
         data-board={map}
         data-zoom={zoom.k.toFixed(2)}
+        data-marker-style={props.markerStyle ?? 'minimal'}
+        data-show-captions={zoom.k >= 2.2 ? 'true' : undefined}
         style={{ touchAction: 'none' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

@@ -123,7 +123,9 @@ export function consequences(s: S, characterId: string, o: MoveOption): string[]
   if (end.teleport) lines.push(`${end.teleport.name}: ${end.teleport.type === 'trap' ? 'falls' : 'rides'} to ${nodeName(s.boardId, end.teleport.to)} (plates on the way do not count)`);
   if (end.dig && !end.station) lines.push('Dig site: dig here as your adventure action');
   if (o.finishes) lines.push('Enters the Crown Temple');
-  if (end.safe && end.lane === 'circuit') lines.push('Safe space');
+  const sharing = Object.values(s.characters).filter((c) => !c.finished && c.node === end.id && c.owner !== ch.owner && c.id !== ch.id);
+  if (end.safe && sharing.length) lines.push(`Safe space: shares it with ${sharing.map((c) => name(c.id)).join(' and ')}. No capture here`);
+  else if (end.safe && end.lane !== 'final' && end.type !== 'temple') lines.push('Safe space: nobody can be captured here');
   return lines;
 }
 
