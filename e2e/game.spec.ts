@@ -332,6 +332,8 @@ test('rules open mid-game without stopping the match timer', async ({ page }) =>
 
 test('rules sit left of the board, and the turn and cards sit on the right', async ({ page }) => {
   await tutorialStep(page, 4);
+  // The rules column starts folded so the board gets the room; unfold it.
+  await page.locator('[data-rail-toggle]').click();
   const rules = page.locator('[data-rules-rail]');
   const board = page.locator('[data-play-column="board"]');
   const turn = page.locator('[data-play-column="turn"]');
@@ -351,6 +353,11 @@ test('rules sit left of the board, and the turn and cards sit on the right', asy
   await expect(rules.locator('[data-guide-section="dragon"]')).toHaveCount(0);
   await expect(turn.locator('[data-tutorial="actions"]')).toBeVisible();
   await expect(turn.locator('[data-tutorial="hand"]')).toBeVisible();
+  // Folding it again gives the board the width back.
+  const wide = (await board.boundingBox())!.width;
+  await page.locator('[data-rail-toggle]').click();
+  await expect(rules).toHaveCount(0);
+  await expect.poll(async () => (await board.boundingBox())!.width).toBeGreaterThan(wide + 150);
 });
 
 test('on a phone the guide opens as a Rules & Guide drawer', async ({ page }) => {

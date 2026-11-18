@@ -228,6 +228,7 @@ export async function startRoom(opts: {
  */
 export async function progressRoom(room: RoomRecord, store: Store = getStore(), now = Date.now()): Promise<RoomRecord> {
   if (!room.state || room.status !== 'playing') return room;
+  const baseVersion = room.version;
   let state = room.state;
   let changed = false;
 
@@ -280,15 +281,29 @@ export async function progressRoom(room: RoomRecord, store: Store = getStore(), 
   }
 
   if (!changed) return room;
-  room.state = state;
-  room.version = state.version;
+  const patch: Partial<RoomRecord> = { state, version: state.version };
   if (state.status === 'finished') {
-    room.status = 'finished';
-    room.endedAt = now;
-    room.expiresAt = resultExpiresAt(now);
+    patch.status = 'finished';
+    patch.endedAt = now;
+    patch.expiresAt = resultExpiresAt(now);
   }
-  await store.saveRoom(room);
-  return room;
+  // Compare-and-set so a poll that advances clocks or AI never overwrites a newer move saved meanwhile.
+  const saved = await store.updateRoom(room.code, baseVersion, patch);
+  if (saved) return saved;
+  return (await store.getRoom(room.code)) ?? room;
+}
+
+/** A seated player's poll keeps an open room alive; written at most once a minute per room. */
+const HEARTBEAT_EVERY_MS = 60_000;
+
+async function heartbeat(room: RoomRecord, accountId: string | null, store: Store, now: number) {
+  if (!accountId || (room.status !== 'lobby' && room.status !== 'playing')) return;
+  const seat = seatOf(room, accountId);
+  if (!seat || seat.isAI) return;
+  const next = defaultExpiresAt(now);
+  if (next - room.expiresAt < HEARTBEAT_EVERY_MS) return;
+  await store.touchRoom(room.code, next);
+  room.expiresAt = next;
 }
 
 export async function getRoomForAccount(
@@ -304,8 +319,9 @@ export async function getRoomForAccount(
     return { ok: false, status: 403, error: 'You are not part of this room.' };
   }
   room = await progressRoom(room, store, now);
-  // Re-check expiry after progress (finished rooms get new expiry; unfinished must not extend)
+  // Re-check expiry after progress (finished rooms get a new expiry)
   if ((await assertRoomFresh(room, store, now)) === 'gone') return { ok: false, status: 410, error: 'That room has expired.' };
+  await heartbeat(room, accountId, store, now);
   return {
     ok: true,
     data: {

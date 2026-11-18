@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpen, ChevronDown, Compass, Hourglass, LogOut, Map as MapIcon, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglass, LogOut, Map as MapIcon, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CARD_INFO,
@@ -172,6 +172,7 @@ function locationTip(node: NodeDef, view: PlayerView): string {
 export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch }: Props) {
   const { view, send, mode } = controller;
   const { reducedMotion, play, settings, update } = useSettings();
+  const railOpen = settings.rulesRail === 'open';
   const me = view.viewerId;
   const { nodes } = getBoard(view.boardId);
   const [cardId, setCardId] = useState<string | null>(null);
@@ -828,9 +829,28 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
 
       <ObjectiveStrip view={view} me={me} presence={controller.presence} />
 
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:grid-cols-[280px_minmax(0,1fr)_340px] lg:px-4">
-        <aside className="hidden min-h-0 lg:block lg:h-[calc(100dvh-7.25rem)]" data-play-column="rules">
-          <RulesRail />
+      <div
+        className={`grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:px-3 ${
+          railOpen ? 'lg:grid-cols-[260px_minmax(0,1fr)_300px] 2xl:grid-cols-[280px_minmax(0,1fr)_340px]' : 'lg:grid-cols-[40px_minmax(0,1fr)_300px] 2xl:grid-cols-[40px_minmax(0,1fr)_340px]'
+        }`}
+      >
+        <aside className="hidden min-h-0 lg:flex lg:h-[calc(100dvh-7.25rem)] lg:flex-col lg:gap-1.5" data-play-column="rules" data-rail={railOpen ? 'open' : 'folded'}>
+          <button
+            type="button"
+            className={`btn btn-ghost shrink-0 text-sm ${railOpen ? 'self-end px-2! py-1!' : 'h-full w-10 flex-col justify-start gap-2 px-0! py-3!'}`}
+            onClick={() => update({ rulesRail: railOpen ? 'folded' : 'open' })}
+            aria-expanded={railOpen}
+            aria-label={railOpen ? 'Fold the rules panel' : 'Show the rules panel'}
+            data-rail-toggle
+          >
+            {railOpen ? <PanelLeftClose size={18} aria-hidden="true" /> : <PanelLeftOpen size={18} aria-hidden="true" />}
+            {railOpen ? 'Fold' : <span className="[writing-mode:vertical-rl] font-bold tracking-wide">Rules</span>}
+          </button>
+          {railOpen && (
+            <div className="min-h-0 flex-1">
+              <RulesRail />
+            </div>
+          )}
         </aside>
         <section
           className="panel relative mx-auto aspect-square w-full max-w-[min(100%,calc(100dvh-7.5rem))] overflow-hidden p-0! lg:max-w-none lg:aspect-auto lg:h-[calc(100dvh-7.25rem)]"
