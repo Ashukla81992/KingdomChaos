@@ -47,6 +47,11 @@ export function stepsFor(s: BoardState, characterId: string, value: number, slow
     steps = Math.max(cfg.dragonMinMove, value - cfg.dragonMovePenalty);
     note += ` − Dragon ${cfg.dragonMovePenalty}`;
   }
+  if (ch.webbed) {
+    const web = cfg.webPenalty ?? 2;
+    steps = Math.max(1, steps - web);
+    note += ` − Web ${web}`;
+  }
   const slow = slowed ?? (s.turn.move && s.turn.playerId === ch.owner ? s.turn.move.slowed : playerOf(s, ch.owner).slowed);
   if (slow && steps > cfg.slowDownMaxSteps) {
     steps = cfg.slowDownMaxSteps;
@@ -139,8 +144,8 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
   const { nodes, board } = getBoard(s.boardId);
   const cfg = s.config;
   const out: AdventureOption[] = [];
-  const comp = companionOf(s, playerId);
   const full = hand.length >= cfg.handLimit;
+  const comp = companionOf(s, playerId);
   for (const c of Object.values(s.characters)) {
     if (c.owner !== playerId) continue;
     const node = nodes[c.node];
@@ -189,12 +194,13 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
     }
   }
   if (comp) {
+    const need = cfg.dragonFireHit ?? 4;
     for (const t of dragonFireTargets(s, playerId)) {
       out.push({
         action: { type: 'dragonFire', targetId: t.id },
         characterId: comp.id,
         label: `Dragon Fire at ${label(s, t)}`,
-        detail: `Sends them home (not a cut). Range ${cfg.dragonFireRange}. Their gems drop where they stood.`,
+        detail: `Uses your Adventure action, no card. Roll the attack die: ${need}–${cfg.dieSides} hits (${odds(cfg.dieSides, need)}), 1–${need - 1} misses. A hit sends them home (not a cut, no bonus roll) and drops their gems where they stood. Range ${cfg.dragonFireRange}.`,
       });
     }
   }

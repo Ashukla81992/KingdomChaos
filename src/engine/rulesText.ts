@@ -277,7 +277,7 @@ export const LOCATION_INFO: Record<NodeType, LocationText> = {
     rule: 'A piece that enters finishes for its kingdom. Get all four characters into the temple to win.',
   },
   side: { name: 'Inner route', rule: 'A two-way trail across the island: often shorter, but cards can open or close it, and some stones carry a trap risk.' },
-  dEntrance: { name: 'Dungeon Entrance', rule: 'Safe. Adventure: leave the dungeon to the Dragon Gate.' },
+  dEntrance: { name: 'Dungeon Entrance', rule: 'Where you arrive in the dungeon, and its exit. Safe from captures and monsters. Adventure: climb out to the Dragon Gate.' },
   path: { name: 'Dungeon passage', rule: 'Dungeon moves use the exact allowance, the same as the island.' },
   monster: {
     name: 'Monster Den',
@@ -287,7 +287,7 @@ export const LOCATION_INFO: Record<NodeType, LocationText> = {
   gemChamber: { name: 'Crystal Shrine', rule: 'Adventure: take any gem your kingdom still needs.' },
   trap: { name: 'Spike Pit', rule: 'Ending a move here drops you through the Dungeon Trapdoor to the Dungeon Entrance.' },
   vault: { name: 'Old Vault', rule: 'Behind the guarded Vault Door. Adventure: dig for a discovery.' },
-  safeRoom: { name: 'Safe room', rule: 'Safe. Failed encounters retreat here.' },
+  safeRoom: { name: 'Safe room', rule: 'Safe from captures and monsters. Failed fights and encounters retreat here.' },
 };
 
 export const FEATURE_INFO = {
@@ -297,7 +297,7 @@ export const FEATURE_INFO = {
   fork: 'Fork: once your Royal Path is open, a piece may turn in here — even before it has every checkpoint. The temple gate still checks checkpoints and capture credit.',
   station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom still needs that kind.',
   dig: 'Dig site: adventure action to draw a discovery — a gem, a card, a key, a hidden route opened for everyone, or a buried trap.',
-  dungeonGate: 'Dragon Gate, on the east coast: adventure action to enter the dungeon.',
+  dungeonGate: `Dragon Gate, on the east coast: Enter Dungeon here as an Adventure action (you arrive at the Dungeon Entrance). On a monster die of ${C.monsterOutsideRoll} a monster climbs out and attacks along this road within ${C.monsterRange} steps.`,
   dock: 'Dock: when the boat is here, sail to the other dock (adventure action; checkpoints on the way stay untouched).',
   airfield: 'Airfield: when the plane is here, fly to the other airfield (adventure action; checkpoints on the way stay untouched).',
   portal: 'East and West Moonstone Arches: the Witch may hop from one to the other once per turn for free.',
@@ -309,7 +309,7 @@ export const STATUS_INFO = {
   shield: 'Shield — safe from captures and Dragon Fire until its owner’s next turn.',
   immune: 'Immune — safe from captures, Dragon Fire and Swap until its owner’s next turn.',
   carrying: 'Carrying gems — bank them at your house gate. If captured, the attacker takes what it can carry.',
-  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); can breathe Dragon Fire.`,
+  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die.`,
   slowed: `Slowed — next move is at most ${C.slowDownMaxSteps}.`,
   beatMonster: 'Beat the monster — the Vault Door is open for this visit.',
   lap: 'Checkpoints — this piece must touch all four public markers (Red, Blue, Purple, Green), in any order. Captured pieces keep the markers they have touched.',
@@ -331,6 +331,32 @@ export const MAP_MARKER_INFO = {
   safeRoom: { name: 'Safe room', color: '#0369a1', rule: 'Safe dungeon space. Failed fights and encounters retreat here.' },
   wildDragon: { name: 'Wild dragon', color: '#c2410c', rule: 'Blocks the road. The Witch may pass through. The Queen holding Dragon Slayer may end here to duel.' },
 } as const;
+
+/** Prowling dungeon monsters, in one sentence. */
+export const MONSTER_RULE = `Roaming monsters: the Stone Golem and the Cave Spider attack any house. After every full round (bonus rolls do not count) roll the monster die once: 1–${C.monsterQuietMax} nothing happens; ${C.monsterQuietMax + 1}–${C.monsterOutsideRoll - 1} one random active monster attacks a random piece within ${C.monsterRange} connected steps of it in the dungeon; ${C.monsterOutsideRoll} one climbs out of the Dragon Gate and attacks a piece on the road within ${C.monsterRange} steps of the gate, then goes back inside. With nobody in reach it just patrols. Stone Golem: pushes the piece back ${C.golemPush} legal spaces. Cave Spider: webs it, so its next move is ${C.webPenalty} shorter (minimum 1, webs do not stack). Safe spaces, castles, Royal Paths, the temple, Shield, Immunity and Royal Guard are never attacked. Blocked or unbuilt roads stop a monster’s reach.`;
+
+export interface DungeonGuideEntry {
+  /** Board node the entry describes (for labels and tooltips). */
+  node: string;
+  name: string;
+  /** What it is, in two or three words, shown on the board label. */
+  tag: string;
+  rule: string;
+}
+
+/** What every special dungeon space does, in the order a visitor meets them. */
+export const DUNGEON_GUIDE: DungeonGuideEntry[] = [
+  { node: 'd-entrance', name: 'Dungeon Entrance', tag: 'Start · exit · safe', rule: 'Where you arrive from the Dragon Gate. Safe from captures and monsters. Adventure action here: climb back out to the Dragon Gate.' },
+  { node: 'd-ruins', name: 'Fallen Ruins', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Losers of the Monster Den and the Stone Golem retreat here.' },
+  { node: 'd-safe-crystal', name: 'Crystal Niche', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Losers of the Cave Spider retreat here.' },
+  { node: 'd-golem', name: 'Stone Golem', tag: 'Fight · shortcut', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: the shortcut carries you to the Crystal Path by the Crystal Shrine and stays open for your whole kingdom (later pieces walk through free); the Golem rests for a round. Lose: retreat to the Fallen Ruins. It roams: after a round it may push a piece within ${C.monsterRange} steps back ${C.golemPush} spaces.` },
+  { node: 'd-spider', name: 'Cave Spider', tag: 'Fight · chest', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: open its chest and draw a power card; the Spider rests for a round. Lose: retreat to the Crystal Niche. It roams: after a round it may web a piece within ${C.monsterRange} steps (next move −${C.webPenalty}, minimum 1).` },
+  { node: 'd-monster', name: 'Monster Den', tag: 'Fight · opens vault', rule: `Adventure action: fight the Den Beast. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit; a dungeon key also opens it. Lose: retreat to a safe room.` },
+  { node: 'd-vault', name: 'Old Vault', tag: 'Dig · locked', rule: 'Behind the Vault Door (beat the Den Beast or use a dungeon key). Adventure action: dig for a discovery: a gem, a card, a key, a hidden route or a trap.' },
+  { node: 'd-shrine', name: 'Crystal Shrine', tag: 'Free gem', rule: 'Adventure action: take any gem your kingdom still needs (hands must be free). Carry it to your gate to bank it.' },
+  { node: 'd-lair', name: 'Dragon Lair', tag: 'Tame dragon', rule: `The dragon guards and recovers here. End your move here, then use your Adventure action to tame it: roll ${C.tameThreshold}+. A tamed dragon can breathe fire as an Adventure action, no card: ${C.dragonFireHit}+ on the attack die hits.` },
+  { node: 'd-pit', name: 'Spike Pit', tag: 'Trap', rule: 'Trap: ending a move here drops you through the trapdoor back to the Dungeon Entrance.' },
+];
 
 export interface RuleSection {
   id: string;
@@ -376,7 +402,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Forced effects (traps, shortcuts, hazards, encounters) resolve where they trigger and always log a reason.',
       'Bonus roll: a natural 6, or at least one movement capture on that move, earns exactly one bonus roll in the same turn. A 6 plus any number of captures is still one. Chains are possible. The Adventure action stays once per turn.',
       'Dragon Fire, encounters and card effects earn no bonus roll. On timeout, a pending bonus is lost.',
-      'Adventure actions: play a card · dig · enter or leave the dungeon · fight the monster · tame · Dragon Fire · sail or fly. Releasing your dragon companion is free at the start of your turn.',
+      'Adventure actions: play a card · dig · enter or leave the dungeon · fight the monster · tame · Dragon Fire (no card needed) · sail or fly. Releasing your dragon companion is free at the start of your turn.',
     ],
   },
   {
@@ -479,12 +505,15 @@ export const RULE_SECTIONS: RuleSection[] = [
     title: 'Dungeon encounters',
     paragraphs: [
       'Enter from the Dragon Gate on the east coast (space 16) as an adventure action. Dungeon moves use the exact allowance.',
+      'Why go down: the Crystal Shrine hands you any gem your kingdom still needs, the Old Vault holds a dig, and the Dragon Lair is where the dragon is tamed. Tap any dungeon space for what it does.',
     ],
     bullets: [
       `Stone Golem guards a shortcut; Cave Spider guards a power-card chest. Ending on the monster’s space forces one roll: ${C.encounterThreshold}+ succeeds (Knight +${C.knightBonus}).`,
       'Golem success carries the piece along the shortcut; Spider success draws a power card. Failure sends the piece to the marked safe room. Both outcomes are previewed before you confirm.',
       `Monster Den (adventure fight): roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}) to open the Vault Door for this visit. A dungeon key also opens it once.`,
       'Crystal Shrine: take any needed gem. Old Vault: dig. Spike Pit: drops you to the entrance. Leaving returns you to the Dragon Gate.',
+      MONSTER_RULE,
+      'Safe rooms (Fallen Ruins, Crystal Niche) and the Dungeon Entrance are safe from captures and monsters. A beaten Golem or Spider rests through the next full round, then guards again; a kingdom that beat the Golem keeps its shortcut.',
     ],
   },
   {
@@ -494,7 +523,8 @@ export const RULE_SECTIONS: RuleSection[] = [
     bullets: [
       `Tame: stand with it and roll ${C.tameThreshold}–6. Fail: retreat to the nearest safe space.`,
       `A companion moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}), shown as “Roll 5 − Dragon 2 = Move 3”.`,
-      `Dragon Fire: hits an eligible rival within ${C.dragonFireRange} open, connected spaces. Gems drop on that space. No capture credit and no bonus roll. Shield, Immunity and Royal Guard block it. The Witch is immune.`,
+      `Dragon Fire is the dragon’s own power: no card. It uses your Adventure action: choose an eligible target, then roll a separate attack die. ${C.dragonFireHit}–6 hits; 1–${C.dragonFireHit - 1} misses and the action is still spent. The attack die never earns a bonus roll.`,
+      `Dragon Fire hits an eligible rival within ${C.dragonFireRange} open, connected spaces. Gems drop on that space. No capture credit and no bonus roll. Shield, Immunity and Royal Guard block it. The Witch is immune.`,
       'Release at the start of your turn leaves a wild dragon blocking that space. The Witch may pass through.',
       `Dragon Slayer: only the Queen holding it may end on the wild dragon’s space, then rolls ${C.slayThreshold}+. Success clears the block and returns the dragon to recover for one round.`,
     ],
@@ -512,7 +542,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Finished pieces stay on the temple; get all four in to win.',
     ],
     bullets: [
-      'Royal Paths are safe and belong to their house. They stay subtle on the board until they matter (the legend toggle shows them for inspection).',
+      'Royal Paths are safe and belong to their house. All of them are always drawn with their dots: faded with a lock badge while that kingdom’s path is locked, full colour once it has banked all four gems, and bright along the selected piece’s legal route. Tap the Crown Temple to see what each of your pieces still needs.',
       `Reaching the temple needs the exact roll${C.exactTemple ? '' : ' (this match allows overshooting)'}.`,
       `The first kingdom with ${C.finishersToWin} finished characters wins (reason: temple).`,
     ],

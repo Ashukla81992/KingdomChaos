@@ -5,6 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import {
   CHARACTER_INFO,
   CHARACTER_KINDS,
+  DUNGEON_GUIDE,
   ISLAND_SIZE,
   gemList,
   gemsOf,
@@ -14,12 +15,14 @@ import {
   getBoard,
   nodeName,
   other,
+  royalPathOpen,
   type Character,
   type EdgeDef,
   type MapId,
   type NodeDef,
   type PlayerView,
 } from '@/engine';
+import { monsterResting, monstersOf, monsterTargets } from '@/engine/dungeon';
 import { readMapMarkers } from '@/lib/mapMarkers';
 import { seatTheme } from '@/lib/seats';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
@@ -34,6 +37,8 @@ export interface BoardTargets {
 export interface BoardEffect {
   id: number;
   node: string;
+  /** Exact spot (a road's midpoint) when the label belongs beside a road rather than a space. */
+  at?: [number, number];
   text: string;
   tone: 'cut' | 'blocked' | 'good' | 'bad';
 }
@@ -75,7 +80,8 @@ export interface GameBoardProps {
   resetKey: number;
   onPiece: (id: string) => void;
   onNode: (id: string) => void;
-  onEdge: (id: string) => void;
+  /** A path segment was tapped (`explain`: what it is, for when no card can change it). */
+  onEdge: (id: string, explain?: string) => void;
   onConfirm: () => void;
   /** Drag: pointer is over a space while carrying the selected piece. */
   onDragOver: (node: string) => void;
@@ -98,7 +104,28 @@ export interface GameBoardProps {
   platesDone?: number[] | null;
   /** Tap a map marker (A3) for its explanation. */
   onMarker?: (id: string, text: string) => void;
+  /** A tapped road segment waiting for confirmation: drawn as the change it would make. */
+  edgePreview?: { edgeId: string; change: 'open' | 'close'; label: string } | null;
+  onConfirmEdge?: () => void;
+  onCancelEdge?: () => void;
+  /** The dragon companion's chosen Dragon Fire target (before the attack die). */
+  fireTarget?: string | null;
+  /** Spaces where one of the viewer's pieces can take an Adventure action right now (landmarks glow green). */
+  actionNodes?: Set<string>;
 }
+
+/** Distinct colours for the dungeon's special spaces (also used by the legend). */
+export const DUNGEON_TONE: Record<string, string> = {
+  dEntrance: '#c58b00',
+  safeRoom: '#0369a1',
+  encounter: '#be123c',
+  monster: '#7c2d12',
+  vault: '#a16207',
+  gemChamber: '#7c3aed',
+  dragonChamber: '#c2410c',
+  trap: '#9f1239',
+};
+const GUIDE = new Map(DUNGEON_GUIDE.map((g) => [g.node, g]));
 
 type Pt = [number, number];
 const W = ISLAND_SIZE;
@@ -178,7 +205,9 @@ export function GameBoard(props: GameBoardProps) {
   /** Pieces keep a usable on-screen size (about 26px across) at any board size. */
   const pieceScale = Math.max(dungeon ? 1.5 : 1, 13 / (13 * scale));
   const stoneR = Math.max(dungeon ? 14 : 8, 6 / scale);
-  const hitR = Math.min(40, Math.max(dungeon ? 34 : 15, 20 / scale));
+  // Every space keeps a touch target of at least 44 CSS px across.
+  const hitR = Math.min(64, Math.max(dungeon ? 34 : 15, 22 / scale));
+  const pulse = reduced ? undefined : 'kc-pulse';
 
   const clamp = useCallback((z: { k: number; x: number; y: number }) => {
     const k = Math.min(4, Math.max(1, z.k));
@@ -424,12 +453,33 @@ export function GameBoard(props: GameBoardProps) {
     onKeyDown: (k: React.KeyboardEvent) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onExplain?.(text)),
   });
 
-  const glyph = (key: string, at: Pt, icon: string, label: string, text: string, size = 30) => (
-    <g key={key} transform={`translate(${at[0]} ${at[1]}) scale(${Math.max(1, ui * 0.75)})`} aria-label={label} data-glyph={key} {...explainProps(text)}>
-      <circle r={size / 2} fill="transparent" />
-      <image href={icon} x={-size / 2} y={-size / 2} width={size} height={size} />
-    </g>
-  );
+  /** Landmark glyph: big enough to read on a phone, with its name underneath. Tapping a path's glyph acts on the path. */
+  const glyph = (key: string, at: Pt, icon: string, label: string, text: string, size = 30, opts: { caption?: string; edgeId?: string; tone?: string } = {}) => {
+    const big = size * 1.6;
+    const tap = opts.edgeId
+      ? {
+          role: 'button' as const,
+          tabIndex: 0,
+          style: { cursor: 'pointer' },
+          'data-edge': opts.edgeId,
+          onClick: () => props.onEdge(opts.edgeId!, text),
+          onKeyDown: (k: React.KeyboardEvent) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onEdge(opts.edgeId!, text)),
+        }
+      : explainProps(text);
+    const gs = Math.max(1, ui * 0.75);
+    return (
+      <g key={key} transform={`translate(${at[0]} ${at[1]}) scale(${gs})`} aria-label={label} data-glyph={key} {...tap}>
+        <circle r={Math.max(big / 2 + 3, 22 / (scale * gs))} fill="transparent" />
+        <circle r={big / 2 + 3} fill="#fffaf0" fillOpacity={0.82} stroke={opts.tone ?? '#6b5232'} strokeWidth={2.5} filter="url(#kc-soft)" />
+        <image href={icon} x={-big / 2} y={-big / 2} width={big} height={big} />
+        {opts.caption && (
+          <text y={big / 2 + 15} textAnchor="middle" fontSize={12} fontWeight={800} fill="#2b1d14" stroke="#fffaf0" strokeWidth={3.5} paintOrder="stroke" pointerEvents="none">
+            {opts.caption}
+          </text>
+        )}
+      </g>
+    );
+  };
 
   // A live highlight follows the selected move. Inspection draws every path, muted.
   const liveSeat = royal.playSeat;
@@ -438,11 +488,11 @@ export function GameBoard(props: GameBoardProps) {
   const royalMode = (seat: number | undefined): 'play' | 'fading' | 'inspect' | null => {
     if (seat === undefined) return null;
     if (shownSeat === seat) return fading ? 'fading' : 'play';
-    if (royal.inspect) return 'inspect';
-    return null;
+    // Every house's Royal Path is always drawn (muted) so players can plan toward it.
+    return 'inspect';
   };
 
-  // Overlays: side routes, structures, landslides. Royal Paths are added after, only when shown.
+  // Overlays: side routes, structures, landslides, road touch targets. Royal Paths (always drawn) follow.
   const overlays: React.ReactNode[] = [];
   const glyphs: React.ReactNode[] = [];
   const marked = new Set<string>();
@@ -461,26 +511,61 @@ export function GameBoard(props: GameBoardProps) {
       overlays.push(<polyline key={e.id} points={toPoints(pts)} fill="none" stroke="#f3e2b8" strokeWidth={5} strokeLinecap="round" strokeDasharray="2 10" opacity={0.6} pointerEvents="none" />);
     }
     const mid = midpoint(pts);
+    // Segments a map card can build or break: tap the path (or its glyph) to act on it.
+    const changeable = e.kind === 'buildable' || e.kind === 'blockable';
+    const tapText = blocked
+      ? `Landslide: ${e.name ?? 'this pass'} is blocked. Nobody can walk through, and Dragon Fire cannot pass. A Repair card clears it.`
+      : e.structure === 'bridge'
+        ? open
+          ? `${e.name}: open. Collapse Bridge can knock it down if nobody would be stranded.`
+          : `${e.name}: broken. Build Bridge or Repair rebuilds it.`
+        : e.structure === 'tunnel'
+          ? open
+            ? `${e.name ?? 'Tunnel'}: open. A two-way shortcut for every house. Collapse it with a map card.`
+            : `${e.name ?? 'Tunnel'}: not dug yet. Dig Tunnel opens it, or a lucky dig may uncover it.`
+          : e.structure === 'road'
+            ? open
+              ? `${(e.name ?? 'Road').replace(/ \(unbuilt\)$/, '')}: paved and open for every house.`
+              : `${(e.name ?? 'Road').replace(/ \(unbuilt\)$/, '')}: an unbuilt road plot. Build Road paves it, or a lucky dig may uncover it.`
+            : `${e.name ?? 'This pass'}: open. A Landslide card can block it; Repair clears it.`;
+    if (changeable && !targeted)
+      overlays.push(
+        <polyline
+          key={`${e.id}-hit`}
+          points={toPoints(pts)}
+          fill="none"
+          stroke="transparent"
+          strokeWidth={Math.max(26, 18 / scale)}
+          strokeLinecap="round"
+          data-edge={e.id}
+          data-edge-tap
+          role="button"
+          tabIndex={-1}
+          aria-label={`${e.name ?? 'Path'}: tap to build or break it`}
+          style={{ cursor: 'pointer' }}
+          onClick={() => props.onEdge(e.id, tapText)}
+        />,
+      );
     if (blocked)
-      glyphs.push(glyph(`${e.id}-rocks`, mid, '/art/icon-mountain.png', `${e.name ?? 'Path'} blocked by a landslide`, `Landslide: ${e.name ?? 'this pass'} is blocked. Nobody can walk through, and Dragon Fire cannot pass. A Repair card clears it.`));
+      glyphs.push(glyph(`${e.id}-rocks`, mid, '/art/icon-mountain.png', `${e.name ?? 'Path'} blocked by a landslide`, tapText, 30, { caption: e.name ?? 'Landslide', edgeId: e.id, tone: '#b45309' }));
     else if (e.structure === 'bridge')
       glyphs.push(
         open
-          ? glyph(`${e.id}-bridge`, mid, '/art/icon-bridge.png', `${e.name} (open)`, `${e.name}: open. Collapse Bridge can knock it down if nobody would be stranded.`, 26)
-          : glyph(`${e.id}-bridge`, mid, '/art/icon-broken-bridge.png', `${e.name} (broken)`, `${e.name}: broken. Build Bridge or Repair rebuilds it.`),
+          ? glyph(`${e.id}-bridge`, mid, '/art/icon-bridge.png', `${e.name} (open)`, tapText, 30, { caption: e.name, edgeId: e.id, tone: '#2e9e62' })
+          : glyph(`${e.id}-bridge`, mid, '/art/icon-broken-bridge.png', `${e.name} (broken)`, tapText, 30, { caption: `${e.name} (broken)`, edgeId: e.id, tone: '#c8281e' }),
       );
     else if (e.structure === 'tunnel' && e.gate && !marked.has(e.gate)) {
       marked.add(e.gate);
       const name = e.name ?? 'Tunnel';
-      glyphs.push(glyph(`${e.id}-tunnel`, mid, '/art/icon-tunnel.png', `${name} (${open ? 'open' : 'not dug'})`, open ? `${name}: open. A two-way shortcut for every house.` : `${name}: not dug yet. Dig Tunnel opens it, or a lucky dig may uncover it.`));
+      glyphs.push(glyph(`${e.id}-tunnel`, mid, '/art/icon-tunnel.png', `${name} (${open ? 'open' : 'not dug'})`, tapText, 30, { caption: open ? name : `${name} (sealed)`, edgeId: e.id, tone: open ? '#2e9e62' : '#c8281e' }));
     } else if (e.structure === 'road' && !open) {
       const name = (e.name ?? 'Road').replace(/ \(unbuilt\)$/, '');
-      glyphs.push(glyph(`${e.id}-plot`, mid, '/art/icon-dig.png', `${name}: unbuilt road plot`, `${name}: an unbuilt road plot. Build Road paves it, or a lucky dig may uncover it.`, 26));
+      glyphs.push(glyph(`${e.id}-plot`, mid, '/art/icon-dig.png', `${name}: unbuilt road plot`, tapText, 22, { caption: `${name} (unbuilt)`, edgeId: e.id, tone: '#c8281e' }));
     }
     if (targeted)
       overlays.push(
         <g key={`${e.id}-target`}>
-          <polyline points={toPoints(pts)} fill="none" stroke="#2f7bf5" strokeWidth={10} strokeLinecap="round" opacity={0.8} className="kc-pulse" pointerEvents="none" />
+          <polyline points={toPoints(pts)} fill="none" stroke="#2f7bf5" strokeWidth={10} strokeLinecap="round" opacity={0.8} className={pulse} pointerEvents="none" />
           <polyline
             points={toPoints(pts)}
             fill="none"
@@ -491,23 +576,55 @@ export function GameBoard(props: GameBoardProps) {
             tabIndex={0}
             aria-label={`Target ${e.name ?? 'this path'}`}
             style={{ cursor: 'pointer' }}
-            onClick={() => props.onEdge(e.id)}
-            onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onEdge(e.id))}
+            onClick={() => props.onEdge(e.id, tapText)}
+            onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onEdge(e.id, tapText))}
           />
         </g>,
       );
   }
 
   const reach = royal.reachNodes;
+  /** A house's Royal Path is open once that kingdom has banked one of each gem. Unused seats stay locked. */
+  const seatOpen = (seat: number) => {
+    const p = view.players.find((x) => x.seat === seat);
+    return !!p && royalPathOpen(view, p.id);
+  };
+  for (const h of board.houses) {
+    if (nodes[h.final[0]]?.map !== map) continue;
+    const mid = nodes[h.final[Math.floor((h.final.length - 1) / 2)]].xy;
+    const th = seatTheme(h.seat);
+    const owner = view.players.find((x) => x.seat === h.seat);
+    const open = seatOpen(h.seat);
+    const text = owner
+      ? open
+        ? `${h.name} Royal Path: open. ${owner.name} banked all four gems. A piece enters at its fork; the temple gate still needs that piece's four checkpoints and the kingdom's capture.`
+        : `${h.name} Royal Path: locked. ${owner.name} must bank one of each gem (${owner.gems.length} of 4 so far) to open it.`
+      : `${h.name} Royal Path: no player in this seat.`;
+    glyphs.push(
+      <g key={`royal-${h.seat}`} transform={`translate(${mid[0]} ${mid[1]}) scale(${Math.max(1, ui * 0.7)})`} data-royal-badge={h.seat} data-royal-open={open ? 'true' : 'false'} aria-label={open ? `${h.name} Royal Path open` : `${h.name} Royal Path locked`} {...explainProps(text)}>
+        <circle r={22} fill="transparent" />
+        <circle r={11} fill={open ? th.color : '#fffaf0'} stroke={th.color} strokeWidth={2} opacity={open ? 1 : 0.92} filter="url(#kc-soft)" />
+        {open ? (
+          <path d="M-4.5 0.5 L-1.2 3.8 L4.8 -3" stroke="#fff" strokeWidth={2.2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+        ) : (
+          <g fill="none" stroke={th.dark} strokeWidth={1.8} strokeLinecap="round">
+            <rect x={-4.5} y={-1} width={9} height={7} rx={1.5} fill={th.dark} stroke="none" />
+            <path d="M-2.8 -1 V-3.5 a2.8 2.8 0 0 1 5.6 0 V-1" />
+          </g>
+        )}
+      </g>,
+    );
+  }
   for (const e of mapEdges) {
     if (e.lane !== 'final') continue;
     const seat = nodes[e.a].house ?? nodes[e.b].house;
-    const mode = royalMode(seat);
+    let mode = royalMode(seat);
     if (!mode || seat === undefined) continue;
-    // Live overlay: only the selected piece's reachable portion of its own path.
-    if ((mode === 'play' || mode === 'fading') && reach && reach.size > 0 && !(reach.has(e.a) && reach.has(e.b))) continue;
+    // Live overlay: only the selected piece's reachable portion of its own path; the rest stays muted.
+    if ((mode === 'play' || mode === 'fading') && reach && reach.size > 0 && !(reach.has(e.a) && reach.has(e.b))) mode = 'inspect';
     const th = seatTheme(seat);
     const play = mode === 'play' || mode === 'fading';
+    const open = seatOpen(seat);
     overlays.push(
       <g key={e.id} pointerEvents="none" data-royal-path={mode} data-royal-house={seat} data-royal-playable={play && mode !== 'fading' ? 'true' : 'false'} style={{ opacity: mode === 'fading' ? 0 : 1, transition: 'opacity 0.35s ease' }}>
         {play ? (
@@ -516,7 +633,10 @@ export function GameBoard(props: GameBoardProps) {
             <polyline points={toPoints(e.route)} fill="none" stroke={th.color} strokeWidth={4} strokeLinecap="round" strokeLinejoin="round" />
           </>
         ) : (
-          <polyline points={toPoints(e.route)} fill="none" stroke={th.color} strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="7 8" opacity={0.45} />
+          <g data-royal-open={open ? 'true' : 'false'}>
+            <polyline points={toPoints(e.route)} fill="none" stroke="#fffaf0" strokeWidth={open ? 7 : 5} strokeLinecap="round" strokeLinejoin="round" opacity={open ? 0.6 : 0.4} />
+            <polyline points={toPoints(e.route)} fill="none" stroke={th.color} strokeWidth={open ? 4 : 3} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={open ? undefined : '6 7'} opacity={open ? 0.9 : 0.5} />
+          </g>
         )}
       </g>,
     );
@@ -562,6 +682,78 @@ export function GameBoard(props: GameBoardProps) {
     );
   }
 
+  // ---------------------------------------------------------------- monsters
+  const lastMonster = view.lastEvents.find((e) => e.type === 'monsterEvent');
+  const monsterSprites = monstersOf(view).flatMap((m) => {
+    const ev = lastMonster && lastMonster.type === 'monsterEvent' && lastMonster.monster === m.id ? lastMonster : null;
+    const resting = monsterResting(view, m);
+    const attacking = !!ev && ev.kind === 'attack';
+    const outsideAt = ev?.outside && ev.at ? ev.at : null;
+    const warning = !resting && monsterTargets(view, m.id).length > 0;
+    const state = resting ? 'defeated' : attacking ? 'attack' : warning ? 'warning' : 'idle';
+    const guide = GUIDE.get(m.home);
+    const stateText =
+      state === 'defeated'
+        ? `beaten and resting until the end of round ${m.restUntilRound}: no fight, no attacks.`
+        : state === 'attack'
+          ? `it just attacked${ev?.outside ? ' out on the Dragon Gate road' : ''}.`
+          : state === 'warning'
+            ? `a piece is within ${view.config.monsterRange ?? 3} steps: it may attack after this round.`
+            : `idle. Nobody is within ${view.config.monsterRange ?? 3} steps.`;
+    const text = `${m.name}: ${stateText} ${guide?.rule ?? ''}`;
+    const spots = [m.node];
+    if (outsideAt && outsideAt !== m.node) spots.push(outsideAt);
+    return spots
+      .filter((node) => nodes[node]?.map === map)
+      .map((node) => {
+        const [x, y] = nodes[node].xy;
+        const w = 84;
+        const art = `/art/monster-${m.id}-${state === 'defeated' ? 'idle' : state}.png`;
+        return (
+          <g
+            key={`monster-${m.id}-${node}`}
+            transform={`translate(${x + 30 * pieceScale} ${y - 30 * pieceScale}) scale(${pieceScale})`}
+            data-monster={m.id}
+            data-monster-state={state}
+            aria-label={`${m.name}, ${state}`}
+            {...explainProps(text)}
+          >
+            <circle r={36} fill="transparent" />
+            {state !== 'idle' && state !== 'defeated' && (
+              <circle r={38} fill={state === 'attack' ? 'rgba(200,40,30,0.25)' : 'rgba(242,161,26,0.22)'} stroke={state === 'attack' ? '#c8281e' : '#f2a11a'} strokeWidth={2.5} className={pulse} />
+            )}
+            <image
+              href={art}
+              x={-w / 2}
+              y={-w / 2}
+              width={w}
+              height={w}
+              style={state === 'defeated' ? { filter: 'grayscale(0.9) brightness(0.8)', opacity: 0.75 } : undefined}
+              transform={state === 'defeated' ? 'rotate(-14)' : undefined}
+            />
+            {state === 'warning' && (
+              <g transform="translate(30 -30)">
+                <circle r={8} fill="#f2a11a" stroke="#fff" strokeWidth={1.5} />
+                <text y={4} textAnchor="middle" fontSize={12} fontWeight={900} fill="#3b2100">
+                  !
+                </text>
+              </g>
+            )}
+            {state === 'defeated' && (
+              <text y={44} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff" stroke="#2b1d14" strokeWidth={3} paintOrder="stroke">
+                resting
+              </text>
+            )}
+          </g>
+        );
+      });
+  });
+
+  // ---------------------------------------------------------------- road change preview
+  const preview = props.edgePreview ? board.edges.find((x) => x.id === props.edgePreview!.edgeId) : null;
+  const previewEdges = preview ? board.edges.filter((x) => x.id === preview.id || (!!preview.gate && x.gate === preview.gate)).filter((x) => nodes[x.a].map === map) : [];
+  const previewMid = preview && nodes[preview.a].map === map ? midpoint(preview.route) : null;
+
   // ---------------------------------------------------------------- spaces
   const renderNode = (n: NodeDef, top = false) => {
     const isEnd = ends.has(n.id);
@@ -572,8 +764,7 @@ export function GameBoard(props: GameBoardProps) {
     const interactive = isEnd || target;
     const entrance = royal.explainSeat == null ? null : board.houses.find((h) => h.seat === royal.explainSeat)?.final[0];
     const royalLook = n.lane === 'final' ? (royalMode(n.house) ?? (ends.has(n.id) ? 'play' : n.id === entrance ? 'locked' : null)) : null;
-    if (n.lane === 'final' && !royalLook) return null;
-    if (n.lane === 'final' && (royalLook === 'play' || royalLook === 'fading') && reach && reach.size > 0 && !reach.has(n.id) && !ends.has(n.id)) return null;
+    const royalMuted = n.lane === 'final' && (royalLook === 'play' || royalLook === 'fading') && reach && reach.size > 0 && !reach.has(n.id) && !ends.has(n.id);
     const house = n.house !== undefined ? seatTheme(n.house) : null;
     const entryOf = board.houses.find((h) => h.entry === n.id);
     const forkOf = board.houses.find((h) => h.branch === n.id);
@@ -596,9 +787,11 @@ export function GameBoard(props: GameBoardProps) {
           )}
         </g>
       );
-    } else if (n.lane === 'final' && (royalLook === 'locked' || royalLook === 'inspect'))
-      body =
-        royalLook === 'inspect' ? <circle r={r} fill="none" stroke={house?.color ?? '#8a6a3b'} strokeWidth={1.6} strokeDasharray="2 3" opacity={0.8} /> : null;
+    } else if (n.lane === 'final' && (royalLook === 'locked' || royalLook === 'inspect' || royalMuted)) {
+      // Royal Path dots are always on the board: subdued while locked, in full colour once open.
+      const open = n.house !== undefined && seatOpen(n.house);
+      body = <circle r={r * 0.85} fill={open ? house?.light : '#f6efe0'} stroke={house?.color ?? '#8a6a3b'} strokeWidth={open ? 2.4 : 1.6} opacity={open ? 1 : 0.7} />;
+    }
     else if (house) body = <circle r={r} fill={house.light} stroke={house.dark} strokeWidth={1.6} />;
     else if (n.teleport) {
       const trap = n.teleport.type === 'trap';
@@ -619,12 +812,49 @@ export function GameBoard(props: GameBoardProps) {
     const deco: React.ReactNode[] = [];
     const icon = (href: string, dx: number, dy: number, size: number) => <image key={href} href={href} x={dx - size / 2} y={dy - size / 2} width={size} height={size} pointerEvents="none" />;
     const iconSize = Math.max(26, 22 / scale);
+    /** Landmarks (dig sites, the Dragon Gate) read at about 36 CSS px whatever the board size. */
+    const landmark = Math.max(40, 36 / scale);
+    const cs = Math.max(1, ui * 0.9);
+    const caption = (key: string, text: string, dy: number, tone = '#2b1d14') => (
+      <g key={key} transform={`translate(0 ${dy}) scale(${cs})`} pointerEvents="none" data-caption={text}>
+        <rect x={-(text.length * 3.7 + 8)} y={-8.5} width={text.length * 7.4 + 16} height={17} rx={8.5} fill={tone} stroke="#fffaf0" strokeWidth={1.5} opacity={0.94} />
+        <text y={4} textAnchor="middle" fontSize={11} fontWeight={800} fill="#fff">
+          {text}
+        </text>
+      </g>
+    );
+    const ready = props.actionNodes?.has(n.id);
     if (n.station) deco.push(icon(`/art/gem-${n.station}.png`, 0, -iconSize * 0.75, iconSize));
-    if (n.dig && n.map === 'island') deco.push(icon('/art/icon-dig.png', 0, -iconSize * 0.7, iconSize));
+    if (n.dig && n.map === 'island') {
+      deco.push(<circle key="dig-ring" cy={-landmark * 0.7} r={landmark * 0.58} fill="#fffaf0" fillOpacity={0.85} stroke={ready ? '#2e9e62' : '#8a5a1f'} strokeWidth={ready ? 4 : 2.5} className={ready ? pulse : undefined} pointerEvents="none" />);
+      deco.push(icon('/art/icon-dig.png', 0, -landmark * 0.7, landmark));
+      deco.push(caption('dig-cap', n.name, landmark * 0.22 + r + 6 * cs, '#8a5a1f'));
+    }
+    const entranceArt = n.dungeonGate || n.type === 'dEntrance';
+    if (entranceArt) {
+      // The way into (and out of) the dungeon: the gate painting in a gold frame, always labelled.
+      const w = Math.max(dungeon ? 120 : 84, 70 / scale);
+      const h = w * 0.77;
+      const cy = -h * 0.72 - r;
+      deco.push(
+        <g key="entrance" pointerEvents="none" data-entrance={n.dungeonGate ? 'gate' : 'start'}>
+          {!reduced && <rect x={-w / 2 - 7} y={cy - h / 2 - 7} width={w + 14} height={h + 14} rx={14} fill="none" stroke="#ffcf33" strokeWidth={4} className="kc-pulse" />}
+          <rect x={-w / 2 - 3} y={cy - h / 2 - 3} width={w + 6} height={h + 6} rx={11} fill="#2b1d14" stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={4} />
+          <image href="/art/dungeon-entrance.jpg" x={-w / 2} y={cy - h / 2} width={w} height={h} preserveAspectRatio="xMidYMid slice" style={{ clipPath: 'inset(0 round 9px)' }} />
+        </g>,
+      );
+      deco.push(caption('entrance-cap', n.dungeonGate ? 'Enter Dungeon' : 'Start · Exit', cy + h / 2 + 12 * cs, '#7a1d0b'));
+      deco.push(<circle key="entrance-ring" r={r + 6} fill="none" stroke="#ffcf33" strokeWidth={4} pointerEvents="none" />);
+    }
+    const guide = n.map === 'dungeon' ? GUIDE.get(n.id) : undefined;
+    if (guide && n.type !== 'dEntrance') {
+      const tone = n.encounter ? DUNGEON_TONE.encounter : (DUNGEON_TONE[n.type] ?? '#5b6676');
+      deco.push(<circle key="guide-ring" r={r + 5} fill="none" stroke={ready ? '#2e9e62' : tone} strokeWidth={ready ? 5 : 3.5} className={ready ? pulse : undefined} pointerEvents="none" />);
+      deco.push(caption('guide-cap', `${guide.name} · ${guide.tag}`, r + 14 * cs, tone));
+    }
     if (n.type === 'vault') deco.push(icon('/art/icon-chest.png', 0, -iconSize, iconSize * 1.3));
     if (n.dock && view.vehicles.boat === n.id) deco.push(icon('/art/icon-boat.png', iconSize * 0.7, -iconSize * 0.4, iconSize * 1.1));
     if (n.airfield && view.vehicles.plane === n.id) deco.push(icon('/art/icon-plane.png', -iconSize * 0.7, -iconSize * 0.4, iconSize * 1.1));
-    if (n.dungeonGate) deco.push(icon('/art/icon-trapdoor.png', 0, -iconSize * 0.75, iconSize));
     if (n.type === 'trap') deco.push(icon('/art/icon-trapdoor.png', 0, -iconSize, iconSize * 1.2));
     if (n.hazard)
       deco.push(
@@ -643,9 +873,9 @@ export function GameBoard(props: GameBoardProps) {
         key={n.id}
         transform={`translate(${n.xy[0]} ${n.xy[1]})`}
         data-node={n.id}
-        data-royal-path={royalLook ?? undefined}
+        data-royal-path={royalMuted ? 'inspect' : (royalLook ?? undefined)}
         data-royal-house={n.lane === 'final' ? n.house : undefined}
-        data-royal-playable={n.lane === 'final' ? (royalLook === 'play' ? 'true' : 'false') : undefined}
+        data-royal-playable={n.lane === 'final' ? (royalLook === 'play' && !royalMuted ? 'true' : 'false') : undefined}
         data-end={isEnd ? 'true' : undefined}
         data-chosen={chosen ? 'true' : undefined}
         data-target={target ? 'true' : undefined}
@@ -661,12 +891,12 @@ export function GameBoard(props: GameBoardProps) {
           }
         }}
       >
-        <title>{entryOf ? `${n.name} — the ${entryOf.name} plate` : n.hazard ? `${n.name} — trap risk` : n.name}</title>
+        <title>{entryOf ? `${n.name} — the ${entryOf.name} plate` : n.hazard ? `${n.name} — trap risk` : guide ? `${guide.name}: ${guide.rule}` : n.dungeonGate ? `${n.name}: Enter Dungeon here (Adventure action).` : n.name}</title>
         <circle r={top ? r + 8 : Math.max(hitR, r + 4)} fill="transparent" />
         {body}
         {deco}
-        {isEnd && <circle r={r + 7} fill={chosen ? 'rgba(255,255,255,0.35)' : 'rgba(255,224,102,0.35)'} stroke={chosen ? '#fff' : '#ffcf33'} strokeWidth={chosen ? 4.5 : 3.5} className={chosen ? undefined : 'kc-pulse'} />}
-        {(target || coached) && <circle r={r + 9} fill="rgba(47,123,245,0.18)" stroke="#2f7bf5" strokeWidth={3.5} className="kc-pulse" />}
+        {isEnd && <circle r={r + 7} fill={chosen ? 'rgba(255,255,255,0.35)' : 'rgba(255,224,102,0.35)'} stroke={chosen ? '#fff' : '#ffcf33'} strokeWidth={chosen ? 4.5 : 3.5} className={chosen ? undefined : pulse} />}
+        {(target || coached) && <circle r={r + 9} fill="rgba(47,123,245,0.18)" stroke="#2f7bf5" strokeWidth={3.5} className={pulse} />}
         {hazardSet.has(n.id) && <circle r={r + 10} fill="none" stroke="#f2a11a" strokeWidth={3} strokeDasharray="4 3" data-preview-hazard />}
         {portalSet.has(n.id) && <circle r={r + 11} fill="none" stroke="#9b6cf0" strokeWidth={3} strokeDasharray="3 4" data-preview-portal />}
         {flash && <circle key={invalid!.at} r={r + 11} fill="none" stroke="#e0302d" strokeWidth={4} className="kc-flash" />}
@@ -745,6 +975,20 @@ export function GameBoard(props: GameBoardProps) {
             </g>
           )}
 
+          {previewEdges.map((x) => (
+            <g key={`preview-${x.id}`} pointerEvents="none" data-edge-preview={props.edgePreview!.change}>
+              <polyline points={toPoints(x.route)} fill="none" stroke="#fff" strokeWidth={14} strokeLinecap="round" opacity={0.9} />
+              <polyline
+                points={toPoints(x.route)}
+                fill="none"
+                stroke={props.edgePreview!.change === 'open' ? '#2e9e62' : '#c8281e'}
+                strokeWidth={8}
+                strokeLinecap="round"
+                strokeDasharray={props.edgePreview!.change === 'open' ? undefined : '6 8'}
+              />
+            </g>
+          ))}
+
           {mapNodes.filter((n) => !ends.has(n.id)).map((n) => renderNode(n))}
           {glyphs}
 
@@ -785,6 +1029,9 @@ export function GameBoard(props: GameBoardProps) {
               <image href="/art/dragon.png" x={-26} y={-46} width={52} height={48} style={view.dragon.state === 'recovering' ? { filter: 'grayscale(0.85)' } : undefined} />
             </g>
           )}
+
+          {/* Roaming monsters: idle, warning (someone in reach), attack (this round's event), defeated (resting). */}
+          {monsterSprites}
 
           {/* Pieces. */}
           {pieces.map(({ c, node, x, y }) => {
@@ -831,10 +1078,11 @@ export function GameBoard(props: GameBoardProps) {
               >
                 <g transform={`scale(${pieceScale})`}>
                   <ellipse cx={0} cy={-22} rx={20} ry={30} fill="transparent" />
-                  {(canMove || selected) && <ellipse cx={0} cy={-24} rx={18} ry={28} fill="none" stroke={selected ? '#fff' : '#ffe066'} strokeWidth={selected ? 3.5 : 2.6} strokeDasharray={selected ? undefined : '5 4'} className={selected ? undefined : 'kc-spin'} />}
-                  {targeted && !capture && <ellipse cx={0} cy={-24} rx={20} ry={30} fill="rgba(47,123,245,0.16)" stroke="#2f7bf5" strokeWidth={3} className="kc-pulse" />}
+                  {(canMove || selected) && <ellipse cx={0} cy={-24} rx={18} ry={28} fill="none" stroke={selected ? '#fff' : '#ffe066'} strokeWidth={selected ? 3.5 : 2.6} strokeDasharray={selected ? undefined : '5 4'} className={selected || reduced ? undefined : 'kc-spin'} />}
+                  {props.fireTarget === c.id && <ellipse cx={0} cy={-24} rx={23} ry={33} fill="rgba(242,110,26,0.22)" stroke="#f26e1a" strokeWidth={4} data-fire-target />}
+                  {targeted && !capture && <ellipse cx={0} cy={-24} rx={20} ry={30} fill="rgba(47,123,245,0.16)" stroke="#2f7bf5" strokeWidth={3} className={pulse} />}
                   {(capture || attackPick) && (
-                    <ellipse cx={0} cy={-24} rx={21} ry={31} fill="rgba(200,40,30,0.18)" stroke={attackOn ? '#fff' : '#c8281e'} strokeWidth={attackOn ? 4 : 3.2} className="kc-pulse" />
+                    <ellipse cx={0} cy={-24} rx={21} ry={31} fill="rgba(200,40,30,0.18)" stroke={attackOn ? '#fff' : '#c8281e'} strokeWidth={attackOn ? 4 : 3.2} className={pulse} />
                   )}
                   <PieceToken kind={c.kind} theme={theme} />
                   {carried.map((g, i) => (
@@ -912,16 +1160,55 @@ export function GameBoard(props: GameBoardProps) {
             </g>
           )}
 
+          {/* Confirm or cancel a road change beside the road itself. */}
+          {previewMid && props.edgePreview && (
+            <g transform={`translate(${Math.min(W - 100 * ui, Math.max(100 * ui, previewMid[0]))} ${Math.max(60 * ui, previewMid[1] - 54 * ui)}) scale(${ui})`} data-edge-confirm>
+              <g
+                role="button"
+                tabIndex={0}
+                aria-label={`Confirm: ${props.edgePreview.label}`}
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onConfirmEdge?.();
+                }}
+                onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onConfirmEdge?.())}
+              >
+                <rect x={-96} y={-22} width={150} height={44} rx={22} fill={props.edgePreview.change === 'open' ? '#2e9e62' : '#c8281e'} stroke="#fff" strokeWidth={2.5} filter="url(#kc-soft)" />
+                <text x={-21} y={5} textAnchor="middle" fontSize={13} fontWeight={800} fill="#fff">
+                  {props.edgePreview.label} ✓
+                </text>
+              </g>
+              <g
+                role="button"
+                tabIndex={0}
+                aria-label="Cancel the road change"
+                style={{ cursor: 'pointer' }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onCancelEdge?.();
+                }}
+                onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && (k.preventDefault(), props.onCancelEdge?.())}
+              >
+                <circle cx={78} r={22} fill="#fffaf0" stroke="#1d2440" strokeWidth={2} filter="url(#kc-soft)" />
+                <text x={78} y={6} textAnchor="middle" fontSize={17} fontWeight={800} fill="#1d2440">
+                  ✕
+                </text>
+              </g>
+            </g>
+          )}
+
           {/* Short-lived outcome labels. */}
           {effects
             .filter((fx) => nodes[fx.node]?.map === map)
             .map((fx) => {
-              const [x, y] = nodes[fx.node].xy;
+              const [x, y] = fx.at ?? nodes[fx.node].xy;
               const fill = fx.tone === 'cut' ? '#c8281e' : fx.tone === 'blocked' ? '#2f7bf5' : fx.tone === 'good' ? '#2e9e62' : '#5b6676';
+              const fw = Math.max(132, fx.text.length * 7 + 20);
               return (
-                <g key={fx.id} transform={`translate(${x} ${y - 30 * pieceScale}) scale(${ui})`} pointerEvents="none" data-effect={fx.tone}>
+                <g key={fx.id} transform={`translate(${Math.min(W - (fw / 2) * ui, Math.max((fw / 2) * ui, x))} ${y - 30 * pieceScale}) scale(${ui})`} pointerEvents="none" data-effect={fx.tone}>
                   <g className={reduced ? undefined : 'kc-rise'}>
-                    <rect x={-66} y={-14} width={132} height={26} rx={13} fill={fill} stroke="#fff" strokeWidth={2} />
+                    <rect x={-fw / 2} y={-14} width={fw} height={26} rx={13} fill={fill} stroke="#fff" strokeWidth={2} />
                     <text y={4.5} textAnchor="middle" fontSize={13} fontWeight={800} fill="#fff">
                       {fx.text}
                     </text>

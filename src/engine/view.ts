@@ -31,5 +31,8 @@ export function toPlayerView(s: GameState, viewerId: string | null): PlayerView 
     discardCount: s.discard.length,
     discoveryCount: s.discoveries.length,
     trades: tradesFor(s, viewerId),
+    monsters: s.monsters,
+    monsterRound: s.monsterRound,
+    shortcutsOpen: s.shortcutsOpen,
   };
 }

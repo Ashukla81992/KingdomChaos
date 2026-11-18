@@ -97,13 +97,55 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
         });
         break;
       case 'dragonFire':
-        cards.push({
-          kind: 'dragonFire',
-          title: 'Dragon Fire',
-          why: `${piece(view, e.characterId)} scorched ${piece(view, e.targetId)}`,
-          now: 'They return home. Carried gems drop where they stood. No capture credit.',
-          tone: 'bad',
-        });
+        cards.push(
+          e.hit === false
+            ? {
+                kind: 'dragonFire-miss',
+                title: `Dragon Fire missed (attack die ${e.roll})`,
+                why: `${piece(view, e.characterId)}'s dragon aimed at ${piece(view, e.targetId)} but needed ${view.config.dragonFireHit ?? 4}+`,
+                now: 'The Adventure action is spent. Nothing else happens.',
+                tone: 'warn',
+              }
+            : {
+                kind: 'dragonFire',
+                title: e.roll ? `Dragon Fire hit (attack die ${e.roll})` : 'Dragon Fire',
+                why: `${piece(view, e.characterId)} scorched ${piece(view, e.targetId)}`,
+                now: 'They return home. Carried gems drop where they stood. No capture credit, no bonus roll.',
+                tone: 'bad',
+              },
+        );
+        break;
+      case 'monsterEvent': {
+        const name = e.monster === 'golem' ? 'Stone Golem' : e.monster === 'spider' ? 'Cave Spider' : 'Monsters';
+        if (e.kind === 'quiet') {
+          cards.push({ kind: 'monster-quiet', title: `Round ${e.round}: the dungeon is quiet`, why: `Monster die ${e.die} (1–${view.config.monsterQuietMax ?? 3} means no attack)`, now: 'Play on.', tone: 'info' });
+        } else if (e.kind === 'patrol') {
+          cards.push({
+            kind: 'monster-patrol',
+            title: `${name} patrols`,
+            why: `Monster die ${e.die}, but nobody is within ${view.config.monsterRange ?? 3} steps${e.outside ? ' of the Dragon Gate' : ''}`,
+            now: 'Nothing happens this round.',
+            tone: 'info',
+          });
+        } else if (e.characterId) {
+          const target = piece(view, e.characterId);
+          cards.push({
+            kind: `monster-${e.effect}`,
+            title: `${name} attacks${e.outside ? ' outside the Dragon Gate' : ''}!`,
+            why: `Monster die ${e.die}: it picked ${target}, ${view.config.monsterRange ?? 3} steps or closer`,
+            now:
+              e.effect === 'push'
+                ? e.to && e.to !== e.from
+                  ? `${target} is pushed back from ${nodeName(view.boardId, e.from!)} to ${nodeName(view.boardId, e.to)}.`
+                  : `${target} had no legal space behind them and stays put.`
+                : `${target} is webbed: their next move is ${view.config.webPenalty ?? 2} shorter (minimum 1).`,
+            tone: 'bad',
+          });
+        }
+        break;
+      }
+      case 'monsterRecovered':
+        cards.push({ kind: 'monster-recovered', title: `${e.monster === 'golem' ? 'Stone Golem' : 'Cave Spider'} recovered`, why: 'Its rest after a defeat is over', now: 'Ending a move on its space means a fight again.', tone: 'warn' });
         break;
       case 'slay':
         cards.push({

@@ -182,6 +182,22 @@ export interface Character {
   finished: boolean;
   /** [A2] Royal Guard: cannot be captured (landing, Knight attack or Dragon Fire) until its owner's next turn. */
   guarded: boolean;
+  /** Caught in the Cave Spider's web: the next movement allowance is reduced by `webPenalty` (min 1). Never stacks. */
+  webbed?: boolean;
+}
+
+export type MonsterId = 'golem' | 'spider';
+
+/** A roaming dungeon monster. It lives on its encounter space and returns there after every event. */
+export interface MonsterState {
+  id: MonsterId;
+  name: string;
+  /** Its encounter space. */
+  home: string;
+  /** Where it stands now (always `home` between events). */
+  node: string;
+  /** Beaten in an encounter: rests (no attacks, no encounter) until the event after this round. 0 = active. */
+  restUntilRound: number;
 }
 
 /** A gem token. It exists only while carried or lying on the board; banked gems become the player's. */
@@ -365,7 +381,7 @@ export interface MatchResult {
   finalGems: Record<string, number>;
 }
 
-export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard' | 'encounter';
+export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard' | 'encounter' | 'monster';
 
 /**
  * Events are facts, not prose: the UI (src/lib/explain.ts) turns them into "what happened, why, what
@@ -401,8 +417,29 @@ export type GameEvent =
   | { type: 'monster'; characterId: string; roll: number; total: number; success: boolean }
   /** [A3] Stone Golem or Cave Spider: one roll; `to` is where the piece ended up. */
   | { type: 'encounter'; characterId: string; monster: 'golem' | 'spider'; roll: number; total: number; success: boolean; to: string }
+  /**
+   * The round's monster event. `die`: the event die. `kind`: quiet (1–3), patrol (a monster found no target),
+   * attack. `outside`: the monster climbed out to the Dragon Gate road (`at` is where it stood). Golem: `effect`
+   * push from `from` to `to` (equal when there was nowhere to go). Spider: `effect` web.
+   */
+  | {
+      type: 'monsterEvent';
+      round: number;
+      die: number;
+      kind: 'quiet' | 'patrol' | 'attack';
+      monster?: MonsterId;
+      outside?: boolean;
+      at?: string;
+      characterId?: string;
+      effect?: 'push' | 'web';
+      from?: string;
+      to?: string;
+    }
+  /** A beaten encounter monster has rested and is back on guard. */
+  | { type: 'monsterRecovered'; monster: MonsterId }
   | { type: 'tame'; characterId: string; roll: number; success: boolean }
-  | { type: 'dragonFire'; characterId: string; targetId: string }
+  /** `roll`: the separate attack die; `hit` on `dragonFireHit`+ (older events have neither and always hit). */
+  | { type: 'dragonFire'; characterId: string; targetId: string; roll?: number; hit?: boolean }
   | { type: 'slay'; characterId: string; roll: number; success: boolean }
   | { type: 'dragonReleased'; playerId: string }
   | { type: 'dragonMoved'; to: string }
@@ -459,6 +496,12 @@ export interface GameState {
   gemCounter: number;
   /** Test/tutorial hook: next die results. */
   forcedRolls: number[];
+  /** Roaming dungeon monsters (absent in matches saved before they existed). */
+  monsters?: MonsterState[];
+  /** Last round whose monster event has resolved (each round's event resolves exactly once). */
+  monsterRound?: number;
+  /** Golem shortcuts unlocked per encounter space: the kingdoms (player ids) that beat it and may use it freely. */
+  shortcutsOpen?: Record<string, string[]>;
 }
 
 export type GameAction =
@@ -526,10 +569,14 @@ export interface PlayerView {
   discoveryCount: number;
   /** [A2] Open offers, redacted for this viewer. */
   trades: TradeView[];
+  monsters?: MonsterState[];
+  monsterRound?: number;
+  shortcutsOpen?: Record<string, string[]>;
 }
 
 /** The parts of state shared by GameState and PlayerView (what rule queries need). */
 export type BoardState = Pick<
   GameState,
   'boardId' | 'config' | 'players' | 'characters' | 'gems' | 'dragon' | 'bridges' | 'transforms' | 'blocks' | 'vehicles' | 'turn' | 'status'
->;
+> &
+  Partial<Pick<GameState, 'monsters' | 'monsterRound' | 'shortcutsOpen'>>;

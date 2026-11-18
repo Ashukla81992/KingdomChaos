@@ -5,6 +5,7 @@ import { DEFAULT_CONFIG, type GameConfig } from './config';
 import { nodeName } from './graph';
 import { adventureOptions, dragonFireTargets, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
 import { CARD_INFO } from './rulesText';
+import { initialMonsters, monsterPhase } from './dungeon';
 import { applyPower, clearGuards, expireTrades, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
 import {
   CARD_CATEGORY,
@@ -153,6 +154,9 @@ export function createGame(opts: CreateGameOptions): GameState {
     cardCounter: 0,
     gemCounter: 0,
     forcedRolls: [],
+    monsters: initialMonsters(boardId),
+    monsterRound: 0,
+    shortcutsOpen: {},
   };
 
   const deck: CardInstance[] = [];
@@ -242,6 +246,9 @@ function finishTurn(ctx: Ctx) {
   const prev = s.turn.playerId;
   expireTrades(ctx, prev);
   const idx = s.players.findIndex((p) => p.id === prev);
+  // The last seat ends a full round (bonus rolls never reach here): the dungeon's monsters act once.
+  if ((idx + 1) % s.players.length === 0) monsterPhase(ctx, s.turn.round);
+  if (s.status !== 'playing') return;
   startTurn(ctx, s.players[(idx + 1) % s.players.length].id, false);
 }
 
@@ -364,6 +371,7 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       t.moved = [...t.moved, ch.id];
       ctx.events.push({ type: 'moved', characterId: ch.id, path: option.path });
       log(ctx, `${charLabel(s, ch.id)} moves to ${nodeName(s.boardId, option.path[option.path.length - 1])}${option.witchPortal ? ' (free portal hop)' : ''}.`, 'info', playerId);
+      ch.webbed = false;
       walk(ctx, ch, option, action.discardCardId, attack);
       if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
       break;
@@ -443,13 +451,21 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       break;
     }
     case 'dragonFire': {
+      // The dragon's own power: no card. It spends the Adventure action, then a separate attack die decides it.
       const comp = companionOf(s, playerId);
       if (!comp) return fail('You need a dragon companion.');
       if (!dragonFireTargets(s, playerId).some((c) => c.id === action.targetId)) return fail('That target is out of range, protected, or in a castle or Royal Path.');
       adventure();
+      const need = cfg.dragonFireHit ?? 4;
+      const value = roll(s);
+      const hit = value >= need;
       s.stats[playerId].dragonFires++;
-      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId: action.targetId });
-      log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, action.targetId)}!`, 'dragon', playerId);
+      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId: action.targetId, roll: value, hit });
+      if (!hit) {
+        log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, action.targetId)}: attack die ${value} (needed ${need}+) — it misses.`, 'dragon', playerId);
+        break;
+      }
+      log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, action.targetId)}: attack die ${value} — a hit!`, 'dragon', playerId);
       burn(ctx, comp.id, action.targetId);
       break;
     }
@@ -532,6 +548,7 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
       s.turn.moveDone = true;
       s.turn.moved = [...s.turn.moved, ch.id];
       ctx.events.push({ type: 'moved', characterId: ch.id, path: pick.option.path });
+      ch.webbed = false;
       const autoAttack =
         pick.option.routeTargets.length >= s.config.knightAttackMin
           ? pick.option.routeTargets.slice(0, Math.min(s.config.knightAttackMax, pick.option.routeTargets.length))

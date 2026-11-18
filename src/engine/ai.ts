@@ -404,8 +404,9 @@ function adventureChoices(s: QueryState, pid: string, hand: CardInstance[]): Cho
         score = 45;
         break;
       case 'dragonFire': {
+        // Half the attack rolls miss, so only worth it against a juicy target.
         const t = s.characters[a.targetId];
-        score = t.carrying.length ? 80 : t.plates.length >= 2 ? 45 : 20;
+        score = t.carrying.length ? 55 : t.plates.length >= 2 ? 35 : 15;
         break;
       }
       case 'sail':
