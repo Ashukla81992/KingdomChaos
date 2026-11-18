@@ -1,5 +1,5 @@
 import { getBoard } from './board';
-import { edgeBlocked, keepsEveryoneConnected, nodeName, walkingDistances } from './graph';
+import { connectionBreakReason, edgeBlocked, keepsEveryoneConnected, nodeName, walkingDistances } from './graph';
 import {
   CARD_CATEGORY,
   gemsOf,
@@ -345,5 +345,42 @@ export function attemptTame(ctx: Ctx, playerId: string, characterId: string, thr
   } else {
     log(ctx, `${charLabel(s, ch.id)} rolls ${value} (needs ${threshold}+) — the dragon roars them away.`, 'bad', playerId);
     retreat(ctx, ch);
+  }
+}
+
+/**
+ * Why a map card cannot be used on this road segment, in words for a label beside the road. Null when
+ * it can (the engine still re-validates the play).
+ */
+export function edgeRefusal(s: BoardState, playerId: string, type: CardType, edgeId: string): string | null {
+  const { board } = getBoard(s.boardId);
+  const e = board.edges.find((x) => x.id === edgeId);
+  if (!e) return 'That is not a road.';
+  if (CARDS[type].targets(s, playerId).some((t) => t.kind === 'edge' && (t.edgeId === e.id || (!!e.gate && board.edges.find((x) => x.id === t.edgeId)?.gate === e.gate)))) return null;
+  const name = e.name ?? (e.lane === 'circuit' ? 'the main road' : 'this road');
+  const open = e.kind === 'buildable' ? !!s.bridges[e.gate ?? e.id] : true;
+  switch (type) {
+    case 'build_bridge':
+    case 'dig_tunnel':
+    case 'build_road': {
+      const want = type === 'build_bridge' ? 'bridge' : type === 'dig_tunnel' ? 'tunnel' : 'road';
+      if (e.kind !== 'buildable' || e.structure !== want) return `${name} is not a ${want} site.`;
+      return `${name} is already open.`;
+    }
+    case 'collapse_bridge': {
+      if (e.kind !== 'buildable' || e.structure !== 'bridge') return `${name} is not a bridge.`;
+      if (!open) return `${name} is already down.`;
+      if (Object.values(s.characters).some((c) => c.node === e.a || c.node === e.b)) return `A piece stands at the end of ${name}.`;
+      return connectionBreakReason(s, { bridges: { ...s.bridges, [e.gate!]: false } }) ?? `${name} cannot be collapsed now.`;
+    }
+    case 'landslide': {
+      if (e.kind !== 'blockable') return `${name} is not a marked pass (Temple, Vale or Crag Pass).`;
+      if (edgeBlocked(s, e)) return `${name} is already blocked.`;
+      return connectionBreakReason(s, { blocks: [...s.blocks.filter((b) => b.owner !== playerId), { edgeId: e.id, owner: playerId }] }) ?? `${name} cannot be blocked now.`;
+    }
+    case 'repair':
+      return `${name} is not broken or blocked.`;
+    default:
+      return 'Pick a road card first.';
   }
 }

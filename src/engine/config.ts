@@ -20,6 +20,8 @@ export interface GameConfig {
   /** Monster defeated on this total or higher. */
   monsterThreshold: number;
   dragonFireRange: number;
+  /** Dragon Fire (an Adventure action) rolls its own attack die: this or more hits. */
+  dragonFireHit: number;
   knightBonus: number;
   slowDownMaxSteps: number;
   magicBootsSteps: number;
@@ -54,6 +56,28 @@ export interface GameConfig {
   royalGuardPerMatch: number;
   /** [A3] Stone Golem and Cave Spider succeed on this roll or higher (Knight adds `knightBonus`). */
   encounterThreshold: number;
+  /** Roaming dungeon monsters (Stone Golem, Cave Spider) act once after every full round. False turns them off. */
+  monsterEvents: boolean;
+  /** Connected steps a monster reaches, inside the dungeon or out along the Dragon Gate road. */
+  monsterRange: number;
+  /** Round event die: this or lower and nothing attacks. */
+  monsterQuietMax: number;
+  /** Round event die: exactly this and a monster climbs out to the Dragon Gate road; between the two, it attacks inside. */
+  monsterOutsideRoll: number;
+  /** Spaces the Stone Golem pushes its target back. */
+  golemPush: number;
+  /** Cave Spider web: the webbed piece's next movement allowance is reduced by this (minimum 1). */
+  webPenalty: number;
+  /** A beaten encounter monster rests for this many full rounds after the round it was beaten in. */
+  monsterRestRounds: number;
+  /** Hits a monster takes before it is slain for the rest of the match. */
+  monsterHearts: number;
+  /** Connected steps from a monster's space within which a piece may attack it (Adventure action). */
+  monsterAttackRange: number;
+  /** Crystal Niche: extra steps on the attuned piece's next move. */
+  crystalBoost: number;
+  /** Spike Pit: on this roll or higher the falling piece grabs a power card on the way down. */
+  spikeTreasure: number;
 }
 
 export const DEFAULT_DECK: Record<CardType, number> = {
@@ -89,6 +113,7 @@ export const DEFAULT_CONFIG: GameConfig = {
   slayThreshold: 4,
   monsterThreshold: 4,
   dragonFireRange: 3,
+  dragonFireHit: 4,
   knightBonus: 1,
   slowDownMaxSteps: 2,
   magicBootsSteps: 2,
@@ -109,6 +134,17 @@ export const DEFAULT_CONFIG: GameConfig = {
   finishersToWin: 4,
   royalGuardPerMatch: 1,
   encounterThreshold: 4,
+  monsterEvents: true,
+  monsterRange: 3,
+  monsterQuietMax: 3,
+  monsterOutsideRoll: 6,
+  golemPush: 2,
+  webPenalty: 2,
+  monsterRestRounds: 1,
+  monsterHearts: 2,
+  monsterAttackRange: 1,
+  crystalBoost: 2,
+  spikeTreasure: 4,
 };
 
 /** Round limit used by the physical prototype (and offered digitally). */

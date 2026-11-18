@@ -60,6 +60,7 @@ describe('M8 bonus roll', () => {
     s.dragon = { state: 'companion', node: 'c8', companion: 'a-king', recoverUntilTurn: 0, releasedBy: null };
     place(s, 'b-king', 'c9'); // c10 is the Blue Gate (safe)
     const beforeCuts = s.stats.a.cuts;
+    s.forcedRolls = [4];
     s = must(s, 'a', { type: 'dragonFire', targetId: 'b-king' }, T0);
     expect(s.characters['b-king'].node).toBe('home-purple');
     expect(s.stats.a.cuts).toBe(beforeCuts);

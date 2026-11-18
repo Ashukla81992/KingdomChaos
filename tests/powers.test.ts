@@ -31,24 +31,43 @@ describe('spare gems and power options', () => {
 });
 
 describe('Alchemy', () => {
-  it('converts a carried gem into a missing kind when a copy is banked, and is repeatable', () => {
+  it('converts a carried gem in her palace and banks it; each kind only once per match', () => {
     let s = noCards(game());
     bank(s, 'a', { ruby: 1, sapphire: 1 });
     const g1 = carry(s, 'a-witch', 'ruby');
-    s.gems.push({ id: 'g-alchemy-2', kind: 'sapphire', node: null, carriedBy: 'a-witch' });
-    s.characters['a-witch'].carrying.push('g-alchemy-2');
-    const g2 = 'g-alchemy-2';
+    const g2 = carry(s, 'a-witch', 'sapphire');
     freshTurn(s, 'a');
     s = act(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: g1, to: 'emerald' });
-    expect(s.gems.find((g) => g.id === g1)?.kind).toBe('emerald');
+    expect(player(s, 'a').bank.emerald).toBe(1);
+    expect(s.characters['a-witch'].carrying).toEqual([g2]);
     expect(s.lastEvents.some((e) => e.type === 'alchemy' && e.from === 'ruby' && e.to === 'emerald')).toBe(true);
     expect(s.turn.moveDone).toBe(false);
     expect(s.turn.adventureDone).toBe(false);
-
+    // A different kind may still be transmuted…
     s = act(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: g2, to: 'diamond' });
-    expect(s.gems.find((g) => g.id === g2)?.kind).toBe('diamond');
-    expect(s.gems.find((g) => g.id === g1)?.kind).toBe('emerald');
-    expect(s.lastEvents.some((e) => e.type === 'alchemy' && e.to === 'diamond')).toBe(true);
+    expect(player(s, 'a').gems.sort()).toEqual(['diamond', 'emerald', 'ruby', 'sapphire']);
+    // …but ruby never again.
+    const g3 = carry(s, 'a-witch', 'ruby');
+    player(s, 'a').bank.diamond = 0;
+    reject(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: g3, to: 'diamond' }, /only once/i);
+  });
+
+  it('turns a spare banked copy into a missing kind', () => {
+    let s = noCards(game());
+    bank(s, 'a', { ruby: 2 });
+    freshTurn(s, 'a');
+    s = act(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: 'bank:ruby', to: 'sapphire' });
+    expect(player(s, 'a').bank).toMatchObject({ ruby: 1, sapphire: 1 });
+  });
+
+  it('works only in her palace (castle or gate)', () => {
+    const s = noCards(game());
+    bank(s, 'a', { ruby: 2 });
+    place(s, 'a-witch', 'c5');
+    freshTurn(s, 'a');
+    reject(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: 'bank:ruby', to: 'sapphire' }, /palace/i);
+    place(s, 'a-witch', 'c0');
+    expect(powerOptions(toPlayerView(s, 'a'), 'a').find((o) => o.type === 'alchemy')?.usable).toBe(true);
   });
 
   it('rejects Alchemy without a banked copy of the carried kind', () => {

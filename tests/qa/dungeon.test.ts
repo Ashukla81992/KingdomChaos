@@ -128,6 +128,7 @@ describe('P6/D3/D4/D5 witch, fire, release, slayer', () => {
     place(s, 'b-king', 'c9'); // avoid safe gates (c10)
     carry(s, 'b-king', 'emerald');
     const cuts = s.stats.a.cuts;
+    s.forcedRolls = [4];
     s = must(s, 'a', { type: 'dragonFire', targetId: 'b-king' }, T0);
     expect(s.characters['b-king'].node).toBe('home-purple');
     expect(s.stats.a.cuts).toBe(cuts);

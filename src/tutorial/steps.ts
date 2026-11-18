@@ -242,7 +242,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Map card: rebuild a bridge',
     body: [
       'Map cards open and close inner routes for everyone, only on marked sites, and every house keeps a path to its castle, checkpoints and Royal Path.',
-      'Tap Build Bridge and pick the Rope Bridge. It starts broken.',
+      'Tap Build Bridge: the roads it can fix glow blue on the map. Tap the broken Rope Bridge itself, check the green preview, then press “Build bridge ✓” beside it. (Tapping a road first also picks the card that fits it.)',
     ],
     setup: () => {
       const s = fresh();
@@ -251,7 +251,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     allowed: ['playCard'],
     allowCard: 'build_bridge',
-    coach: () => ({ ui: ['[data-card="build_bridge"]', '[data-highlight="target"]'] }),
+    coach: () => ({ ui: ['[data-card="build_bridge"]', '[data-edge="rope-west~rope-1"]', '[data-edge-confirm]'] }),
     done: (_b, a) => a.bridges['broken-bridge'] === true,
     after: 'The Rope Bridge is open again — a shortcut for every player. Landslide, Collapse Bridge, Raise Mountain and Create River close routes the same way.',
   },
@@ -260,7 +260,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'The dungeon (optional)',
     body: [
       'Roll and move your Witch onto the Dragon Gate, then press “enter the dungeon” (your adventure action). Alex takes a turn; then press “leave the dungeon” to climb back out.',
-      'Inside: Stone Golem and Cave Spider encounters (roll 4+, Knight +1), the Crystal Shrine, and the dragon’s lair. Red and green arrows nearby are traps and shortcuts.',
+      'Inside, every special space is labelled; tap one to see what it does. Stone Golem and Cave Spider fight anyone who ends on them (roll 4+, Knight +1): beat the Golem and its shortcut stays open for your kingdom, beat the Spider for a power card.',
+      'They also roam: after every full round a monster die is rolled. 4–5: a monster attacks a piece within 3 steps inside (the Golem pushes it back 2 spaces, the Spider webs it so its next move is 2 shorter); 6: one climbs out and attacks near the Dragon Gate. Safe rooms protect you. Each monster has 2 hearts: win its fight, Attack it from 1 step away, or burn it with Dragon Fire to wound it; at 0 hearts it is slain for good. The Old Vault, Fallen Ruins, Crystal Niche and Spike Pit each hide a reward too: hover or tap them to see it.',
     ],
     setup: () => {
       const s = withRoll(fresh(), 2);
@@ -285,7 +286,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'royal-path',
     title: 'Turn onto your Royal Path',
     body: [
-      'Banking one of each gem kind opens your Royal Path (top strip). Pieces may enter early and walk back onto the island. The temple gate still needs four checkpoints on that piece and your kingdom’s capture credit.',
+      'Every house’s Royal Path is always drawn: faded with a lock until that kingdom banks one of each gem, then in full colour. Banking one of each gem kind opens your Royal Path (top strip). Pieces may enter early and walk back onto the island. The temple gate still needs four checkpoints on that piece and your kingdom’s capture credit.',
       'Your Queen has all four checkpoints and your path is open. Roll, then choose the glowing space on the red Royal Path.',
     ],
     setup: () => {
@@ -332,7 +333,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: 'more',
     title: 'You are ready',
     body: [
-      'Still to discover: Royal Guard, Queen Diplomacy, Witch Alchemy, Knight route attacks, dungeon encounters, and the wild dragon duel with Dragon Slayer.',
+      'Still to discover: Royal Guard, Queen Diplomacy (trade spare gems your Queen collects), Witch Alchemy (in her palace, each kind once), the boat (free) and the plane (costs a card), Knight route attacks, roaming dungeon monsters, and the dragon. A tamed dragon breathes fire with no card: pick a rival within 3 spaces as your Adventure action and roll 4–6 on the attack die.',
       'Open the Rules rail or Legend any time during a match. Practice vs AI uses the same engine as online play.',
     ],
     setup: fresh,

@@ -5,7 +5,6 @@ import { useMemo, useState } from 'react';
 import {
   CARD_INFO,
   CHARACTER_INFO,
-  GEM_KINDS,
   GEM_NAMES,
   charLabel,
   powerOptions,
@@ -72,7 +71,7 @@ export function TradePanel({ view, me, busy, open, onClose, onSend, rivalId }: P
     >
       <div className="flex items-center gap-2 border-b border-[#e6dcc6] px-4 py-3">
         <Handshake size={18} className="text-[#6a3fd0]" aria-hidden="true" />
-        <h2 className="font-display text-lg font-bold">Diplomacy</h2>
+        <h2 className="font-display text-lg font-bold">Diplomacy &amp; powers</h2>
         <button type="button" className="btn btn-ghost ml-auto min-h-11 min-w-11 px-3!" onClick={onClose} data-trade-close>
           Close
         </button>
@@ -223,11 +222,19 @@ export function TradePanel({ view, me, busy, open, onClose, onSend, rivalId }: P
           </div>
         )}
 
-        {!canOffer && !mineIncoming.length && !mineOutgoing.length && !others.length && (
-          <p className="text-sm text-[#6b7086]">
-            Move your Queen this turn to offer a spare gem, or wait for an incoming offer.
-            {GEM_KINDS.length ? '' : ''}
-          </p>
+        {!canOffer && trade && (
+          <div className="rounded-2xl bg-white p-3" data-trade-locked>
+            <p className="mb-1 flex items-center gap-1.5 text-sm font-extrabold">
+              <Handshake size={16} aria-hidden="true" /> Queen’s Diplomacy
+            </p>
+            <p className="text-sm text-[#8c2a10]">{trade.reason}</p>
+            <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-xs text-[#4a5374]">
+              <li>Your Queen or Witch stops at a gem station for a kind you already have and collects a spare.</li>
+              <li>Carry it to your gate: it banks as a spare (you now hold two of that kind).</li>
+              <li>Move your Queen on your turn, then offer the spare for a rival’s spare gem or a power card.</li>
+            </ol>
+            <p className="mt-1 text-xs text-[#6b7086]">Your spares: {mySpares.length ? mySpares.map((k) => GEM_NAMES[k]).join(', ') : 'none yet'}.</p>
+          </div>
         )}
       </div>
     </div>

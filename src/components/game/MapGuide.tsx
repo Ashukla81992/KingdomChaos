@@ -1,9 +1,10 @@
 'use client';
 
-import { CROWN_QUEST, FEATURE_INFO, LOCATION_INFO, MAP_MARKER_INFO } from '@/engine';
+import { CROWN_QUEST, DUNGEON_GUIDE, FEATURE_INFO, LOCATION_INFO, MAP_MARKER_INFO, MONSTER_KILL_RULE, MONSTER_RULE } from '@/engine';
 import { SEATS } from '@/lib/seats';
 import { EmblemShape } from '../art/art';
 import { PieceToken } from '../art/token';
+import { MarkerStylePicker } from '../MarkerStylePicker';
 import { Modal } from '../ui/Modal';
 
 function Svg({ children, vb = '-14 -14 28 28' }: { children: React.ReactNode; vb?: string }) {
@@ -37,16 +38,12 @@ function Row({ icon, name, children }: { icon: React.ReactNode; name: string; ch
 }
 
 /** The legend: every marker drawn on the island and dungeon. */
-export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: boolean; onClose: () => void; showPaths: boolean; onShowPaths: (on: boolean) => void }) {
+export function MapGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Modal open={open} onClose={onClose} title="Legend" wide>
-      <label className="mb-3 flex items-start gap-2 rounded-2xl bg-[#fff8e8] p-3 text-sm">
-        <input type="checkbox" className="mt-1" checked={showPaths} onChange={(e) => onShowPaths(e.target.checked)} data-show-royal-paths />
-        <span>
-          <b>Show Royal Paths</b>
-          <span className="block text-[#4a5374]">Inspection only. The lines follow each house’s road to the temple. A locked path is not a move.</span>
-        </span>
-      </label>
+      <div className="mb-3">
+        <MarkerStylePicker />
+      </div>
       <ul className="divide-y divide-[#efe5cf]" data-map-guide>
         <Row
           icon={
@@ -125,7 +122,7 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
           }
           name="Royal Path"
         >
-          {LOCATION_INFO.final.rule}
+          {LOCATION_INFO.final.rule} Every house’s path and its dots are always drawn: faded and dashed with a lock badge while locked, full colour with a tick once that kingdom has banked all four gems, and bright for the selected piece’s legal route. Tap the Crown Temple to see what your pieces still need.
         </Row>
         <Row icon={<Art src="/art/gem-ruby.png" />} name="Gem stations">
           Ruby Mine, Sapphire Falls, Diamond Hill and Emerald Grove. {FEATURE_INFO.station}
@@ -168,7 +165,7 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
         <Row icon={<Art src="/art/icon-dig.png" />} name="Dig site">
           {FEATURE_INFO.dig} Lakeside Dig, Old Camp Dig, Glade Dig, Ruins Dig and Bone Dig.
         </Row>
-        <Row icon={<Art src="/art/icon-trapdoor.png" />} name="Dragon Gate">
+        <Row icon={<Art src="/art/dungeon-dragon-face.png" />} name="Dragon Gate (Enter Dungeon)">
           {FEATURE_INFO.dungeonGate} Pieces underground are shown in a small badge beside it.
         </Row>
         <Row icon={<Art src="/art/icon-boat.png" />} name="Boat">
@@ -176,6 +173,16 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
         </Row>
         <Row icon={<Art src="/art/icon-plane.png" />} name="Plane">
           {FEATURE_INFO.airfield}
+        </Row>
+        <Row
+          icon={
+            <Svg>
+              <path d="M-12 6 L12 -6" stroke="#2f7bf5" strokeWidth={6} strokeLinecap="round" />
+            </Svg>
+          }
+          name="Building and breaking roads"
+        >
+          Select a road card (Build Bridge, Collapse Bridge, Dig Tunnel, Build Road, Landslide, Repair): the roads it can change glow blue. Tap the road itself, check the preview, and press the button beside it to confirm. Tapping a road first picks the card that fits it. A road that cannot change says why beside it.
         </Row>
         <Row icon={<Art src="/art/icon-bridge.png" />} name="Bridge">
           The Stone Bridge starts open and crosses the gorge. Collapse Bridge can close it when every house stays connected.
@@ -198,8 +205,22 @@ export function MapGuide({ open, onClose, showPaths, onShowPaths }: { open: bool
         <Row icon={<Art src="/art/dragon.png" />} name="Dragon">
           {LOCATION_INFO.dragonChamber.rule} A wild or guarding dragon blocks most pieces; the Witch may pass a wild one.
         </Row>
-        <Row icon={<Art src="/art/icon-chest.png" />} name="Dungeon">
-          {LOCATION_INFO.monster.rule} {LOCATION_INFO.gemChamber.rule} {LOCATION_INFO.trap.rule}
+        {DUNGEON_GUIDE.map((g) => (
+          <Row key={g.node} icon={<Art src={g.node === 'd-golem' ? '/art/monster-golem-idle.png' : g.node === 'd-spider' ? '/art/monster-spider-idle.png' : g.node === 'd-entrance' ? '/art/dungeon-dragon-face.png' : g.node === 'd-lair' ? '/art/dragon.png' : g.node === 'd-shrine' ? '/art/gem-diamond.png' : g.node === 'd-pit' ? '/art/icon-trapdoor.png' : '/art/icon-chest.png'} />} name={`Dungeon · ${g.name} (${g.tag})`}>
+            {g.rule}
+          </Row>
+        ))}
+        <Row icon={<Art src="/art/monster-golem-warning.png" />} name="Roaming monsters">
+          {MONSTER_RULE} On the board a monster is calm (idle), shows a “!” when a piece is in reach (warning), flashes red when it has just attacked, and lies grey while resting after a defeat. Hearts under it show the hits it can still take.
+        </Row>
+        <Row icon={<Art src="/art/monster-spider-attack.png" />} name="Killing monsters">
+          {MONSTER_KILL_RULE}
+        </Row>
+        <Row icon={<Art src="/art/icon-tunnel.png" />} name="Crystal Mine Tunnel">
+          Sealed until someone plays Dig Tunnel. Then it is a shortcut from the Sapphire station to the north road, and its diamond vein gives each kingdom one free Diamond (first walk through with a free hand while you still need one).
+        </Row>
+        <Row icon={<Art src="/art/icon-boat.png" />} name="Boat and plane">
+          {FEATURE_INFO.dock} {FEATURE_INFO.airfield}
         </Row>
       </ul>
     </Modal>

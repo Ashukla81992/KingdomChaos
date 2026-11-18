@@ -268,20 +268,15 @@ test('spaces stay on the painted roads after resizing and zooming', async ({ pag
   await expect(page.locator('svg[data-board]')).toHaveAttribute('data-zoom', '1.00');
 });
 
-test('Royal Paths stay hidden until unlocked, and inspection cannot make one playable', async ({ page }) => {
+test('Royal Paths are always drawn, locked ones show a lock, and seeing one cannot make it playable', async ({ page }) => {
   await tutorialStep(page, 1);
-  await expect(page.locator('[data-royal-path]')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Legend' }).click();
-  await page.getByRole('checkbox', { name: /Show Royal Paths/ }).check();
-  await page.getByRole('button', { name: 'Close' }).click();
   await expect(page.locator('[data-royal-path="inspect"]')).not.toHaveCount(0);
+  await expect(page.locator('[data-royal-badge][data-royal-open="false"]')).not.toHaveCount(0);
   await expect(page.locator('[data-royal-playable="true"]')).toHaveCount(0);
   await expect(page.locator('g[data-end="true"]')).toHaveCount(0);
   await space(page, 'f-red-1').click();
   await expect(page.getByRole('region', { name: 'Details' })).toContainText(/Not a shortcut/);
   await expect(piece(page, 'you-witch')).toHaveAttribute('data-node', 'home-red');
-  await page.getByRole('button', { name: 'Hide Royal Paths' }).click();
-  await expect(page.locator('[data-royal-path]')).toHaveCount(0);
 });
 
 test('banking the last gem after a cut announces that the temple path is unlocked', async ({ page }) => {

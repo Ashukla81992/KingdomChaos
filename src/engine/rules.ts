@@ -201,6 +201,20 @@ export function newGem(ctx: Ctx, ch: Character, kind: GemKind, source: string) {
   log(ctx, `${charLabel(s, ch.id)} picks up ${aGem(kind)} at ${source}. Carry it to the ${houseOf(s, ch.owner).name} Gate to bank it.`, 'good', ch.owner);
 }
 
+/**
+ * The Crystal Mine Tunnel (once dug) holds a diamond vein: the first time one of a kingdom's pieces walks
+ * through it with a free hand while the kingdom still needs a Diamond, it takes one.
+ */
+function mineCrystal(ctx: Ctx, ch: Character, from: string, to: string) {
+  const s = ctx.state;
+  const edge = getBoard(s.boardId).out[from]?.find((e) => other(e, from) === to);
+  if (!edge || edge.structure !== 'tunnel' || edge.gate !== 'mine-tunnel') return;
+  const player = playerOf(s, ch.owner);
+  if (player.mined || !handsFree(s, ch) || !neededGems(s, ch.owner).includes('diamond')) return;
+  player.mined = true;
+  newGem(ctx, ch, 'diamond', edge.name ?? 'the Crystal Mine');
+}
+
 /** Free hands pick up needed gems lying on the space, then the station's gem (if still needed). */
 function pickUpAt(ctx: Ctx, ch: Character) {
   const s = ctx.state;
@@ -214,6 +228,14 @@ function pickUpAt(ctx: Ctx, ch: Character) {
     log(ctx, `${charLabel(s, ch.id)} picks up the ${GEM_NAMES[lying.kind]} lying at ${node.name}.`, 'good', ch.owner);
   }
   if (handsFree(s, ch) && node.station && neededGems(s, ch.owner).includes(node.station)) newGem(ctx, ch, node.station, node.name);
+  else if (handsFree(s, ch) && node.station && (ch.kind === 'queen' || ch.kind === 'witch') && !gemsOf(s, ch).some((g) => g.kind === node.station)) {
+    // The Queen and the Witch also collect spares: banked twice, a kind becomes Diplomacy and Alchemy currency.
+    const kind = node.station;
+    const gem: Gem = { id: `gem${++s.gemCounter}`, kind, node: null, carriedBy: null };
+    s.gems.push(gem);
+    giveGem(ctx, ch, gem, null);
+    log(ctx, `${charLabel(s, ch.id)} collects a spare ${GEM_NAMES[kind]} at ${node.name}. Banked at the gate it becomes a spare for ${ch.kind === 'queen' ? 'Diplomacy' : 'Alchemy'}.`, 'good', ch.owner);
+  }
 }
 
 /** Bank automatically when a carrier arrives on its own house entry. */
@@ -223,7 +245,7 @@ function bankAt(ctx: Ctx, ch: Character, discardCardId?: string | null) {
   for (const gem of gemsOf(s, ch)) bankGem(ctx, ch, gem, discardCardId);
 }
 
-function bankGem(ctx: Ctx, ch: Character, gem: Gem, discardCardId?: string | null) {
+export function bankGem(ctx: Ctx, ch: Character, gem: Gem, discardCardId?: string | null) {
   const s = ctx.state;
   const player = playerOf(s, ch.owner);
   const was = finalUnlocked(s, player.id);
@@ -335,7 +357,10 @@ export function relocate(ctx: Ctx, ch: Character, to: string, reason: TeleportRe
   const s = ctx.state;
   const from = ch.node;
   const { nodes } = getBoard(s.boardId);
-  if (nodes[from].map !== nodes[to].map) ch.beatMonster = false;
+  if (nodes[from].map !== nodes[to].map) {
+    ch.beatMonster = false;
+    ch.roomsUsed = undefined;
+  }
   ch.node = to;
   ctx.events.push({ type: 'teleported', characterId: ch.id, from, to, reason, name });
   if (reason === 'trap' || reason === 'hazard') s.stats[ch.owner].traps++;
@@ -354,6 +379,7 @@ export function sendHome(ctx: Ctx, ch: Character) {
   }
   ch.node = playerOf(s, ch.owner).castle;
   ch.beatMonster = false;
+  ch.roomsUsed = undefined;
   ch.shield = false;
   ch.guarded = false;
   s.stats[ch.owner].defeated++;
@@ -610,6 +636,7 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
     ch.node = node;
     if (isHop) ctx.events.push({ type: 'teleported', characterId: ch.id, from: prev, to: node, reason: 'portal', name: nodes[prev].name });
     else touchPlate(ctx, ch);
+    if (!isHop) mineCrystal(ctx, ch, prev, node);
     if (option.entersFinal && nodes[node].lane === 'final' && nodes[prev].lane !== 'final') {
       ctx.events.push({ type: 'enteredFinal', characterId: ch.id });
       log(ctx, `${charLabel(s, ch.id)} turns onto the Royal Path!`, 'good', ch.owner);
@@ -623,6 +650,10 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
   } else {
     for (const id of option.landingCuts) cutCharacter(ctx, ch.id, id);
   }
+  if (nodes[ch.node].safe && nodes[ch.node].lane !== 'final') {
+    const sharing = opponentsAt(s, ch.node, ch.owner);
+    if (sharing.length) log(ctx, `${nodeName(s.boardId, ch.node)} is a safe space: ${charLabel(s, ch.id)} shares it with ${sharing.map((c) => charLabel(s, c.id)).join(' and ')}. No capture here.`, 'info', ch.owner);
+  }
   pickUpAt(ctx, ch);
   resolveArrival(ctx, ch, discardCardId);
   if (s.status !== 'playing') return;
@@ -631,6 +662,16 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
   if (tp) {
     const dest = settle(s, tp.to, ch.id);
     log(ctx, `${tp.name}! ${tp.text}`, tp.type === 'trap' ? 'bad' : 'good', ch.owner);
+    if (nodes[ch.node].type === 'trap' && nodes[ch.node].map === 'dungeon') {
+      // The Spike Pit is also a fast way back to the entrance, and treasure glints among the spikes.
+      const value = roll(s);
+      const need = s.config.spikeTreasure ?? 4;
+      ctx.events.push({ type: 'spikeTreasure', characterId: ch.id, roll: value, success: value >= need });
+      if (value >= need) {
+        log(ctx, `${charLabel(s, ch.id)} rolls ${value} and grabs a treasure among the spikes on the way down!`, 'good', ch.owner);
+        drawCard(ctx, ch.owner, { category: 'power', discardCardId });
+      } else log(ctx, `${charLabel(s, ch.id)} rolls ${value}: no treasure this time (needs ${need}+).`, 'info', ch.owner);
+    }
     relocate(ctx, ch, dest, tp.type, tp.name, discardCardId);
   }
   if (ch.node === board.temple && s.status === 'playing' && !ch.finished) enterTemple(ctx, ch, discardCardId);
@@ -683,7 +724,7 @@ export function closedGatesNear(s: Pick<BoardState, 'boardId' | 'bridges'>, from
 
 // ---------------------------------------------------------------- discoveries
 
-export function drawDiscovery(ctx: Ctx, ch: Character, discardCardId?: string | null) {
+export function drawDiscovery(ctx: Ctx, ch: Character, discardCardId?: string | null, opts: { disarm?: boolean } = {}) {
   const s = ctx.state;
   const { nodes, board } = getBoard(s.boardId);
   if (!s.discoveries.length && s.discoveryDiscard.length) {
@@ -719,6 +760,10 @@ export function drawDiscovery(ctx: Ctx, ch: Character, discardCardId?: string | 
       log(ctx, `${who} finds a dungeon key! It opens the Vault Door once.`, 'good', ch.owner);
       break;
     case 'trap': {
+      if (opts.disarm) {
+        log(ctx, `${who} spots a trap in the hoard and disarms it.`, 'info', ch.owner);
+        break;
+      }
       log(ctx, `${who} triggers a buried trap!`, 'bad', ch.owner);
       let to = 'd-entrance';
       if (nodes[ch.node].map === 'island') {

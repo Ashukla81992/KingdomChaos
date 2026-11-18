@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dragonFireTargets, legalMoves, type GameState } from '@/engine';
+import { adventureOptions, dragonFireTargets, legalMoves, type GameState } from '@/engine';
 import { dragonSpaceRule } from '@/engine/dungeon';
 import { act, carry, endsFor, freshTurn, game, hand, noCards, place, reject, rollWith, routeTo } from './helpers';
 
@@ -62,6 +62,7 @@ describe('dragon', () => {
     place(s, 'b-witch', 'f-purple-1');
     place(s, 'b-knight', 'c11', { shield: true });
     expect(dragonFireTargets(s, 'a').map((c) => c.id)).toEqual(['b-king']);
+    s.forcedRolls = [4];
     s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
     expect(s.characters['b-king'].node).toBe('home-purple');
     expect(s.stats.a.cuts).toBe(0);
@@ -74,10 +75,43 @@ describe('dragon', () => {
     const gem = carry(s, 'b-king', 'ruby');
     expect(dragonFireTargets(s, 'a').map((c) => c.id)).toEqual(['b-king']);
     expect(dragonFireTargets(s, 'a').some((c) => c.kind === 'witch')).toBe(false);
+    s.forcedRolls = [6];
     s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
     expect(s.characters['b-king'].node).toBe('home-purple');
     expect(s.gems.find((g) => g.id === gem)).toMatchObject({ node: 'c7', carriedBy: null });
     expect(s.stats.a.cuts).toBe(0);
+  });
+
+  it('Dragon Fire needs no card: it spends the Adventure action and hits on a 4–6 attack die', () => {
+    const base = noCards(companion(place(game(), 'a-king', 'c8'), 'a-king'));
+    place(base, 'b-king', 'c9');
+    for (const low of [1, 2, 3]) {
+      let s = structuredClone(base);
+      s.forcedRolls = [low];
+      s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
+      expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'dragonFire', roll: low, hit: false }));
+      expect(s.characters['b-king'].node).toBe('c9');
+      expect(s.turn.adventureDone).toBe(true);
+      reject(s, 'a', { type: 'dragonFire', targetId: 'b-king' }, /already used your adventure/);
+    }
+    for (const high of [4, 5, 6]) {
+      let s = structuredClone(base);
+      s.forcedRolls = [high];
+      s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
+      expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'dragonFire', roll: high, hit: true }));
+      expect(s.characters['b-king'].node).toBe('home-purple');
+      // A 6 on the attack die is not a movement 6: no bonus roll.
+      expect(s.turn.extra).toBeNull();
+    }
+  });
+
+  it('Dragon Fire is offered with its odds and the target is chosen before the die', () => {
+    const s = noCards(companion(place(game(), 'a-king', 'c8'), 'a-king'));
+    place(s, 'b-king', 'c9');
+    const fire = adventureOptions(s, 'a', []).filter((o) => o.action.type === 'dragonFire');
+    expect(fire.map((o) => o.action)).toEqual([{ type: 'dragonFire', targetId: 'b-king' }]);
+    expect(fire[0].detail).toMatch(/4–6 hits \(50%\)/);
+    reject(s, 'a', { type: 'dragonFire', targetId: 'b-queen' }, /out of range/);
   });
 
   it('Witch may pass a wild dragon space', () => {

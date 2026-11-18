@@ -5,11 +5,15 @@ import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglas
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CARD_INFO,
+  edgeRefusal,
   CHARACTER_INFO,
   FEATURE_INFO,
   LOCATION_INFO,
   STATUS_INFO,
   adventureOptions,
+  DUNGEON_GUIDE,
+  monstersOf,
+  templeBlockers,
   aGem,
   gemList,
   gemsOf,
@@ -26,6 +30,7 @@ import {
   playableCards,
   whyStuck,
   type CardTarget,
+  type CardType,
   type CharacterKind,
   type GemKind,
   type Character,
@@ -151,9 +156,9 @@ function locationTip(node: NodeDef, view: PlayerView): string {
   if (entry) parts.push(`The ${entry.name} plate. ${FEATURE_INFO.entry}`);
   else if (fork) parts.push(`${fork.name} ${FEATURE_INFO.fork}`);
   else if (trail) parts.push(`${trail.name}: ${trail.perk} Risk: ${trail.risk}`);
-  else parts.push(LOCATION_INFO[node.type]?.rule ?? '');
+  else if (!(node.dungeonGate || node.dock || node.airfield || node.station || node.dig || node.teleport || node.hazard || node.safe || node.portal)) parts.push(LOCATION_INFO[node.type]?.rule ?? '');
   if (node.hazard) parts.push(FEATURE_INFO.hazard);
-  if (node.safe && node.type === 'circuit') parts.push(FEATURE_INFO.safe);
+  if (node.safe && (node.type === 'circuit' || entry)) parts.push('Safe space: pieces may share it and nobody is captured here.');
   if (node.station) parts.push(`${GEM_NAMES[node.station]} — ${FEATURE_INFO.station}`);
   if (node.dig && node.type !== 'gemChamber') parts.push(FEATURE_INFO.dig);
   if (node.dungeonGate) parts.push(FEATURE_INFO.dungeonGate);
@@ -162,7 +167,27 @@ function locationTip(node: NodeDef, view: PlayerView): string {
   if (node.portal) parts.push(FEATURE_INFO.portal);
   if (node.terrainSite && !over) parts.push(FEATURE_INFO.terrainSite);
   if (node.teleport) parts.push(`${node.teleport.type === 'trap' ? 'Trap' : 'Shortcut'} — ${node.teleport.name}: ${node.teleport.text} Ending a move here sends the piece to ${nodeName(view.boardId, node.teleport.to)}.`);
-  if (node.type === 'temple' && view.viewerId) parts.push(finalUnlocked(view, view.viewerId) ? 'Your Royal Path is open: land here exactly to win.' : objectiveText(view, view.viewerId));
+  if (node.type === 'temple' && view.viewerId) {
+    const pid = view.viewerId;
+    // The temple gate explains exactly what is missing, kingdom-wide and for each piece.
+    if (!finalUnlocked(view, pid)) parts.push(`Gate locked: your Royal Path opens once you bank one of each gem (${view.players.find((p) => p.id === pid)?.gems.length ?? 0} of 4 banked).`);
+    else parts.push('Your Royal Path is open.');
+    const pieces = Object.values(view.characters).filter((c) => c.owner === pid && !c.finished);
+    for (const c of pieces) {
+      const why = templeBlockers(view, c.id);
+      parts.push(`${CHARACTER_INFO[c.kind].name}: ${why.length ? why.join(', ') : 'ready to enter (land here exactly)'}.`);
+    }
+  }
+  const guide = DUNGEON_GUIDE.find((g) => g.node === node.id);
+  if (guide) {
+    parts.length = 1;
+    parts.push(guide.rule);
+    const m = view.monsters?.find((x) => x.home === node.id);
+    if (m?.slain) parts.push(`The ${m.name} is slain: no fight here any more.`);
+    else if (m) parts.push(`${m.hp ?? view.config.monsterHearts ?? 2} of ${view.config.monsterHearts ?? 2} hearts left. Attack it from 1 step away, burn it with Dragon Fire, or win its fight here: each hit takes a heart and knocks it out for a round; at 0 it is slain.`);
+    if (m && !m.slain && m.restUntilRound > 0 && m.restUntilRound >= view.turn.round) parts.push(`The ${m.name} is resting after a defeat until the end of round ${m.restUntilRound}: no fight here for now.`);
+    if (node.encounter?.monster === 'golem' && view.viewerId && view.shortcutsOpen?.[node.id]?.includes(view.viewerId)) parts.push('Your kingdom beat the Golem: your pieces take the shortcut here without a fight.');
+  }
   if (node.lane === 'final') parts.push('Not a shortcut. A piece can enter only after that house has banked four gems and made a cut, and that piece has touched all four house plates.');
   const here = Object.values(view.characters).filter((c) => c.node === node.id);
   if (here.length) parts.push(`Here: ${here.map((c) => charLabel(view, c.id)).join(', ')}.`);
@@ -179,7 +204,10 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const [inspect, setInspect] = useState<{ kind: 'character' | 'node' | 'text'; id: string } | null>(null);
   const [banners, setBanners] = useState<Banner[]>([]);
   const [guideOpen, setGuideOpen] = useState(false);
-  const [inspectPaths, setInspectPaths] = useState(false);
+  /** A tapped road waiting for confirmation: which card, which segment, what it would do. */
+  const [edgePick, setEdgePick] = useState<{ cardId: string; target: CardTarget; edgeId: string; change: 'open' | 'close'; label: string } | null>(null);
+  /** Dragon Fire: the chosen target, before the attack die is rolled. */
+  const [fireTarget, setFireTarget] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [announce, setAnnounce] = useState('');
   const [busy, setBusy] = useState(false);
@@ -232,6 +260,10 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const discardId = handFull && replace && handCards.some((c) => c.id === replace) ? replace : null;
   const options = useMemo(() => (me && myTurn ? adventureOptions(view, me, handCards) : []), [view, me, myTurn, handCards]);
   const cards = useMemo(() => (me ? playableCards(view, me, handCards) : []), [view, me, handCards]);
+  const fireOptions = useMemo(() => options.filter((o) => o.action.type === 'dragonFire'), [options]);
+  const fireChoice = fireTarget ? (fireOptions.find((o) => o.action.type === 'dragonFire' && o.action.targetId === fireTarget) ?? null) : null;
+  /** Spaces where one of my pieces can act right now: those landmarks glow green. */
+  const actionNodes = useMemo(() => new Set(options.filter((o) => o.action.type !== 'dragonFire').map((o) => view.characters[o.characterId]?.node).filter(Boolean) as string[]), [options, view.characters]);
   const selected = cards.find((c) => c.card.id === cardId) ?? null;
   const shownTargets = useMemo(() => shortestPaths(selected?.targets ?? []), [selected]);
   const rolled = view.turn.move;
@@ -269,11 +301,14 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     // A lower version is a fresh board (tutorial steps, rematches): drop announcements for the old one.
     if (view.version < lastVersion.current) setBanners([]);
     lastVersion.current = view.version;
+    // Any new board state invalidates a pending road preview or fire target.
+    setEdgePick(null);
+    setFireTarget(null);
     const ev = view.lastEvents;
     const types = new Set(ev.map((e) => e.type));
     if (types.has('gameOver')) play('win');
     else if (types.has('banked') || types.has('slay') || types.has('finalUnlocked')) play('bank');
-    else if (types.has('cut') || types.has('defeated') || types.has('dragonFire')) play('capture');
+    else if (types.has('cut') || types.has('defeated') || types.has('dragonFire') || ev.some((e) => e.type === 'monsterEvent' && e.kind === 'attack')) play('capture');
     else if (types.has('pickedUp') || types.has('tame') || types.has('discovery')) play('pickup');
     else if (types.has('cardPlayed') || types.has('cardDrawn')) play('card');
     else if (types.has('rolled') || types.has('monster')) play('roll');
@@ -316,11 +351,32 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             ? { title: TEMPLE_UNLOCK_TITLE, sub: 'A piece that has touched all four plates can turn in at your fork. Land exactly on the temple to win.', tone: 'gold' }
             : { title: `${who(e.playerId).toUpperCase()} IS CLOSE!`, sub: 'Their Royal Path is open. Cut their pieces that have touched all four plates before they turn in!', tone: 'bad' },
         );
+      } else if (e.type === 'dragonFire' && e.hit === false) {
+        const t = view.characters[e.targetId];
+        if (t) fx.push({ id: ++fxId.current, node: t.node, text: `Fire missed (rolled ${e.roll})`, tone: 'blocked' });
+        lines.push(`Dragon Fire at ${nm(e.targetId)}: attack die ${e.roll}, a miss.`);
       } else if (e.type === 'defeated' && e.cause === 'fire') {
         const c = view.characters[e.characterId];
         fx.push({ id: ++fxId.current, node: c.node, text: 'Dragon Fire!', tone: 'cut' });
         lines.push(`${nm(e.characterId)} was burned by Dragon Fire and sent home.`);
         if (c.owner === me) news.push({ title: `YOUR ${CHARACTER_INFO[c.kind].name.toUpperCase()} WAS BURNED!`, sub: `${PRONOUN[c.kind]} returns to your castle.`, tone: 'bad' });
+      } else if (e.type === 'monsterHit') {
+        const mName = e.monster === 'golem' ? 'Stone Golem' : 'Cave Spider';
+        const home = monstersOf(view).find((m) => m.id === e.monster)?.home;
+        if (home) fx.push({ id: ++fxId.current, node: home, text: !e.hit ? 'Missed!' : e.slain ? `${mName} slain!` : `Hit! ${e.hp} ♥ left`, tone: !e.hit ? 'blocked' : 'good' });
+        lines.push(!e.hit ? `${nm(e.characterId)} missed the ${mName} (rolled ${e.roll}).` : e.slain ? `${nm(e.characterId)} slew the ${mName}!` : `${nm(e.characterId)} wounded the ${mName}: ${e.hp} heart${e.hp === 1 ? '' : 's'} left.`);
+        if (e.slain) news.push({ title: `${mName.toUpperCase()} SLAIN!`, sub: e.monster === 'golem' ? 'Its shortcut is open to everyone.' : 'The slayer takes a power card.', tone: 'gold' });
+      } else if (e.type === 'monsterEvent') {
+        const c = e.characterId ? view.characters[e.characterId] : null;
+        const mName = e.monster === 'golem' ? 'Stone Golem' : e.monster === 'spider' ? 'Cave Spider' : 'Monster';
+        if (e.kind === 'attack' && c) {
+          const what = e.effect === 'push' ? (e.to && e.to !== e.from ? `pushed back to ${nodeName(view.boardId, e.to)}` : 'shoved, but had nowhere to go') : `webbed: next move −${view.config.webPenalty ?? 2} (min 1)`;
+          if (e.from) fx.push({ id: ++fxId.current, node: e.from, text: `${mName}!`, tone: 'bad' });
+          if (e.to && e.to !== e.from) fx.push({ id: ++fxId.current, node: e.to, text: 'Pushed here', tone: 'bad' });
+          if (e.effect === 'web') fx.push({ id: ++fxId.current, node: c.node, text: 'Webbed! Next move −2', tone: 'bad' });
+          lines.push(`Monster die ${e.die}: the ${mName}${e.outside ? ' climbed out of the Dragon Gate and' : ''} attacked ${nm(c.id)} — ${what}.`);
+          if (c.owner === me) news.push({ title: `${mName.toUpperCase()} ATTACKS!`, sub: `Your ${CHARACTER_INFO[c.kind].name} was ${what}.`, tone: 'bad' });
+        } else lines.push(`Monster die ${e.die}: ${e.kind === 'quiet' ? 'the dungeon is quiet' : `the ${mName} patrols but finds nobody in reach`}.`);
       } else if (e.type === 'cut') {
         fx.push({ id: ++fxId.current, node: e.node, text: 'Cut! Sent home', tone: 'cut' });
         lines.push(`${nm(e.characterId)} cut ${nm(e.targetId)} — sent home.`);
@@ -522,6 +578,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     if (!c || c.finished) return;
     const aimed = shownTargets.find((t) => (t.kind === 'character' && t.characterId === id) || (t.kind === 'swap' && t.targetId === id));
     if (aimed) return playTarget(aimed);
+    const fire = !selected && !plan?.choice ? fireOptions.find((o) => o.action.type === 'dragonFire' && o.action.targetId === id) : undefined;
+    if (fire) {
+      setFireTarget(id);
+      return say(`Dragon Fire at ${label(c)}: roll the attack die below (4–6 hits).`);
+    }
     if (plan?.choice) {
       const candidates = attackCandidates(view, plan.characterId, plan.choice);
       const min = view.config.knightAttackMin ?? 2;
@@ -613,10 +674,49 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     setInspect({ kind: 'node', id });
   };
 
-  const onEdge = (edgeId: string) => {
-    const e = getBoard(view.boardId).board.edges.find((x) => x.id === edgeId);
-    const t = shownTargets.find((x) => x.kind === 'edge' && (x.edgeId === edgeId || (!!e?.gate && getBoard(view.boardId).board.edges.find((y) => y.id === x.edgeId)?.gate === e.gate)));
-    if (t) playTarget(t);
+  /** What a map card would do to a segment: open (build, repair) or close (collapse, landslide). */
+  const changeOf = (type: CardType): 'open' | 'close' => (type === 'collapse_bridge' || type === 'landslide' ? 'close' : 'open');
+  const VERB: Partial<Record<CardType, string>> = { build_bridge: 'Build bridge', collapse_bridge: 'Collapse bridge', dig_tunnel: 'Dig tunnel', build_road: 'Build road', landslide: 'Drop landslide', repair: 'Repair' };
+
+  /**
+   * Tap a road segment to build or break it. With a map card selected, an eligible (glowing) segment
+   * shows a preview with Confirm beside it; an ineligible one explains why beside the road. Without a
+   * card, the tap picks the card in your hand that can change it, or explains the road.
+   */
+  const onEdge = (edgeId: string, explain?: string) => {
+    const { board } = getBoard(view.boardId);
+    const e = board.edges.find((x) => x.id === edgeId);
+    const sameSegment = (x: string) => x === edgeId || (!!e?.gate && board.edges.find((y) => y.id === x)?.gate === e.gate);
+    const beside = (text: string) => {
+      if (e) setEffects((fx) => [...fx, { id: ++fxId.current, node: e.a, at: e.route[Math.floor(e.route.length / 2)], text, tone: 'blocked' as const }].slice(-6));
+      say(text);
+      play('error');
+    };
+    const pick = (card: (typeof cards)[number]) => {
+      const t = card.targets.find((x) => x.kind === 'edge' && sameSegment(x.edgeId));
+      if (!t || t.kind !== 'edge') return false;
+      setSel(null);
+      setCardId(card.card.id);
+      const change = changeOf(card.card.type);
+      setEdgePick({ cardId: card.card.id, target: t, edgeId: t.edgeId, change, label: VERB[card.card.type] ?? CARD_INFO[card.card.type].name });
+      say(`${CARD_INFO[card.card.type].name} on ${e?.name ?? 'this road'}: the road ${change === 'open' ? 'opens' : 'closes'} for every house. Confirm beside the road.`);
+      return true;
+    };
+    if (selected) {
+      if (pick(selected)) return;
+      return beside(edgeRefusal(view, me ?? '', selected.card.type, edgeId) ?? `${CARD_INFO[selected.card.type].name} cannot be used on ${e?.name ?? 'this road'}.`);
+    }
+    if (!myTurn) return setInspect({ kind: 'text', id: explain ?? `${e?.name ?? 'This road'}. Wait for your turn to build or break it.` });
+    if (view.turn.adventureDone) return setInspect({ kind: 'text', id: `${explain ?? e?.name ?? 'This road'} You already used your Adventure action this turn.` });
+    const fits = cards.filter((c) => c.targets.some((x) => x.kind === 'edge' && sameSegment(x.edgeId)));
+    if (fits.length && pick(fits[0])) return;
+    setInspect({ kind: 'text', id: `${explain ?? e?.name ?? 'This road.'} None of your cards can change it right now.` });
+  };
+  const confirmEdge = () => {
+    if (!edgePick) return;
+    const pickNow = edgePick;
+    setEdgePick(null);
+    void run({ type: 'playCard', cardId: pickNow.cardId, target: pickNow.target, discardCardId: discardId });
   };
 
   const onDragStart = (id: string) => {
@@ -661,6 +761,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         setAttack([]);
         setCardId(null);
         setTradeOpen(false);
+        setEdgePick(null);
+        setFireTarget(null);
       } else return;
       e.preventDefault();
     };
@@ -678,8 +780,9 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       else if (x.kind === 'swap') t.characters.add(x.targetId);
       else if (x.kind === 'path') t.nodes.add(x.path[x.path.length - 1]);
     }
+    if (!shownTargets.length && !plan?.choice) for (const o of fireOptions) if (o.action.type === 'dragonFire' && o.action.targetId) t.characters.add(o.action.targetId);
     return t;
-  }, [shownTargets]);
+  }, [shownTargets, fireOptions, plan?.choice]);
   const coach = useMemo(() => new Set(tutorial?.coach ?? []), [tutorial?.coach]);
   const what = plan?.choice ? consequences(view, plan.characterId, plan.choice) : [];
   const routeAttackIds = plan?.choice ? attackCandidates(view, plan.characterId, plan.choice) : [];
@@ -743,7 +846,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     sub = current.isAI ? 'Thinking…' : 'Watch the board. Their moves appear below.';
   } else if (selected) {
     headline = `${CARD_INFO[selected.card.type].name}: choose a target`;
-    sub = selected.targets.length ? 'Valid targets glow blue on the board and are listed below.' : (selected.reason ?? 'That card has no target right now.');
+    sub = selected.targets.length
+      ? selected.targets.every((t) => t.kind === 'edge')
+        ? 'Tap a glowing blue path on the board to use the card on it.'
+        : 'Valid targets glow blue on the board and are listed below.'
+      : (selected.reason ?? 'That card has no target right now.');
   } else if (canRoll) {
     headline = view.turn.bonus ? 'EXTRA TURN — Roll again' : 'YOUR TURN — Roll the die';
     sub = `${me ? objectiveText(view, me) : ''}${!view.turn.adventureDone && (options.length || playableCount) ? ' You may use your adventure action before or after moving.' : ''}`;
@@ -769,6 +876,9 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   } else if (canPlan) {
     headline = `You rolled ${rolled!.roll} — choose a piece`;
     sub = movers.length ? 'Pieces that can move have a dashed gold ring. Tap one on the board or below.' : me ? noMoveReason(view, me) : '';
+  } else if (fireChoice) {
+    headline = 'Dragon Fire: roll the attack die';
+    sub = fireChoice.detail;
   } else if (!view.turn.adventureDone) {
     headline = 'Adventure action (optional)';
     sub = options.length || playableCount ? 'Use a place, play a card, or end your turn.' : 'Nothing to do here. End your turn.';
@@ -868,14 +978,14 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             <button className="btn btn-ghost bg-white/90! px-3! py-1! text-sm" onClick={() => setGuideOpen(true)}>
               <Compass size={14} aria-hidden="true" /> Legend
             </button>
-            {inspectPaths && (
-              <button className="btn btn-ghost bg-white/90! px-3! py-1! text-sm" onClick={() => setInspectPaths(false)}>
-                Hide Royal Paths
-              </button>
-            )}
           </div>
           <GameBoard
             view={view}
+            markerStyle={settings.markers ?? 'minimal'}
+            describeNode={(id) => {
+              const n = getBoard(view.boardId).nodes[id];
+              return n ? locationTip(n, view) : '';
+            }}
             map={map}
             me={me}
             movable={movable}
@@ -897,7 +1007,12 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             onCrowd={setCrowd}
             onExplain={(text) => setInspect({ kind: 'text', id: text })}
             onMarker={(_id, text) => setInspect({ kind: 'text', id: text })}
-            royal={{ playSeat, inspect: inspectPaths, explainSeat, reachNodes: royalReach }}
+            royal={{ playSeat, inspect: true, explainSeat, reachNodes: royalReach }}
+            edgePreview={edgePick && edgePick.cardId === cardId ? { edgeId: edgePick.edgeId, change: edgePick.change, label: edgePick.label } : null}
+            onConfirmEdge={confirmEdge}
+            onCancelEdge={() => setEdgePick(null)}
+            fireTarget={fireChoice ? fireTarget : null}
+            actionNodes={actionNodes}
             platesDone={focusChar?.plates ?? null}
           />
           {dragging && <div className="sr-only">Dragging</div>}
@@ -926,7 +1041,29 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       {companion?.id === inspectedChar.id && <p className="text-xs text-[#a3300b]">{STATUS_INFO.companion}</p>}
                     </>
                   ) : (
-                    <p className="text-sm leading-snug">{inspectedNode ? locationTip(inspectedNode, view) : inspect?.id}</p>
+                    <>
+                      <p className="text-sm leading-snug">{inspectedNode ? locationTip(inspectedNode, view) : inspect?.id}</p>
+                      {inspectedNode && mayAdventure && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5" data-landmark-actions>
+                          {options
+                            .filter((o) => o.action.type !== 'dragonFire' && view.characters[o.characterId]?.node === inspectedNode.id)
+                            .map((o) => (
+                              <button
+                                key={o.label}
+                                className="btn btn-green min-h-11 text-sm"
+                                disabled={busy}
+                                title={o.detail}
+                                onClick={() => {
+                                  setInspect(null);
+                                  void run(o.mayDraw && o.action.type === 'dig' ? { ...o.action, discardCardId: discardId } : o.action);
+                                }}
+                              >
+                                {o.label}
+                              </button>
+                            ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 <button className="btn btn-ghost icon-btn" aria-label="Close details" onClick={() => setInspect(null)}>
@@ -1138,6 +1275,67 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               </div>
             )}
 
+            {mine.length > 0 && !(myTurn && !view.turn.moveDone) && (
+              <div className="mt-2.5" data-piece-roster>
+                <div className="mb-1 text-xs font-bold text-[#4a5374]">Your pieces</div>
+                <ul className="grid grid-cols-2 gap-1.5">
+                  {mine.map((c) => {
+                    const gems = gemsOf(view, c);
+                    const where = c.finished ? 'In the Crown Temple' : nodeName(view.boardId, c.node);
+                    const notes = [c.shield && 'Shield', c.immune && 'Immunity', c.guarded && 'Royal Guard', c.webbed && 'Webbed'].filter(Boolean) as string[];
+                    return (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          className="flex w-full items-center gap-1.5 rounded-xl bg-white/70 px-1.5 py-1 text-left text-[11px] leading-tight"
+                          data-roster={c.id}
+                          aria-label={`${label(c)} at ${where}: ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ', carrying nothing'}${notes.length ? `, ${notes.join(', ')}` : ''}`}
+                          onClick={() => onPiece(c.id)}
+                        >
+                          <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={24} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-bold">{CHARACTER_INFO[c.kind].name}</span>
+                            <span className="block truncate text-[#6b7086]">{where}</span>
+                            {notes.length > 0 && <span className="block truncate text-[#173e8c]">{notes.join(' · ')}</span>}
+                          </span>
+                          <span className="flex shrink-0 flex-col items-end gap-0.5" data-carrying={gems.map((g) => g.kind).join(',')}>
+                            {gems.length ? gems.map((g) => <GemIcon key={g.id} kind={g.kind} size={16} title={`Carrying ${aGem(g.kind)}`} />) : <span className="text-[10px] text-[#9aa0b5]">no gems</span>}
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+
+            {fireChoice && mayAdventure && (
+              <div className="mt-2.5 rounded-xl bg-[#fff1e6] p-2" data-dragon-fire="armed">
+                <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire · no card needed · uses your Adventure action</div>
+                <p className="text-xs text-[#4a5374]">
+                  Target: <b>{label(view.characters[fireTarget!])}</b>. Roll the attack die: {view.config.dragonFireHit ?? 4}–{view.config.dieSides} hits (
+                  {Math.round(((view.config.dieSides - (view.config.dragonFireHit ?? 4) + 1) / view.config.dieSides) * 100)}%), 1–{(view.config.dragonFireHit ?? 4) - 1} misses and the action is still spent. A hit sends them home and drops their gems.
+                </p>
+                <div className="mt-1.5 flex gap-1.5">
+                  <button
+                    className="btn btn-danger min-h-11 text-sm"
+                    disabled={busy}
+                    data-fire-roll
+                    onClick={() => {
+                      const a = fireChoice.action;
+                      setFireTarget(null);
+                      void run(a);
+                    }}
+                  >
+                    🔥 Roll attack die
+                  </button>
+                  <button className="btn btn-ghost min-h-11 text-sm" onClick={() => setFireTarget(null)}>
+                    Choose another
+                  </button>
+                </div>
+              </div>
+            )}
+
             {mayAdventure && (options.length > 0 || canRelease || shownTargets.length > 0) && (
               <div className="mt-2.5" data-adventure>
                 <div className="mb-1 text-xs font-bold text-[#4a5374]">Adventure action</div>
@@ -1152,18 +1350,32 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                     const withDiscard = o.mayDraw && a.type === 'dig' ? { ...a, discardCardId: discardId } : a;
                     const gem = a.type === 'dig' ? a.gem : undefined;
                     return (
-                      <button key={o.label + o.characterId} className="btn btn-green text-sm" disabled={busy} title={o.detail} onClick={() => void run(withDiscard)} data-adventure-option={a.type}>
+                      <button
+                        key={o.label + o.characterId}
+                        className={`btn text-sm ${a.type === 'dragonFire' ? 'btn-danger' : 'btn-green'}`}
+                        disabled={busy}
+                        title={o.detail}
+                        onClick={() => (a.type === 'dragonFire' && a.targetId ? setFireTarget(a.targetId) : void run(withDiscard))}
+                        data-adventure-option={a.type}
+                      >
                         {gem && <GemIcon kind={gem} size={16} />}
                         {o.label}
                       </button>
                     );
                   })}
-                  {shownTargets.map((t) => (
-                    <button key={targetLabel(view, t)} className="btn btn-blue text-sm" disabled={busy} data-highlight="target" onClick={() => playTarget(t)}>
-                      {targetLabel(view, t)}
-                    </button>
-                  ))}
+                  {shownTargets
+                    .filter((t) => t.kind !== 'edge')
+                    .map((t) => (
+                      <button key={targetLabel(view, t)} className="btn btn-blue text-sm" disabled={busy} data-highlight="target" onClick={() => playTarget(t)}>
+                        {targetLabel(view, t)}
+                      </button>
+                    ))}
                 </div>
+                {shownTargets.some((t) => t.kind === 'edge') && (
+                  <p className="mt-1 text-xs font-semibold text-[#173e8c]" data-edge-hint>
+                    Tap a glowing blue path on the board to {selected && /collapse|landslide|raise|river/.test(selected.card.type) ? 'break' : 'build'} it.
+                  </p>
+                )}
                 {options.length > 0 && <p className="mt-1 text-xs text-[#4a5374]">{options[0].detail}</p>}
               </div>
             )}
@@ -1184,7 +1396,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       setTradeOpen(true);
                     }}
                   >
-                    Diplomacy
+                    Diplomacy &amp; powers
                   </button>
                 )}
                 {selected && (
@@ -1294,7 +1506,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           <BookOpen size={16} aria-hidden="true" /> Full rules with card pictures
         </button>
       </Modal>
-      <MapGuide open={guideOpen} onClose={() => setGuideOpen(false)} showPaths={inspectPaths} onShowPaths={setInspectPaths} />
+      <MapGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
       <Modal open={!!crowd} onClose={() => setCrowd(null)} title={crowd ? `Pieces at ${nodeName(view.boardId, crowd)}` : 'Pieces'}>
         <ul className="space-y-1.5" data-crowd-picker>
           {crowdPieces.map((c) => {

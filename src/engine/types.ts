@@ -182,6 +182,30 @@ export interface Character {
   finished: boolean;
   /** [A2] Royal Guard: cannot be captured (landing, Knight attack or Dragon Fire) until its owner's next turn. */
   guarded: boolean;
+  /** Caught in the Cave Spider's web: the next movement allowance is reduced by `webPenalty` (min 1). Never stacks. */
+  webbed?: boolean;
+  /** Attuned at the Crystal Niche: the next movement allowance is `crystalBoost` longer. Used on the next move. */
+  boosted?: boolean;
+  /** Dungeon rooms whose once-per-visit perk this piece used (cleared when it leaves the dungeon or goes home). */
+  roomsUsed?: string[];
+}
+
+export type MonsterId = 'golem' | 'spider';
+
+/** A roaming dungeon monster. It lives on its encounter space and returns there after every event. */
+export interface MonsterState {
+  id: MonsterId;
+  name: string;
+  /** Its encounter space. */
+  home: string;
+  /** Where it stands now (always `home` between events). */
+  node: string;
+  /** Beaten in an encounter: rests (no attacks, no encounter) until the event after this round. 0 = active. */
+  restUntilRound: number;
+  /** Hits left (`monsterHearts` at the start; older saves have none and count as full). */
+  hp?: number;
+  /** Out of hearts: gone for the rest of the match. No attacks, no fight at its space. */
+  slain?: boolean;
 }
 
 /** A gem token. It exists only while carried or lying on the board; banked gems become the player's. */
@@ -222,6 +246,10 @@ export interface PlayerState {
   slowed: boolean;
   /** Dungeon keys held (each opens the Vault Door once). */
   keys: number;
+  /** Gem kinds the Witch has already transmuted (each kind only once per match). */
+  alchemyUsed?: GemKind[];
+  /** Took its one Diamond from the Crystal Mine Tunnel. */
+  mined?: boolean;
 }
 
 export type CardCategory = 'map' | 'power' | 'special';
@@ -349,6 +377,8 @@ export interface PlayerStats {
   tameAttempts: number;
   tames: number;
   dragonFires: number;
+  /** Hits landed on dungeon monsters. */
+  monsterHits?: number;
   slayAttempts: number;
   slays: number;
 }
@@ -365,7 +395,7 @@ export interface MatchResult {
   finalGems: Record<string, number>;
 }
 
-export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard' | 'encounter';
+export type TeleportReason = 'trap' | 'shortcut' | 'portal' | 'boat' | 'plane' | 'swap' | 'rescue' | 'dungeon' | 'retreat' | 'discovery' | 'hazard' | 'encounter' | 'monster';
 
 /**
  * Events are facts, not prose: the UI (src/lib/explain.ts) turns them into "what happened, why, what
@@ -401,8 +431,38 @@ export type GameEvent =
   | { type: 'monster'; characterId: string; roll: number; total: number; success: boolean }
   /** [A3] Stone Golem or Cave Spider: one roll; `to` is where the piece ended up. */
   | { type: 'encounter'; characterId: string; monster: 'golem' | 'spider'; roll: number; total: number; success: boolean; to: string }
+  /**
+   * The round's monster event. `die`: the event die. `kind`: quiet (1–3), patrol (a monster found no target),
+   * attack. `outside`: the monster climbed out to the Dragon Gate road (`at` is where it stood). Golem: `effect`
+   * push from `from` to `to` (equal when there was nowhere to go). Spider: `effect` web.
+   */
+  | {
+      type: 'monsterEvent';
+      round: number;
+      die: number;
+      kind: 'quiet' | 'patrol' | 'attack';
+      monster?: MonsterId;
+      outside?: boolean;
+      at?: string;
+      characterId?: string;
+      effect?: 'push' | 'web';
+      from?: string;
+      to?: string;
+      /** A strike back after a missed Attack (not a round event). */
+      counter?: boolean;
+    }
+  /** A beaten encounter monster has rested and is back on guard. */
+  | { type: 'monsterRecovered'; monster: MonsterId }
+  /** Fell into the Spike Pit and rolled for the treasure among the spikes. */
+  | { type: 'spikeTreasure'; characterId: string; roll: number; success: boolean }
+  /**
+   * A piece struck a monster: by winning its fight (`encounter`), with the Attack action (`attack`) or with
+   * Dragon Fire (`fire`). `hit` false only for attack/fire misses; `hp` is what is left; `slain` at 0.
+   */
+  | { type: 'monsterHit'; monster: MonsterId; characterId: string; how: 'encounter' | 'attack' | 'fire'; roll?: number; total?: number; hit: boolean; hp: number; slain: boolean }
   | { type: 'tame'; characterId: string; roll: number; success: boolean }
-  | { type: 'dragonFire'; characterId: string; targetId: string }
+  /** `roll`: the separate attack die; `hit` on `dragonFireHit`+ (older events have neither and always hit). */
+  | { type: 'dragonFire'; characterId: string; targetId: string; roll?: number; hit?: boolean }
   | { type: 'slay'; characterId: string; roll: number; success: boolean }
   | { type: 'dragonReleased'; playerId: string }
   | { type: 'dragonMoved'; to: string }
@@ -459,6 +519,12 @@ export interface GameState {
   gemCounter: number;
   /** Test/tutorial hook: next die results. */
   forcedRolls: number[];
+  /** Roaming dungeon monsters (absent in matches saved before they existed). */
+  monsters?: MonsterState[];
+  /** Last round whose monster event has resolved (each round's event resolves exactly once). */
+  monsterRound?: number;
+  /** Golem shortcuts unlocked per encounter space: the kingdoms (player ids) that beat it and may use it freely. */
+  shortcutsOpen?: Record<string, string[]>;
 }
 
 export type GameAction =
@@ -483,10 +549,16 @@ export type GameAction =
   /** Dig at a discovery site (or take a gem in the Crystal Shrine; `gem` picks the kind there). */
   | { type: 'dig'; characterId: string; gem?: GemKind; discardCardId?: string | null }
   | { type: 'fightMonster'; characterId: string }
+  /** Use a dungeon room's perk: search the Fallen Ruins (map card) or attune at the Crystal Niche (+2 next move). */
+  | { type: 'explore'; characterId: string }
   | { type: 'tame'; characterId: string }
-  | { type: 'dragonFire'; targetId: string }
+  /** `targetId` a rival piece, or `monster` a dungeon monster in range. */
+  | { type: 'dragonFire'; targetId?: string; monster?: MonsterId }
+  /** Adventure action: strike a monster within `monsterAttackRange` steps. */
+  | { type: 'attackMonster'; characterId: string; monster: MonsterId }
   | { type: 'sail'; characterId: string }
-  | { type: 'fly'; characterId: string; to: string }
+  /** `fuelCardId`: the card burned as fuel (default: the first card in hand). */
+  | { type: 'fly'; characterId: string; to: string; fuelCardId?: string }
   | { type: 'playCard'; cardId: string; target: CardTarget; discardCardId?: string | null };
 
 export interface ActionEnvelope {
@@ -526,10 +598,14 @@ export interface PlayerView {
   discoveryCount: number;
   /** [A2] Open offers, redacted for this viewer. */
   trades: TradeView[];
+  monsters?: MonsterState[];
+  monsterRound?: number;
+  shortcutsOpen?: Record<string, string[]>;
 }
 
 /** The parts of state shared by GameState and PlayerView (what rule queries need). */
 export type BoardState = Pick<
   GameState,
   'boardId' | 'config' | 'players' | 'characters' | 'gems' | 'dragon' | 'bridges' | 'transforms' | 'blocks' | 'vehicles' | 'turn' | 'status'
->;
+> &
+  Partial<Pick<GameState, 'monsters' | 'monsterRound' | 'shortcutsOpen'>>;

@@ -17,19 +17,15 @@ import {
   viewOf,
 } from './helpers';
 
-describe('P4 Alchemy repeatable', () => {
-  it('P4 Witch may alchemy multiple times on her turn when banked copies allow', () => {
+describe('P4 Alchemy once per kind', () => {
+  it('P4 Witch may transmute two different kinds, but not the same kind twice', () => {
     let s = noCards(game());
-    setBank(s, 'a', { ruby: 1 });
-    const gem1 = carry(s, 'a-witch', 'ruby');
-    place(s, 'a-witch', 'c8');
+    setBank(s, 'a', { ruby: 2, sapphire: 2 });
+    place(s, 'a-witch', 'c0');
     qaFresh(s, 'a');
-    s = must(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: gem1, to: 'sapphire' }, T0);
-    expect(s.gems.find((g) => g.id === gem1)?.kind).toBe('sapphire');
-    expect(s.lastEvents.some((e) => e.type === 'alchemy')).toBe(true);
-    setBank(s, 'a', { ruby: 1, sapphire: 1 });
-    s = must(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: gem1, to: 'emerald' }, T0);
-    expect(s.gems.find((g) => g.id === gem1)?.kind).toBe('emerald');
+    s = must(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: 'bank:ruby', to: 'emerald' }, T0);
+    s = must(s, 'a', { type: 'alchemy', characterId: 'a-witch', gemId: 'bank:sapphire', to: 'diamond' }, T0);
+    expect(s.players.find((p) => p.id === 'a')!.gems.sort()).toEqual(['diamond', 'emerald', 'ruby', 'sapphire']);
   });
 });
 
