@@ -188,6 +188,11 @@ export interface Character {
   boosted?: boolean;
   /** Dungeon rooms whose once-per-visit perk this piece used (cleared when it leaves the dungeon or goes home). */
   roomsUsed?: string[];
+  /**
+   * Opposing movement actions left on each temporary ward (see src/engine/protection.ts). The matching
+   * boolean (`shield`, `immune`, `guarded`) is true exactly while its count is above 0.
+   */
+  wards?: Partial<Record<'shield' | 'immune' | 'guarded', number>>;
 }
 
 export type MonsterId = 'golem' | 'spider';
@@ -428,6 +433,10 @@ export type GameEvent =
   | { type: 'finished'; characterId: string; playerId: string; count: number }
   | { type: 'defeated'; characterId: string; by: string; cause: 'cut' | 'fire' }
   | { type: 'shieldUsed'; characterId: string }
+  /** A temporary ward ended: `expired` after its last opposing movement, `consumed` when it absorbed an attack. */
+  | { type: 'protectionEnded'; characterId: string; ward: 'shield' | 'immune' | 'guarded'; reason: 'expired' | 'consumed' }
+  /** A temporary ward was granted or refreshed; `moves` is how many opposing movements it lasts. */
+  | { type: 'protectionGranted'; characterId: string; ward: 'shield' | 'immune' | 'guarded'; moves: number; refreshed: boolean }
   | { type: 'monster'; characterId: string; roll: number; total: number; success: boolean }
   /** [A3] Stone Golem or Cave Spider: one roll; `to` is where the piece ended up. */
   | { type: 'encounter'; characterId: string; monster: 'golem' | 'spider'; roll: number; total: number; success: boolean; to: string }
@@ -450,6 +459,10 @@ export type GameEvent =
       to?: string;
       /** A strike back after a missed Attack (not a round event). */
       counter?: boolean;
+      /** Where the monster struck from (its space, or the Dragon Gate when it climbed out). */
+      origin?: string;
+      /** What actually happened to the target. `blocked`: a Shield absorbed it (and was used up). */
+      outcome?: 'pushed' | 'stuck' | 'webbed' | 'alreadyWebbed' | 'blocked';
     }
   /** A beaten encounter monster has rested and is back on guard. */
   | { type: 'monsterRecovered'; monster: MonsterId }
@@ -462,7 +475,7 @@ export type GameEvent =
   | { type: 'monsterHit'; monster: MonsterId; characterId: string; how: 'encounter' | 'attack' | 'fire'; roll?: number; total?: number; hit: boolean; hp: number; slain: boolean }
   | { type: 'tame'; characterId: string; roll: number; success: boolean }
   /** `roll`: the separate attack die; `hit` on `dragonFireHit`+ (older events have neither and always hit). */
-  | { type: 'dragonFire'; characterId: string; targetId: string; roll?: number; hit?: boolean }
+  | { type: 'dragonFire'; characterId: string; targetId: string; roll?: number; hit?: boolean; from?: string; at?: string }
   | { type: 'slay'; characterId: string; roll: number; success: boolean }
   | { type: 'dragonReleased'; playerId: string }
   | { type: 'dragonMoved'; to: string }
@@ -479,6 +492,29 @@ export type GameEvent =
   | { type: 'alchemy'; characterId: string; from: GemKind; to: GemKind }
   | { type: 'tradeOffered'; offerId: string; from: string; to: string }
   | { type: 'tradeResolved'; offerId: string; from: string; to: string; outcome: 'accepted' | 'declined' | 'expired' | 'cancelled' }
+  /** [Prototype] Golem battle events. */
+  | { type: 'battleStarted'; battleId: number; monster: MonsterId; characterId: string; intent: BattleIntent; reward: string }
+  | {
+      type: 'battleExchange';
+      battleId: number;
+      monster: MonsterId;
+      characterId: string;
+      exchange: number;
+      choice: 'strike' | 'guard';
+      roll?: number;
+      total?: number;
+      hit?: boolean;
+      damage: number;
+      /** The monster's attack this exchange and what it did. */
+      monsterAttack: BattleIntent | null;
+      blocked: boolean;
+      taken: number;
+      exposed: boolean;
+      monsterHp: number;
+      stamina: number;
+      nextIntent: BattleIntent | null;
+    }
+  | { type: 'battleEnded'; battleId: number; monster: MonsterId; characterId: string; outcome: 'won' | 'lost' | 'retreated'; to: string; reward?: string }
   | { type: 'gameOver'; winners: string[] };
 
 export interface GameState {
@@ -525,6 +561,38 @@ export interface GameState {
   monsterRound?: number;
   /** Golem shortcuts unlocked per encounter space: the kingdoms (player ids) that beat it and may use it freely. */
   shortcutsOpen?: Record<string, string[]>;
+  /**
+   * Monotonic id of the last resolved event batch (`lastEvents`). Clients play sounds, effects and
+   * notices only for a batch id they have not handled yet, so polls, retries and reconnects never
+   * replay an old attack.
+   */
+  eventSeq?: number;
+  /** [Prototype] Open Golem battle: a short Strike/Guard fight inside the current turn. */
+  battle?: BattleState | null;
+  /** [Prototype] Dungeon rewards already claimed, per reward id: the kingdoms (player ids) that claimed it. */
+  rewardsClaimed?: Record<string, string[]>;
+}
+
+/** [Prototype] The monster's announced next move. */
+export type BattleIntent = 'light' | 'heavy';
+
+/** [Prototype] A Strike/Guard battle against a dungeon monster, resolved within one turn. */
+export interface BattleState {
+  id: number;
+  monster: MonsterId;
+  characterId: string;
+  playerId: string;
+  /** Where the fight happens (the monster's space). */
+  node: string;
+  monsterHp: number;
+  /** The visiting piece's temporary stamina (restored when the battle ends). */
+  stamina: number;
+  /** What the monster will do after the player's next choice. */
+  intent: BattleIntent;
+  /** Exchanges fought so far. */
+  exchange: number;
+  /** The last Guard read a heavy attack: the next Strike that hits deals 2. */
+  exposed: boolean;
 }
 
 export type GameAction =
@@ -549,6 +617,8 @@ export type GameAction =
   /** Dig at a discovery site (or take a gem in the Crystal Shrine; `gem` picks the kind there). */
   | { type: 'dig'; characterId: string; gem?: GemKind; discardCardId?: string | null }
   | { type: 'fightMonster'; characterId: string }
+  /** [Prototype] Golem battle: one exchange (Strike or Guard), or Retreat before an exchange. */
+  | { type: 'battle'; choice: 'strike' | 'guard' | 'retreat' }
   /** Use a dungeon room's perk: search the Fallen Ruins (map card) or attune at the Crystal Niche (+2 next move). */
   | { type: 'explore'; characterId: string }
   | { type: 'tame'; characterId: string }
@@ -601,6 +671,9 @@ export interface PlayerView {
   monsters?: MonsterState[];
   monsterRound?: number;
   shortcutsOpen?: Record<string, string[]>;
+  eventSeq?: number;
+  battle?: BattleState | null;
+  rewardsClaimed?: Record<string, string[]>;
 }
 
 /** The parts of state shared by GameState and PlayerView (what rule queries need). */
@@ -608,4 +681,4 @@ export type BoardState = Pick<
   GameState,
   'boardId' | 'config' | 'players' | 'characters' | 'gems' | 'dragon' | 'bridges' | 'transforms' | 'blocks' | 'vehicles' | 'turn' | 'status'
 > &
-  Partial<Pick<GameState, 'monsters' | 'monsterRound' | 'shortcutsOpen'>>;
+  Partial<Pick<GameState, 'monsters' | 'monsterRound' | 'shortcutsOpen' | 'battle' | 'rewardsClaimed'>>;

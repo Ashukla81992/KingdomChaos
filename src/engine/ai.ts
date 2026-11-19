@@ -1,3 +1,4 @@
+import { aiBattleChoice } from './battle';
 import { powerOptions } from './powers';
 import { getBoard, other } from './board';
 import { travelDistances } from './graph';
@@ -471,6 +472,8 @@ export function chooseAiAction(view: PlayerView, random: () => number = Math.ran
 
   // Off-turn: only trade responses.
   if (view.turn.playerId !== pid) return aiRespond(view, random);
+
+  if (view.battle) return view.battle.playerId === pid ? { type: 'battle', choice: aiBattleChoice(view) } : null;
 
   const s: QueryState = view;
   const hand = view.hand;

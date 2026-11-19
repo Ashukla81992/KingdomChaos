@@ -54,6 +54,13 @@ export interface GameConfig {
   finishersToWin: number;
   /** [A2] Royal Guard uses per match. */
   royalGuardPerMatch: number;
+  /** Temporary capture protection (Shield, Immunity, Royal Guard) lasts this many opposing movement actions. */
+  protectionMoves: number;
+  /** [Prototype] Golem fights use the Strike/Guard battle instead of the single encounter roll. */
+  golemBattle: boolean;
+  /** [Prototype] Battle health marks for the monster and stamina marks for the visiting piece. */
+  battleMonsterHp: number;
+  battleStamina: number;
   /** [A3] Stone Golem and Cave Spider succeed on this roll or higher (Knight adds `knightBonus`). */
   encounterThreshold: number;
   /** Roaming dungeon monsters (Stone Golem, Cave Spider) act once after every full round. False turns them off. */
@@ -133,6 +140,10 @@ export const DEFAULT_CONFIG: GameConfig = {
   knightAttackMax: 3,
   finishersToWin: 4,
   royalGuardPerMatch: 1,
+  protectionMoves: 2,
+  golemBattle: true,
+  battleMonsterHp: 3,
+  battleStamina: 3,
   encounterThreshold: 4,
   monsterEvents: true,
   monsterRange: 3,

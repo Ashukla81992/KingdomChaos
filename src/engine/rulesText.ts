@@ -116,10 +116,10 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Shield',
     category: 'power',
     short: 'Safe from captures and Dragon Fire.',
-    full: 'One of your pieces cannot be captured (landing on it is refused) and is safe from Dragon Fire. Traps still work.',
+    full: `One of your pieces cannot be captured (landing on it is refused) and is safe from Dragon Fire. A monster attack is blocked once and breaks the Shield. Traps still work.`,
     usesAction: A,
     targets: 'One of your pieces',
-    duration: 'Until the start of your next turn',
+    duration: `${C.protectionMoves} enemy moves: every rival movement counts (bonus rolls too); it still protects during the last one, then expires. Playing it again refreshes it to ${C.protectionMoves}.`,
     restrictions: 'Does not stop traps.',
   },
   magic_boots: {
@@ -137,10 +137,10 @@ export const CARD_INFO: Record<CardType, CardText> = {
     name: 'Immunity',
     category: 'power',
     short: 'Untouchable.',
-    full: 'One of your pieces cannot be captured, hit by Dragon Fire, or targeted by opponents’ Swap.',
+    full: 'One of your pieces cannot be captured, hit by Dragon Fire, attacked by monsters, or targeted by opponents’ Swap.',
     usesAction: A,
     targets: 'One of your pieces',
-    duration: 'Until the start of your next turn',
+    duration: `${C.protectionMoves} enemy moves: every rival movement counts (bonus rolls too); it still protects during the last one, then expires. Playing it again refreshes it to ${C.protectionMoves}.`,
     restrictions: 'Does not stop traps.',
   },
   dragon_slayer: {
@@ -238,7 +238,7 @@ export const CHARACTER_INFO: Record<CharacterKind, CharacterText> = {
   king: {
     name: 'King',
     abilityName: 'Royal Treasury & Guard',
-    ability: `When the King banks a new gem kind, draw a card (hand limit applies). Once per match, after he moved this turn, Royal Guard protects him or an adjacent ally until your next turn starts.`,
+    ability: `When the King banks a new gem kind, draw a card (hand limit applies). Once per match, after he moved this turn, Royal Guard protects him or an adjacent ally for the next ${C.protectionMoves} enemy moves.`,
   },
   queen: {
     name: 'Queen',
@@ -306,14 +306,14 @@ export const FEATURE_INFO = {
 };
 
 export const STATUS_INFO = {
-  shield: 'Shield — safe from captures and Dragon Fire until its owner’s next turn.',
-  immune: 'Immune — safe from captures, Dragon Fire and Swap until its owner’s next turn.',
+  shield: `Shield — safe from captures and Dragon Fire for ${C.protectionMoves} enemy moves (any rival's move counts, bonus rolls too). A monster attack breaks it.`,
+  immune: `Immune — safe from captures, Dragon Fire, monster attacks and Swap for ${C.protectionMoves} enemy moves.`,
   carrying: 'Carrying gems — bank them at your house gate. If captured, the attacker takes what it can carry.',
   companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die.`,
   slowed: `Slowed — next move is at most ${C.slowDownMaxSteps}.`,
   beatMonster: 'Beat the monster — the Vault Door is open for this visit.',
   lap: 'Checkpoints — this piece must touch all four public markers (Red, Blue, Purple, Green), in any order. Captured pieces keep the markers they have touched.',
-  guarded: 'Royal Guard — safe from captures and Dragon Fire until its owner’s next turn starts.',
+  guarded: `Royal Guard — safe from captures, Dragon Fire and monster attacks for ${C.protectionMoves} enemy moves.`,
   finished: 'Finished — this piece has entered the Crown Temple and stays there.',
 };
 
@@ -333,7 +333,7 @@ export const MAP_MARKER_INFO = {
 } as const;
 
 /** Prowling dungeon monsters, in one sentence. */
-export const MONSTER_RULE = `Roaming monsters: the Stone Golem and the Cave Spider attack any house. After every full round (bonus rolls do not count) roll the monster die once: 1–${C.monsterQuietMax} nothing happens; ${C.monsterQuietMax + 1}–${C.monsterOutsideRoll - 1} one random active monster attacks a random piece within ${C.monsterRange} connected steps of it in the dungeon; ${C.monsterOutsideRoll} one climbs out of the Dragon Gate and attacks a piece on the road within ${C.monsterRange} steps of the gate, then goes back inside. With nobody in reach it just patrols. Stone Golem: pushes the piece back ${C.golemPush} legal spaces. Cave Spider: webs it, so its next move is ${C.webPenalty} shorter (minimum 1, webs do not stack). Safe spaces, castles, Royal Paths, the temple, Shield, Immunity and Royal Guard are never attacked. Blocked or unbuilt roads stop a monster’s reach.`;
+export const MONSTER_RULE = `Roaming monsters: the Stone Golem and the Cave Spider attack any house. After every full round (bonus rolls do not count) roll the monster die once: 1–${C.monsterQuietMax} nothing happens; ${C.monsterQuietMax + 1}–${C.monsterOutsideRoll - 1} one random active monster attacks a random piece within ${C.monsterRange} connected steps of it in the dungeon; ${C.monsterOutsideRoll} one climbs out of the Dragon Gate and attacks a piece on the road within ${C.monsterRange} steps of the gate, then goes back inside. Stone Golem: pushes the piece back ${C.golemPush} legal spaces. Cave Spider: webs it, so its next move is ${C.webPenalty} shorter (minimum 1, webs do not stack). Safe spaces, castles, Royal Paths, the temple, Immunity and Royal Guard are never attacked; a Shield blocks one attack and breaks. With nobody in reach the monster stays idle: no attack, no notice. Blocked or unbuilt roads stop a monster’s reach.`;
 
 /** How to beat the roaming monsters for good. */
 export const MONSTER_KILL_RULE = `Killing monsters: each monster has ${C.monsterHearts} hearts. Three ways to strike one: win its fight by ending your move on its space; use the Attack action from within ${C.monsterAttackRange} step of it (roll ${C.encounterThreshold}+, Knight +${C.knightBonus}; a miss and it strikes back at once unless you stand on a safe space or are protected); or breathe Dragon Fire at it from up to ${C.dragonFireRange} steps (${C.dragonFireHit}+ on the attack die, no strike back). Each hit takes a heart and knocks it out until the end of the next round. At 0 hearts it is slain for the rest of the match: no more attacks, no fight on its space. A slain Golem leaves its shortcut open to every kingdom; whoever slays the Spider takes a power card from its hoard.`;
@@ -352,7 +352,7 @@ export const DUNGEON_GUIDE: DungeonGuideEntry[] = [
   { node: 'd-entrance', name: 'Dungeon Entrance', tag: 'Start · exit · safe', rule: 'Where you arrive from the Dragon Gate. Safe from captures and monsters. Adventure action here: climb back out to the Dragon Gate.' },
   { node: 'd-ruins', name: 'Fallen Ruins', tag: 'Safe room', rule: 'Safe room: no captures, no monster attacks. Why visit: once per visit, use your Adventure action to search the ruins and draw a map card. Losers of the Monster Den and the Stone Golem retreat here.' },
   { node: 'd-safe-crystal', name: 'Crystal Niche', tag: 'Safe room', rule: `Safe room: no captures, no monster attacks. Why visit: once per visit, use your Adventure action to attune to the crystals: any web falls away and your next move is ${C.crystalBoost} longer. Losers of the Cave Spider retreat here.` },
-  { node: 'd-golem', name: 'Stone Golem', tag: 'Fight · shortcut', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: the shortcut carries you to the Crystal Path by the Crystal Shrine and stays open for your whole kingdom (later pieces walk through free); the Golem rests for a round. Lose: retreat to the Fallen Ruins. It roams: after a round it may push a piece within ${C.monsterRange} steps back ${C.golemPush} spaces.` },
+  { node: 'd-golem', name: 'Stone Golem', tag: 'Battle · shortcut', rule: `End your move here and the Golem battles you (prototype): it has ${C.battleMonsterHp} health, you get ${C.battleStamina} stamina, and it announces each attack (swipe 1, heavy slam 2). Strike: ${C.encounterThreshold}+ hits (Knight +${C.knightBonus}). Guard: block it; guarding a heavy slam exposes it so your next hit deals 2. Retreat to the entrance before any exchange. Win: the shortcut to the Crystal Path stays open for your whole kingdom (once per kingdom). Lose: carried gems drop here and you limp to the Fallen Ruins. It roams: after a round it may push a piece within ${C.monsterRange} steps back ${C.golemPush} spaces.` },
   { node: 'd-spider', name: 'Cave Spider', tag: 'Fight · chest', rule: `End your move here and you must fight: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}). Win: open its chest and draw a power card; the Spider rests for a round. Lose: retreat to the Crystal Niche. It roams: after a round it may web a piece within ${C.monsterRange} steps (next move −${C.webPenalty}, minimum 1).` },
   { node: 'd-monster', name: 'Monster Den', tag: 'Fight · key', rule: `Adventure action: fight the Den Beast. Roll ${C.monsterThreshold}+ (Knight +${C.knightBonus}). Win: the Vault Door opens for this visit and the beast drops a dungeon key you keep (it opens the door once later). Lose: retreat to a safe room.` },
   { node: 'd-vault', name: 'Old Vault', tag: 'Hoard · locked', rule: 'Behind the Vault Door (beat the Den Beast or use a dungeon key). Why visit: once per visit, use your Adventure action to loot the hoard: a power card plus a discovery (a gem, a card, a key or a hidden route). Traps in the vault are disarmed.' },
@@ -435,6 +435,20 @@ export const RULE_SECTIONS: RuleSection[] = [
     ],
   },
   {
+    id: 'dungeon-battle',
+    title: 'Dungeon: Dragon Fire and the Golem battle',
+    paragraphs: [
+      `Dragon Fire needs no card. Tap your dragon (or its Fire button): rivals within ${C.dragonFireRange} connected steps glow. Tap one to preview, confirm, and the attack die rolls at once: ${C.dragonFireHit}–6 hits, 1–${C.dragonFireHit - 1} misses. Tap a piece that does not glow to see why it cannot be burned.`,
+      `Prototype: the Stone Golem fights a short battle. It has ${C.battleMonsterHp} health and you get ${C.battleStamina} stamina for the fight. Above it you see its next attack: a light swipe (1) or a telegraphed heavy slam (2), alternating.`,
+    ],
+    bullets: [
+      `Strike: roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}) to deal 1; then it attacks if still standing.`,
+      'Guard: block its attack. Guarding a heavy slam exposes it: your next hit deals 2.',
+      'Retreat before any exchange: back to the Dungeon Entrance, no reward.',
+      'Win: the shortcut to the Crystal Path stays open for your kingdom for the rest of the match (once per kingdom). Lose: your carried gems drop in the chamber and you limp to the Fallen Ruins.',
+    ],
+  },
+  {
     id: 'cuts',
     title: 'Captures and bonus rolls',
     paragraphs: [
@@ -442,7 +456,8 @@ export const RULE_SECTIONS: RuleSection[] = [
     ],
     bullets: [
       'Safe spaces (gold-star stones, the four kingdom gates, castles, Royal Paths, the Dungeon Entrance and dungeon safe rooms) refuse captures and can hold several pieces. Everywhere else, ending on a rival captures it unless it is shielded, immune or guarded. The Queen never captures.',
-      'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first.',
+      'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first, with the time left ("Protection · 2 enemy moves", then "1 enemy move").',
+      `Timed protection counts completed rival movements across every rival kingdom (a bonus-roll move counts too; dice, Adventure actions, cards and reconnects do not). It still protects during the ${C.protectionMoves === 2 ? 'second' : 'last'} movement and expires right after it. Recasting refreshes it; it never stacks. The Witch's Dragon Fire immunity is a permanent trait, not a timed power.`,
       'Knight route attack: choose 2–3 eligible rivals among those he passes or lands on; an eligible rival on the final space must be included.',
       'One bonus roll per movement roll: a natural 6 or at least one movement capture. Chains re-check the same rule. Dragon Fire and card effects earn none.',
       'Capturing the dragon’s companion leaves the dragon wild on that space.',
@@ -589,3 +604,81 @@ export const RULE_SECTIONS: RuleSection[] = [
     bullets: ['Without a clock, use a fixed 12-round limit: after round 12, most gems wins, then capture credit, then a shared victory.'],
   },
 ];
+
+/** Tappable dungeon landmarks: purpose, action, reward, risk and requirements (board, Legend, Learn to Play). */
+export interface LandmarkInfo {
+  id: string;
+  name: string;
+  /** Space the landmark belongs to. */
+  node: string;
+  purpose: string;
+  action: string;
+  reward: string;
+  risk: string;
+  needs: string;
+}
+
+export const DUNGEON_LANDMARKS: LandmarkInfo[] = [
+  {
+    id: 'entrance',
+    name: 'Dragon-carved entrance',
+    node: 'd-entrance',
+    purpose: 'The way in and out of the dungeon. A safe space: no captures, no monster attacks.',
+    action: 'Adventure action at the Dragon Gate goes down; here, an Adventure action climbs back out.',
+    reward: 'Access to the Crystal Shrine (any gem), the vault, the lair and the shortcut.',
+    risk: `On a monster die of ${C.monsterOutsideRoll} a monster may climb out and hit a piece within ${C.monsterRange} steps of the island gate.`,
+    needs: 'Stand on the Dragon Gate (island) to enter.',
+  },
+  {
+    id: 'lair',
+    name: 'Dragon lair',
+    node: 'd-lair',
+    purpose: 'Where the dragon sleeps on its eggs and treasure, and recovers after a defeat.',
+    action: `End your move here, then use your Adventure action to tame it: roll ${C.tameThreshold}+.`,
+    reward: `A companion: Dragon Fire as an Adventure action, no card (${C.dragonFireHit}–6 hits a rival within ${C.dragonFireRange} steps).`,
+    risk: `A companion slows its rider: moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}). A failed tame retreats you to a safe room.`,
+    needs: 'The dragon must be home and guarding (not someone’s companion or recovering).',
+  },
+  {
+    id: 'golem',
+    name: 'Stone Golem chamber',
+    node: 'd-golem',
+    purpose: 'Broken pillars and a sealed stone gate: the Golem guards a shortcut to the Crystal Path by the Crystal Shrine.',
+    action: `End your move on the Golem to start a battle. Each exchange: Strike (roll ${C.encounterThreshold}+ to hit, Knight +${C.knightBonus}) or Guard (block its announced attack; guarding a heavy slam exposes it so your next hit deals 2). Retreat to the entrance before any exchange.`,
+    reward: 'Win: the stone gate opens and the shortcut stays open for your whole kingdom for the rest of the match (claimable once per kingdom).',
+    risk: `Light swipe 1, heavy slam 2. At 0 of ${C.battleStamina} stamina your carried gems drop here and you limp to the Fallen Ruins. It also roams: after a round it may push a piece within ${C.monsterRange} steps back ${C.golemPush} spaces.`,
+    needs: 'No requirement. Resting or slain Golems do not fight; a kingdom that already won walks through.',
+  },
+  {
+    id: 'spider',
+    name: 'Cave Spider chamber',
+    node: 'd-spider',
+    purpose: 'A web-hung chamber; the Spider guards a chest.',
+    action: `End your move on the Spider and roll ${C.encounterThreshold}+ (Knight +${C.knightBonus}).`,
+    reward: 'Win: open its chest and draw a power card.',
+    risk: `Lose: retreat to the Crystal Niche. It roams: after a round it may web a piece within ${C.monsterRange} steps (next move −${C.webPenalty}, minimum 1).`,
+    needs: 'No requirement. A resting or slain Spider does not fight.',
+  },
+  {
+    id: 'ruins',
+    name: 'Fallen Ruins (safe room)',
+    node: 'd-ruins',
+    purpose: 'Safe room: no captures, no monster attacks.',
+    action: 'Once per visit, Adventure action: search the ruins.',
+    reward: 'Draw a map card.',
+    risk: 'None. Losers of the Golem battle arrive here.',
+    needs: 'Stand here.',
+  },
+  {
+    id: 'niche',
+    name: 'Crystal Niche (safe room)',
+    node: 'd-safe-crystal',
+    purpose: 'Safe room: no captures, no monster attacks.',
+    action: 'Once per visit, Adventure action: attune to the crystals.',
+    reward: `Any web falls away and your next move is ${C.crystalBoost} longer.`,
+    risk: 'None. Losers of the Spider fight arrive here.',
+    needs: 'Stand here.',
+  },
+];
+
+export const landmarkText = (l: LandmarkInfo) => `${l.name}. Purpose: ${l.purpose} Action: ${l.action} Reward: ${l.reward} Risk: ${l.risk} Needs: ${l.needs}`;

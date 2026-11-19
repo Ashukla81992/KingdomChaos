@@ -2,7 +2,9 @@ import { getBoard } from './board';
 import { DEFAULT_CONFIG } from './config';
 import { walkingDistances } from './graph';
 import { randomInt } from './rng';
-import { canArrive, charLabel, drawCard, isProtected, log, retreat, relocate, roll, type Ctx } from './rules';
+import { canArrive, charLabel, drawCard, log, retreat, relocate, roll, type Ctx } from './rules';
+import { dropWard } from './protection';
+import { battleOn, startBattle } from './battle';
 import type { BoardState, Character, GameEvent, GameState, MonsterId, MonsterState } from './types';
 
 /** [A3] Encounters, the dragon on the road, and the Dragon Slayer duel. Contract: docs/island-adventure/CONTRACTS.md. */
@@ -56,6 +58,16 @@ export function arrivalPreview(s: BoardState, characterId: string, node: string)
       return { kind: 'shortcut', name: `${enc.name} shortcut`, need: 0, success: `Your kingdom beat the ${enc.name}: the shortcut carries you to ${dest0}, no fight.`, failure: '' };
     const m = monsterAt(s, node);
     if (m && monsterResting(s, m)) return null;
+    if (enc.monster === 'golem' && battleOn(s)) {
+      const dest = enc.shortcutTo ? nodes[enc.shortcutTo]?.name ?? enc.shortcutTo : 'the shortcut';
+      return {
+        kind: 'golem',
+        name: enc.name,
+        need,
+        success: `Battle the ${enc.name} (Strike hits on ${need}+, Guard blocks its announced attack). Win: the shortcut to ${dest} opens for your whole kingdom, once per kingdom.`,
+        failure: `Run out of stamina and you drop carried gems here and limp to ${nodes[enc.safeRoom]?.name ?? enc.safeRoom}. You may retreat to the entrance before any exchange.`,
+      };
+    }
     if (enc.monster === 'golem') {
       const dest = enc.shortcutTo ? nodes[enc.shortcutTo]?.name ?? enc.shortcutTo : 'the shortcut';
       return {
@@ -119,6 +131,11 @@ export function resolveArrival(ctx: Ctx, ch: Character, discardCardId?: string |
     const resting = here;
     if (resting && monsterResting(s, resting)) {
       log(ctx, `The ${enc.name} is still recovering from its defeat; ${charLabel(s, ch.id)} passes unchallenged.`, 'info', ch.owner);
+      return;
+    }
+    if (enc.monster === 'golem' && battleOn(s)) {
+      // [Prototype] The Golem fights a short Strike/Guard battle instead of one roll.
+      startBattle(ctx, ch);
       return;
     }
     const value = roll(s);
@@ -220,10 +237,25 @@ export function monsterConfig(s: Pick<BoardState, 'config'>) {
   };
 }
 
-/** A piece a monster may attack: on the board, unprotected, not on a safe space, castle, Royal Path or the temple. */
+/**
+ * A piece a monster may attack: on the board, not on a safe space, castle, Royal Path or the temple,
+ * and not Immune or under the Royal Guard. A Shield does not hide a piece: it absorbs the attack and
+ * is used up.
+ */
 function attackable(s: BoardState, c: Character): boolean {
   const n = getBoard(s.boardId).nodes[c.node];
-  return !!n && !c.finished && !isProtected(c) && !n.safe && n.type !== 'castle' && n.lane !== 'home' && n.lane !== 'final' && n.lane !== 'temple';
+  return !!n && !c.finished && !c.immune && !c.guarded && !n.safe && n.type !== 'castle' && n.lane !== 'home' && n.lane !== 'final' && n.lane !== 'temple';
+}
+
+/** Why a monster cannot attack this piece (for danger-zone explanations), or null. */
+export function monsterSafeReason(s: BoardState, c: Character): string | null {
+  const n = getBoard(s.boardId).nodes[c.node];
+  if (!n || c.finished) return 'not on the board';
+  if (n.safe) return `${n.name} is a safe space`;
+  if (n.type === 'castle' || n.lane === 'home' || n.lane === 'final' || n.lane === 'temple') return 'castles, Royal Paths and the temple are out of bounds';
+  if (c.immune) return 'Immunity';
+  if (c.guarded) return 'the Royal Guard';
+  return null;
 }
 
 /**
@@ -233,9 +265,13 @@ function attackable(s: BoardState, c: Character): boolean {
 export function monsterReach(s: BoardState): { inside: Record<MonsterId, Set<string>>; outside: Set<string> } {
   const cfg = monsterConfig(s);
   const inside = { golem: new Set<string>(), spider: new Set<string>() } as Record<MonsterId, Set<string>>;
-  for (const m of monstersOf(s)) for (const n of Object.keys(walkingDistances(s, m.home, cfg.range))) inside[m.id].add(n);
-  const gate = getBoard(s.boardId).board.transitions[0]?.island;
-  const outside = new Set<string>(gate ? Object.keys(walkingDistances(s, gate, cfg.range)) : []);
+  const { nodes, board } = getBoard(s.boardId);
+  // Territory is explicit: an inside attack stays on the dungeon map, an outside one on the island
+  // road around the Dragon Gate. Distances are connected open-road steps (closed roads stop them).
+  for (const m of monstersOf(s))
+    for (const n of Object.keys(walkingDistances(s, m.home, cfg.range))) if (nodes[n]?.map === 'dungeon') inside[m.id].add(n);
+  const gate = board.transitions[0]?.island;
+  const outside = new Set<string>(gate ? Object.keys(walkingDistances(s, gate, cfg.range)).filter((n) => nodes[n]?.map === 'island') : []);
   return { inside, outside };
 }
 
@@ -297,8 +333,9 @@ export function monsterPhase(ctx: Ctx, round: number): void {
     const at = outside ? board.transitions[0].island : m.home;
     const pool = monsterTargets(s, m.id, outside);
     if (!pool.length) {
-      ctx.events.push({ type: 'monsterEvent', round, die, kind: 'patrol', monster: m.id, outside, at });
-      log(ctx, `End of round ${round}: monster die ${die}. The ${m.name} ${outside ? 'prowls the Dragon Gate road' : 'patrols its tunnels'} but finds nobody within ${cfg.range} steps.`, 'info');
+      // Nobody in its territory: an idle event. No attack, no climb out, no projectile, no hit.
+      ctx.events.push({ type: 'monsterEvent', round, die, kind: 'patrol', monster: m.id });
+      log(ctx, `End of round ${round}: monster die ${die}. The ${m.name} stirs, but nobody is within ${cfg.range} steps${outside ? ' of the Dragon Gate' : ''}, so it stays idle.`, 'info');
     } else {
       const c = pool[randomInt(s, pool.length)];
       const lead = `End of round ${round}: monster die ${die}. The ${m.name} ${outside ? 'climbs out of the Dragon Gate and ' : ''}attacks ${charLabel(s, c.id)} at ${nodes[c.node]?.name ?? c.node}`;
@@ -320,17 +357,34 @@ function monsterStrike(ctx: Ctx, m: MonsterState, c: Character, at: string, lead
   const s = ctx.state;
   const cfg = monsterConfig(s);
   const { nodes } = getBoard(s.boardId);
+  // Revalidate on commit: the piece must still be a legal target in this monster's territory (a
+  // counter-strike hits the attacker standing next to it). Otherwise the event resolves idle.
+  const legal = ev.counter ? attackable(s, c) : monsterTargets(s, m.id, ev.outside).some((x) => x.id === c.id);
+  if (!legal) {
+    if (!ev.counter) ctx.events.push({ type: 'monsterEvent', round: ev.round, die: ev.die, kind: 'patrol', monster: m.id });
+    return;
+  }
+  const effect = m.id === 'golem' ? 'push' : 'web';
+  const base = { type: 'monsterEvent' as const, ...ev, kind: 'attack' as const, monster: m.id, at, origin: at, characterId: c.id, effect: effect as 'push' | 'web', from: c.node };
+  if (c.shield) {
+    // The Shield absorbs the blow and is used up at once.
+    dropWard(c, 'shield');
+    ctx.events.push({ ...base, to: c.node, outcome: 'blocked' });
+    ctx.events.push({ type: 'protectionEnded', characterId: c.id, ward: 'shield', reason: 'consumed' });
+    log(ctx, `${lead}, but their Shield blocks it and shatters. They stay at ${nodes[c.node]?.name ?? c.node}, unharmed.`, 'info', c.owner);
+    return;
+  }
   if (m.id === 'golem') {
     const from = c.node;
     const to = golemPushTarget(s, c, at);
-    ctx.events.push({ type: 'monsterEvent', ...ev, kind: 'attack', monster: m.id, at, characterId: c.id, effect: 'push', from, to });
+    ctx.events.push({ ...base, to, outcome: to === from ? 'stuck' : 'pushed' });
     if (to === from) log(ctx, `${lead}, but there is no legal space to throw them to.`, 'bad', c.owner);
     else {
-      log(ctx, `${lead} and hurls them back to ${nodes[to]?.name ?? to}.`, 'bad', c.owner);
+      log(ctx, `${lead} and hurls them back ${walkingDistances(s, from)[to] ?? cfg.push} spaces to ${nodes[to]?.name ?? to}.`, 'bad', c.owner);
       relocate(ctx, c, to, 'monster', m.name);
     }
   } else {
-    ctx.events.push({ type: 'monsterEvent', ...ev, kind: 'attack', monster: m.id, at, characterId: c.id, effect: 'web' });
+    ctx.events.push({ ...base, outcome: c.webbed ? 'alreadyWebbed' : 'webbed' });
     log(ctx, `${lead}${c.webbed ? ': already webbed, the web does not stack.' : ` and webs them: their next move is ${cfg.web} shorter (minimum 1).`}`, 'bad', c.owner);
     c.webbed = true;
   }

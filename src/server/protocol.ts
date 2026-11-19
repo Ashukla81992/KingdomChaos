@@ -85,9 +85,12 @@ export const actionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dig'), characterId: id, gem: z.enum(GEM_KINDS).optional(), discardCardId: discard }),
   z.object({ type: z.literal('fightMonster'), characterId: id }),
   z.object({ type: z.literal('tame'), characterId: id }),
-  z.object({ type: z.literal('dragonFire'), targetId: id }),
+  z.object({ type: z.literal('dragonFire'), targetId: id.optional(), monster: z.enum(['golem', 'spider']).optional() }),
+  z.object({ type: z.literal('attackMonster'), characterId: id, monster: z.enum(['golem', 'spider']) }),
+  z.object({ type: z.literal('explore'), characterId: id }),
+  z.object({ type: z.literal('battle'), choice: z.enum(['strike', 'guard', 'retreat']) }),
   z.object({ type: z.literal('sail'), characterId: id }),
-  z.object({ type: z.literal('fly'), characterId: id, to: id }),
+  z.object({ type: z.literal('fly'), characterId: id, to: id, fuelCardId: id.optional() }),
   z.object({ type: z.literal('playCard'), cardId: id, target, discardCardId: discard }),
 ]);
 

@@ -7,8 +7,8 @@ import { act, game, hand, noCards, place } from './helpers';
 const ctxOf = (s: ReturnType<typeof game>): Ctx => ({ state: s, events: [], now: 1_000_000 });
 
 describe('dungeon encounters', () => {
-  it('Stone Golem success carries along the shortcut; failure sends to Fallen Ruins', () => {
-    let s = noCards(game());
+  it('Stone Golem success carries along the shortcut; failure sends to Fallen Ruins (classic one-roll mode)', () => {
+    let s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-king', 'd-golem');
     s.forcedRolls = [4];
     const ctx = ctxOf(s);
@@ -16,7 +16,7 @@ describe('dungeon encounters', () => {
     expect(ctx.events).toContainEqual(expect.objectContaining({ type: 'encounter', monster: 'golem', success: true, to: 'd-e4' }));
     expect(s.characters['a-king'].node).toBe('d-e4');
 
-    s = noCards(game());
+    s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-king', 'd-golem');
     s.forcedRolls = [3];
     const fail = ctxOf(s);
@@ -49,7 +49,7 @@ describe('dungeon encounters', () => {
   });
 
   it('Knight adds +1; arrivalPreview reports need and both outcomes', () => {
-    const s = noCards(game());
+    const s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-knight', 'd-golem');
     const preview = arrivalPreview(s, 'a-knight', 'd-golem')!;
     expect(preview).toMatchObject({ kind: 'golem', need: 3, name: 'Stone Golem' });

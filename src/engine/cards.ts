@@ -1,3 +1,4 @@
+import { grantWard, movesLabel, protectionMoves, wardLeft } from './protection';
 import { getBoard } from './board';
 import { connectionBreakReason, edgeBlocked, keepsEveryoneConnected, nodeName, walkingDistances } from './graph';
 import {
@@ -173,11 +174,15 @@ export const CARDS: Record<CardType, CardDef> = {
   // ------------------------------------------------------------ power
   shield: {
     category: 'power',
-    targets: (s, pid) => own(s, pid).filter((c) => !c.shield && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
+    // Refreshing an active Shield is allowed (back to the full count); it never stacks.
+    targets: (s, pid) => own(s, pid).filter((c) => !c.finished && wardLeft(s, c, 'shield') < protectionMoves(s) && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
     apply: (ctx, _pid, t) => {
       if (t.kind !== 'character') return;
-      ctx.state.characters[t.characterId].shield = true;
-      log(ctx, `${charLabel(ctx.state, t.characterId)} raises a Shield: no cuts and no Dragon Fire until their next turn.`, 'good');
+      const c = ctx.state.characters[t.characterId];
+      const refreshed = c.shield;
+      grantWard(ctx.state, c, 'shield');
+      ctx.events.push({ type: 'protectionGranted', characterId: c.id, ward: 'shield', moves: protectionMoves(ctx.state), refreshed });
+      log(ctx, `${charLabel(ctx.state, t.characterId)} ${refreshed ? 'renews' : 'raises'} a Shield: no captures and no Dragon Fire for the next ${movesLabel(protectionMoves(ctx.state))}. A monster attack breaks it.`, 'good');
     },
   },
   magic_boots: {
@@ -200,11 +205,14 @@ export const CARDS: Record<CardType, CardDef> = {
   },
   immunity: {
     category: 'power',
-    targets: (s, pid) => own(s, pid).filter((c) => !c.immune && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
+    targets: (s, pid) => own(s, pid).filter((c) => !c.finished && wardLeft(s, c, 'immune') < protectionMoves(s) && lane(s, c.node) !== 'temple').map((c) => ({ kind: 'character', characterId: c.id })),
     apply: (ctx, _pid, t) => {
       if (t.kind !== 'character') return;
-      ctx.state.characters[t.characterId].immune = true;
-      log(ctx, `${charLabel(ctx.state, t.characterId)} is Immune until their next turn: no cuts, no Dragon Fire, no opposing cards.`, 'good');
+      const c = ctx.state.characters[t.characterId];
+      const refreshed = c.immune;
+      grantWard(ctx.state, c, 'immune');
+      ctx.events.push({ type: 'protectionGranted', characterId: c.id, ward: 'immune', moves: protectionMoves(ctx.state), refreshed });
+      log(ctx, `${charLabel(ctx.state, t.characterId)} is Immune for the next ${movesLabel(protectionMoves(ctx.state))}: no captures, no Dragon Fire, no monster attacks, no opposing cards.`, 'good');
     },
   },
   dragon_slayer: {

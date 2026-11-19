@@ -1,3 +1,4 @@
+import { dropAllWards } from './protection';
 import { CIRCUIT_LENGTH, getBoard, other } from './board';
 import { HAZARD_ROLL_MAX } from './crownLayout';
 import { arrivalPreview, dragonSpaceRule, resolveArrival, type ArrivalPreview } from './dungeon';
@@ -380,8 +381,7 @@ export function sendHome(ctx: Ctx, ch: Character) {
   ch.node = playerOf(s, ch.owner).castle;
   ch.beatMonster = false;
   ch.roomsUsed = undefined;
-  ch.shield = false;
-  ch.guarded = false;
+  dropAllWards(ch);
   s.stats[ch.owner].defeated++;
 }
 
