@@ -253,7 +253,7 @@ export const CHARACTER_INFO: Record<CharacterKind, CharacterText> = {
   knight: {
     name: 'Knight',
     abilityName: 'Charge',
-    ability: `+${C.knightBonus} against dungeon monsters and encounters. On a route with at least two eligible rivals, may route-attack ${C.knightAttackMin}–${C.knightAttackMax} of them (an eligible rival on the final space must be included).`,
+    ability: `+${C.knightBonus} against dungeon monsters and encounters. Charges through: may move through any pieces on the route and captures every eligible rival it passes or lands on (pieces under protection or on safe spaces are passed unharmed).`,
   },
 };
 
@@ -278,6 +278,7 @@ export const LOCATION_INFO: Record<NodeType, LocationText> = {
   },
   side: { name: 'Inner route', rule: 'A two-way trail across the island: often shorter, but cards can open or close it, and some stones carry a trap risk.' },
   dEntrance: { name: 'Dungeon Entrance', rule: 'Where you arrive in the dungeon, and its exit. Safe from captures and monsters. Adventure: climb out to the Dragon Gate.' },
+  dTunnel: { name: 'Mountain Door', rule: 'The back door under Dragon Mountain, two steps from the Dragon Lair. Safe from captures and monsters. Adventure: climb out to the Tunnel Mouth on the Mountain Road.' },
   path: { name: 'Dungeon passage', rule: 'Dungeon moves use the exact allowance, the same as the island.' },
   monster: {
     name: 'Monster Den',
@@ -297,6 +298,7 @@ export const FEATURE_INFO = {
   fork: 'Fork: once your Royal Path is open, a piece may turn in here — even before it has every checkpoint. The temple gate still checks checkpoints and capture credit.',
   station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom still needs that kind.',
   dig: 'Dig site: adventure action to draw a discovery — a gem, a card, a key, a hidden route opened for everyone, or a buried trap.',
+  tunnelGate: 'Tunnel Mouth, on the Mountain Road: a second way in and out of the dungeon. Enter here as an Adventure action and you arrive at the Mountain Door, two steps from the Dragon Lair.',
   dungeonGate: `Dragon Gate, on the east coast: Enter Dungeon here as an Adventure action (you arrive at the Dungeon Entrance). On a monster die of ${C.monsterOutsideRoll} a monster climbs out and attacks along this road within ${C.monsterRange} steps.`,
   dock: 'Dock: when the boat is here, sail to the other dock. Cost: your Adventure action only. Why: it skips a long walk round the coast, and gems ride safely. The boat then waits at the far dock, so a rival may take it back. Plates on the way do not count.',
   airfield: 'Airfield: when the plane is here, fly to another airfield. Cost: your Adventure action and one card from your hand as fuel. Why: the fastest jump across the island, ideal to rush gems home or reach a far plate. The plane stays where it lands. Plates on the way do not count.',
@@ -309,7 +311,7 @@ export const STATUS_INFO = {
   shield: `Shield — safe from captures and Dragon Fire for ${C.protectionMoves} enemy moves (any rival's move counts, bonus rolls too). A monster attack breaks it.`,
   immune: `Immune — safe from captures, Dragon Fire, monster attacks and Swap for ${C.protectionMoves} enemy moves.`,
   carrying: 'Carrying gems — bank them at your house gate. If captured, the attacker takes what it can carry.',
-  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die.`,
+  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die. The fire reaches onto Royal Paths too.`,
   slowed: `Slowed — next move is at most ${C.slowDownMaxSteps}.`,
   beatMonster: 'Beat the monster — the Vault Door is open for this visit.',
   lap: 'Checkpoints — this piece must touch all four public markers (Red, Blue, Purple, Green), in any order. Captured pieces keep the markers they have touched.',
@@ -377,6 +379,8 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Gems and capture credit belong to the kingdom. Checkpoints belong to each character.',
       'Your Royal Path opens once one of each of the four gem kinds is banked. Captures and checkpoints are separate.',
       'A piece may enter an open Royal Path early and walk back onto the island. The temple gate still needs all four checkpoints on that piece and the kingdom’s capture credit.',
+      'Like Ludo: once a piece that the temple gate would let in is on its Royal Path, it only moves forward. A roll bigger than the spaces left means it waits (move another piece instead).',
+      'Reaching the Crown Temple earns a bonus roll and an extra card.',
       `Victory: the first kingdom with ${C.finishersToWin} finished characters in the Crown Temple wins.`,
     ],
   },
@@ -416,7 +420,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'A move may never step on the same space twice.',
       'The main road is a 40-space two-way ring through all four gates. Cards leave it open.',
       'Inner routes (Temple, Lakeside, Camp and Glade, River Crossings, East Ruins, Sapphire Falls) trade speed for map-card risk and trap stones.',
-      'King and Witch capture by landing on an eligible opponent. The Queen passes opponents and must end on a space with no other piece. The Knight may take a normal move or a route attack when enough eligible rivals sit on the route.',
+      'King and Witch capture by landing on an eligible opponent. The Queen passes opponents and must end on a space with no other piece. The Knight charges: it moves through any pieces and captures every eligible rival it passes or lands on.',
       'A wild or guarding dragon blocks its space for most pieces; the Witch may pass a wild dragon. You stay out of an opponent’s castle or Royal Path.',
     ],
   },
@@ -458,7 +462,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Safe spaces (gold-star stones, the four kingdom gates, castles, Royal Paths, the Dungeon Entrance and dungeon safe rooms) refuse captures and can hold several pieces. Everywhere else, ending on a rival captures it unless it is shielded, immune or guarded. The Queen never captures.',
       'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first, with the time left ("Protection · 2 enemy moves", then "1 enemy move").',
       `Timed protection counts completed rival movements across every rival kingdom (a bonus-roll move counts too; dice, Adventure actions, cards and reconnects do not). It still protects during the ${C.protectionMoves === 2 ? 'second' : 'last'} movement and expires right after it. Recasting refreshes it; it never stacks. The Witch's Dragon Fire immunity is a permanent trait, not a timed power.`,
-      'Knight route attack: choose 2–3 eligible rivals among those he passes or lands on; an eligible rival on the final space must be included.',
+      'Knight charge (route attack): the Knight moves through any number of pieces and captures every eligible rival he passes or lands on. Protected rivals and rivals on safe spaces are passed unharmed. It still cannot end on a protected rival or on his own piece.',
       'One bonus roll per movement roll: a natural 6 or at least one movement capture. Chains re-check the same rule. Dragon Fire and card effects earn none.',
       'Capturing the dragon’s companion leaves the dragon wild on that space.',
     ],
@@ -485,7 +489,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'King — Royal Treasury draws on banking a new kind; Royal Guard once per match after he moved.',
       'Queen — passes opponents, never captures, ends on empty or safe spaces, collects spare gems, Diplomacy once per turn after she moved; Dragon Slayer duel on the wild dragon.',
       'Witch — Portal Hop once per turn, Alchemy in her palace (each kind once per match), collects spare gems, walks through the wild dragon, immune to Dragon Fire.',
-      `Knight — +${C.knightBonus} vs monsters and encounters; route attack ${C.knightAttackMin}–${C.knightAttackMax} when the route allows.`,
+      `Knight — +${C.knightBonus} vs monsters and encounters; charges through pieces and captures every eligible rival on the route.`,
     ],
   },
   {
@@ -526,7 +530,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     id: 'dungeon',
     title: 'Dungeon encounters',
     paragraphs: [
-      'Enter from the Dragon Gate on the east coast (space 16) as an adventure action. Dungeon moves use the exact allowance.',
+      'Enter from the Dragon Gate on the east coast (space 16) or the Tunnel Mouth on the Mountain Road (space 6) as an adventure action. The tunnel brings you out at the Mountain Door, two steps from the Dragon Lair. Leave the same way from either door. Dungeon moves use the exact allowance.',
       'Why go down: the Crystal Shrine hands you any gem your kingdom still needs, the Old Vault holds a dig, and the Dragon Lair is where the dragon is tamed. Tap any dungeon space for what it does.',
     ],
     bullets: [
@@ -565,7 +569,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     id: 'victory',
     title: 'Royal Path, temple and victory',
     paragraphs: [
-      'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Finished pieces stay on the temple; get all four in to win.',
+      'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back until they are ready for the temple; a ready piece only moves forward and needs a roll that fits the spaces left. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Each piece that gets in earns a bonus roll and an extra card. Finished pieces stay on the temple; get all four in to win.',
     ],
     bullets: [
       'Royal Paths are safe and belong to their house. All of them are always drawn with their dots: faded with a lock badge while that kingdom’s path is locked, full colour once it has banked all four gems, and bright along the selected piece’s legal route. Tap the Crown Temple to see what each of your pieces still needs.',

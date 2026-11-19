@@ -128,6 +128,19 @@ describe('dungeon', () => {
     expect(s.characters['a-king'].node).toBe('c16');
   });
 
+  it('the Tunnel Mouth is a second way in and out, two steps from the Dragon Lair', () => {
+    let s = noCards(game());
+    place(s, 'a-king', 'c6');
+    s = act(s, 'a', { type: 'enterDungeon', characterId: 'a-king' });
+    expect(s.characters['a-king'].node).toBe('d-tunnel');
+    s = rollWith(s, 'a', 2);
+    expect(endsFor(s, 'a-king').has('d-lair')).toBe(true);
+    freshTurn(s, 'a');
+    place(s, 'a-king', 'd-tunnel');
+    s = act(s, 'a', { type: 'leaveDungeon', characterId: 'a-king' });
+    expect(s.characters['a-king'].node).toBe('c6');
+  });
+
   it('the Vault Door needs the monster beaten (Knight +1) or a key', () => {
     let s = noCards(game());
     place(s, 'a-knight', 'd-monster');

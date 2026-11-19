@@ -97,32 +97,10 @@ function routeCaptures(_s: QueryState, _ch: Character, o: AiMove, attack?: strin
   return [...new Set(o.landingCuts ?? [])];
 }
 
-/** Prefer valuable captures; always include a final-space eligible rival when route-attacking. */
-function pickKnightAttack(s: QueryState, ch: Character, o: AiMove): string[] | undefined {
+/** A Knight charge captures every eligible rival on the route. */
+function pickKnightAttack(o: AiMove): string[] | undefined {
   const targets = o.routeTargets ?? [];
-  const min = s.config.knightAttackMin ?? 2;
-  const max = s.config.knightAttackMax ?? 3;
-  if (targets.length < min) return undefined;
-  const end = o.path[o.path.length - 1];
-  const onEnd = targets.filter((id) => s.characters[id]?.node === end);
-  const scored = targets
-    .map((id) => {
-      const v = s.characters[id];
-      const score = (v?.carrying.length ?? 0) * 5 + (v?.plates.length ?? 0) * 1.2 + (cutsMade(s, ch.owner) === 0 ? 8 : 1);
-      return { id, score, must: onEnd.includes(id) };
-    })
-    .sort((a, b) => Number(b.must) - Number(a.must) || b.score - a.score);
-  const chosen: string[] = [];
-  for (const t of scored) {
-    if (chosen.length >= max) break;
-    if (t.must || chosen.length < min || t.score > 2) chosen.push(t.id);
-  }
-  while (chosen.length < min && scored.length > chosen.length) {
-    const next = scored.find((t) => !chosen.includes(t.id));
-    if (!next) break;
-    chosen.push(next.id);
-  }
-  return chosen.length >= min ? chosen.slice(0, max) : undefined;
+  return targets.length ? targets : undefined;
 }
 
 /** Score one route by what actually happens along it. */
@@ -189,7 +167,7 @@ export function bestMove(s: QueryState, movers: Mover[], random: () => number = 
     if (ch.finished) continue;
     for (const raw of m.options) {
       const o = raw as AiMove;
-      const attack = ch.kind === 'knight' ? pickKnightAttack(s, ch, o) : undefined;
+      const attack = ch.kind === 'knight' ? pickKnightAttack(o) : undefined;
       const gain = routeValue(s, ch, o, dist, attack) + random() * 0.05;
       if (!best || gain > best.gain) best = { characterId: ch.id, option: o, gain, attack };
     }

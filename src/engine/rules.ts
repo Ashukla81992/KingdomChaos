@@ -472,10 +472,10 @@ export interface MoveOption {
   cost: number;
   /** The Witch used her free portal hop (path contains a portal pair with no edge). */
   witchPortal: boolean;
-  /** Opponents cut on landing (King/Witch/Knight normal move). Empty when the Knight uses a route attack. */
+  /** Opponents cut on landing (King/Witch/Knight normal move). Empty for the Knight, whose captures are all in `routeTargets`. */
   landingCuts: string[];
   entersFinal: boolean;
-  /** Knight: every eligible rival on this route when there are at least `knightAttackMin`. The client picks 2–3. */
+  /** Knight charge: every eligible rival the route passes or ends on. All of them are captured. */
   routeTargets: string[];
   /** Preview of an encounter or slay duel if the move ends here. */
   arrival: ArrivalPreview | null;
@@ -495,6 +495,27 @@ export type StepBlock = 'closed' | 'opponentCastle' | 'finalLocked' | 'notYourFi
 
 type MoveBoard = BoardState & { stats?: Record<string, Pick<PlayerStats, 'cuts'>> };
 
+const templeSteps = new Map<string, Record<string, number>>();
+/** Steps from each Royal Path space to the Crown Temple, along the Royal Paths only. */
+function royalDistances(boardId: string): Record<string, number> {
+  const hit = templeSteps.get(boardId);
+  if (hit) return hit;
+  const { adj, nodes, board } = getBoard(boardId);
+  const dist: Record<string, number> = { [board.temple]: 0 };
+  const queue = [board.temple];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const ed of adj[cur]) {
+      const nx = other(ed, cur);
+      if (dist[nx] !== undefined || nodes[nx].lane !== 'final') continue;
+      dist[nx] = dist[cur] + 1;
+      queue.push(nx);
+    }
+  }
+  templeSteps.set(boardId, dist);
+  return dist;
+}
+
 function eligibleOn(s: BoardState, node: string, owner: string): Character[] {
   if (isSafe(s.boardId, node)) return [];
   return opponentsAt(s, node, owner).filter((c) => !isProtected(c));
@@ -502,8 +523,8 @@ function eligibleOn(s: BoardState, node: string, owner: string): Character[] {
 
 /**
  * Every legal exact-length route for one character (island and dungeon). Opponents on unsafe spaces
- * block passing except the Queen (passes, never captures) and the Knight (normal move cannot pass;
- * with 2+ eligible rivals the route is offered as a route attack). Dragon spaces use `dragonSpaceRule`.
+ * block passing except the Queen (passes, never captures) and the Knight (charges through and captures
+ * every eligible rival on the route: `routeTargets`). Dragon spaces use `dragonSpaceRule`.
  */
 export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRules): MoveOption[] {
   const { out, nodes, board } = getBoard(s.boardId);
@@ -517,8 +538,11 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
   const result = new Map<string, MoveOption>();
   const visited = new Set<string>([ch.node]);
   const exactTemple = s.config.exactTemple;
-  const attackMin = s.config.knightAttackMin;
   const withStats = s as BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
+  // Like Ludo: once a piece that may enter the temple is on its Royal Path, it only moves forward, and a
+  // roll bigger than the spaces left means it waits. A piece the temple gate would still refuse may walk back.
+  const royal = royalDistances(s.boardId);
+  const forwardOnly = templeBlockers(withStats, characterId).length === 0;
 
   const landing = (node: string): { ok: boolean; cuts: string[] } => {
     if (ch.kind === 'queen') {
@@ -551,13 +575,11 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
         }
       }
     }
-    const knightAttack = ch.kind === 'knight' && rules.allowCuts && targets.length >= attackMin;
-    if (midRival && !knightAttack) {
-      if (ch.kind === 'queen') {
-        /* queen already passed */
-      } else return;
-    }
-    if (midRival && ch.kind !== 'queen' && ch.kind !== 'knight') return;
+    // The Knight charges: it rides through any pieces on its route and captures every eligible rival
+    // it passes or lands on (protected rivals and rivals on safe spaces are passed unharmed).
+    const knightCharge = ch.kind === 'knight' && rules.allowCuts;
+    const knightAttack = knightCharge && targets.length > 0;
+    if (midRival && ch.kind !== 'queen' && !knightCharge) return;
     const key = path.join('>');
     if (result.has(key)) return;
     result.set(key, {
@@ -583,6 +605,7 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
       const to = other(ed, node);
       const target = nodes[to];
       if (target.type === 'castle') continue;
+      if (forwardOnly && nodes[node].lane === 'final' && !((royal[to] ?? Infinity) < (royal[node] ?? Infinity))) continue;
       if (ed.guard && ed.guard.from === node && !ch.beatMonster && playerOf(s, ch.owner).keys <= 0) continue;
       if (target.lane === 'final' && nodes[node].lane !== 'final') {
         if (target.house !== house.seat || !unlocked) continue;
@@ -604,7 +627,7 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
           if (ch.kind === 'queen') {
             /* passes */
           } else if (ch.kind === 'knight' && rules.allowCuts) {
-            /* may pass for a route attack; legality checked at record */
+            /* charges through; captures are collected at record */
           } else continue;
         }
       }
@@ -645,7 +668,7 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
   }
   if (attack?.length) {
     ctx.events.push({ type: 'routeAttack', characterId: ch.id, targets: attack });
-    log(ctx, `${charLabel(s, ch.id)} charges a route attack!`, 'good', ch.owner);
+    log(ctx, `${charLabel(s, ch.id)} charges through ${attack.length > 1 ? `${attack.length} rivals` : 'a rival'}!`, 'good', ch.owner);
     for (const id of attack) cutCharacter(ctx, ch.id, id);
   } else {
     for (const id of option.landingCuts) cutCharacter(ctx, ch.id, id);
@@ -803,7 +826,9 @@ export function enterTemple(ctx: Ctx, ch: Character, discardCardId?: string | nu
   const count = finishersOf(s, ch.owner);
   ctx.events.push({ type: 'finished', characterId: ch.id, playerId: ch.owner, count });
   log(ctx, `${charLabel(s, ch.id)} enters the Crown Temple! (${count}/${s.config.finishersToWin})`, 'system', ch.owner);
-  if (count >= s.config.finishersToWin) finishGame(ctx, 'temple', [ch.owner]);
+  if (count >= s.config.finishersToWin) return finishGame(ctx, 'temple', [ch.owner]);
+  // The temple's reward: one extra card (the bonus roll is granted by the move).
+  if (drawCard(ctx, ch.owner, { discardCardId }) === 'drawn') log(ctx, `${playerName(s, ch.owner)} takes a card from the temple's treasury.`, 'good', ch.owner);
 }
 
 /** Most finishers; then gems banked; then a cut made; then shared. */

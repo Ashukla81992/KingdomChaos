@@ -16,6 +16,7 @@ export type NodeType =
   | 'temple'
   | 'side'
   | 'dEntrance'
+  | 'dTunnel'
   | 'path'
   | 'monster'
   | 'dragonChamber'
@@ -53,6 +54,8 @@ export interface NodeDef {
   /** Discovery site: the Dig action draws a discovery here. */
   dig?: boolean;
   dungeonGate?: boolean;
+  /** A second, quicker way in and out of the dungeon (the Tunnel Mouth). */
+  tunnelGate?: boolean;
   dock?: boolean;
   airfield?: boolean;
   /** The Witch may hop to this paired portal space for free once per turn. */
@@ -319,7 +322,7 @@ export interface TurnState {
    * [A1] Bonus roll earned by the current roll: a natural 6 or at least one movement capture. One at
    * most per roll (a 6 plus any number of captures is still one). Granted once the move resolves.
    */
-  extra: 'six' | 'capture' | null;
+  extra: 'six' | 'capture' | 'temple' | null;
   /** [A1] The current roll is a bonus roll (same turn; the Adventure action is still once per turn). */
   bonus: boolean;
   /** [A1] Rolls made this turn (1 + bonus rolls taken). */
@@ -411,9 +414,9 @@ export type GameEvent =
   /** `steps`: the movement allowance after the dragon penalty or Slow Down; `penalty` says which applied. */
   | { type: 'rolled'; playerId: string; value: number; steps?: number; penalty?: 'dragon' | 'slowed' | null; bonus?: boolean }
   | { type: 'moved'; characterId: string; path: string[] }
-  /** A movement capture (landing, or one of the Knight's chosen route-attack targets) sent a piece home. */
+  /** A movement capture (landing, or a rival the Knight charged through) sent a piece home. */
   | { type: 'cut'; characterId: string; targetId: string; node: string; stole: GemKind[]; dropped: GemKind[] }
-  /** [A1] The Knight's route attack, with the 2–3 targets the player chose. */
+  /** [A1] The Knight's charge, with every rival it captured on the route. */
   | { type: 'routeAttack'; characterId: string; targets: string[] }
   | { type: 'teleported'; characterId: string; from: string; to: string; reason: TeleportReason; name?: string }
   | { type: 'pickedUp'; characterId: string; gem: GemKind; from: string | null }
@@ -422,7 +425,7 @@ export type GameEvent =
   /** A plate touched for the first time on this lap; `checkpoint` is how many it has now (4 = lap). */
   | { type: 'lap'; characterId: string; checkpoint: number; plate: number }
   /** [A1] A bonus roll was earned; it is granted when the current move resolves. */
-  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'capture' }
+  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'capture' | 'temple' }
   /** [A1] No piece could use the full allowance; movement skipped. */
   | { type: 'noMove'; playerId: string; steps: number }
   | { type: 'hazard'; characterId: string; node: string; roll: number; sprung: boolean }
@@ -599,8 +602,8 @@ export type GameAction =
   | { type: 'release' }
   | { type: 'roll' }
   /**
-   * The full route, starting at the character's current location. `attack` (Knight only): the 2–3
-   * rivals on this route the player chose for a route attack; omit for a normal move.
+   * The full route, starting at the character's current location. `attack` is ignored (older
+   * clients sent a Knight target choice; the Knight now captures every eligible rival on the route).
    */
   | { type: 'move'; characterId: string; path: string[]; attack?: string[]; discardCardId?: string | null }
   /** [A2] Free actions: they never use the Move or the Adventure action. */

@@ -30,8 +30,8 @@ type S = BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
  * - `alternatives(plan)`, `consequences(s, id, option)`, `routeTrails`, `routeNote`, `whyNot`.
  *
  * Exact movement only: every option uses the full allowance (island and dungeon). There is no
- * "Stop here" or split-move. Knight options may list `routeTargets`; the UI sends `attack` with
- * 2–3 chosen ids (including any eligible rival on the final space).
+ * "Stop here" or split-move. Knight options may list `routeTargets`: the
+ * server captures every one of them, so the UI sends no choice.
  */
 export interface Plan {
   characterId: string;
@@ -114,7 +114,7 @@ export function consequences(s: S, characterId: string, o: MoveOption): string[]
     if (nodes[node].lane === 'final' && nodes[prev].lane !== 'final') lines.push('Turns onto your Royal Path');
   }
   if (o.routeTargets.length) {
-    lines.push(`Route attack: choose ${s.config.knightAttackMin}–${s.config.knightAttackMax} of ${o.routeTargets.map(name).join(', ')}`);
+    lines.push(`Knight charge: captures ${o.routeTargets.map(name).join(', ')}`);
   }
   for (const id of o.landingCuts) lines.push(`Cuts ${name(id)} — sent home, and you earn a bonus roll`);
   if (o.routeTargets.length || o.landingCuts.length) lines.push('A capture earns a bonus roll (one per roll)');
