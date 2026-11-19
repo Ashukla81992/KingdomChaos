@@ -235,6 +235,17 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   /** Card given up if a draw lands in a full hand (null: keep the hand and decline the new card). */
   const [replace, setReplace] = useState<string | null>(null);
   const [effects, setEffects] = useState<BoardEffect[]>([]);
+  /** Board labels are short-lived: every one added here removes itself, whatever added it. */
+  const showEffects = useCallback(
+    (fx: BoardEffect[], ms: number) => {
+      if (!fx.length) return;
+      setEffects((list) => [...list, ...fx].slice(-6));
+      const ids = new Set(fx.map((f) => f.id));
+      setTimeout(() => setEffects((list) => list.filter((f) => !ids.has(f.id))), ms);
+    },
+    [],
+  );
+  const dismissEffect = useCallback((id: number) => setEffects((list) => list.filter((f) => f.id !== id)), []);
   const [strikes, setStrikes] = useState<Strike[]>([]);
   const [invalid, setInvalid] = useState<{ node: string; at: number } | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -470,11 +481,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       setBanners((list) => [...list, ...ordered.map((b) => ({ ...b, id: ++n }))].slice(-3));
       fxId.current = n;
     }
-    if (fx.length) {
-      setEffects((list) => [...list, ...fx]);
-      const ids = new Set(fx.map((f) => f.id));
-      setTimeout(() => setEffects((list) => list.filter((f) => !ids.has(f.id))), reducedMotion ? 2600 : 1900);
-    }
+    showEffects(fx, reducedMotion ? 2600 : 1900);
     const hop = [...ev].reverse().find((e) => e.type === 'teleported' && e.reason === 'dungeon' && view.characters[e.characterId]?.owner === me);
     if (hop && hop.type === 'teleported') setMap(nodes[hop.to]?.map ?? 'island');
   }, [view, me, play, label, say, reducedMotion, nodes]);
@@ -790,7 +797,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     const e = board.edges.find((x) => x.id === edgeId);
     const sameSegment = (x: string) => x === edgeId || (!!e?.gate && board.edges.find((y) => y.id === x)?.gate === e.gate);
     const beside = (text: string) => {
-      if (e) setEffects((fx) => [...fx, { id: ++fxId.current, node: e.a, at: e.route[Math.floor(e.route.length / 2)], text, tone: 'blocked' as const }].slice(-6));
+      // A refusal stays a little longer than an outcome so it can be read; tapping it closes it sooner.
+      if (e) showEffects([{ id: ++fxId.current, node: e.a, at: e.route[Math.floor(e.route.length / 2)], text, tone: 'blocked' }], 3500);
       say(text);
       play('error');
     };
@@ -1114,6 +1122,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             targets={targets}
             coach={coach}
             effects={effects}
+            onEffectDismiss={dismissEffect}
             strikes={strikes}
             invalid={invalid}
             reduced={reducedMotion}

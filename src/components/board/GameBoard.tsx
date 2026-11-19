@@ -82,6 +82,8 @@ export interface GameBoardProps {
   targets: BoardTargets;
   coach: Set<string>;
   effects: BoardEffect[];
+  /** Tap a board label to close it before it fades on its own. */
+  onEffectDismiss?: (id: number) => void;
   /** Short attack animations driven by resolved events (Dragon Fire, monster attacks, shield blocks). */
   strikes?: Strike[];
   /** Space flashed red after an invalid drop or tap. */
@@ -1515,7 +1517,14 @@ export function GameBoard(props: GameBoardProps) {
               const fill = fx.tone === 'cut' ? '#c8281e' : fx.tone === 'blocked' ? '#2f7bf5' : fx.tone === 'good' ? '#2e9e62' : '#5b6676';
               const fw = Math.max(132, fx.text.length * 7 + 20);
               return (
-                <g key={fx.id} transform={`translate(${Math.min(W - (fw / 2) * ui, Math.max((fw / 2) * ui, x))} ${y - 30 * pieceScale}) scale(${ui})`} pointerEvents="none" data-effect={fx.tone}>
+                <g key={fx.id} transform={`translate(${Math.min(W - (fw / 2) * ui, Math.max((fw / 2) * ui, x))} ${y - 30 * pieceScale}) scale(${ui})`}
+                  pointerEvents={props.onEffectDismiss ? undefined : 'none'}
+                  style={props.onEffectDismiss ? { cursor: 'pointer' } : undefined}
+                  role={props.onEffectDismiss ? 'button' : undefined}
+                  aria-label={props.onEffectDismiss ? `${fx.text} (tap to close)` : undefined}
+                  onClick={props.onEffectDismiss ? (ev) => (ev.stopPropagation(), props.onEffectDismiss!(fx.id)) : undefined}
+                  data-effect={fx.tone}
+                >
                   <g className={reduced ? undefined : 'kc-rise'}>
                     <rect x={-fw / 2} y={-14} width={fw} height={26} rx={13} fill={fill} stroke="#fff" strokeWidth={2} />
                     <text y={4.5} textAnchor="middle" fontSize={13} fontWeight={800} fill="#fff">
