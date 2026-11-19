@@ -27,11 +27,11 @@ the Crown Temple.
 | King | Card draw when banking a new gem kind; **Royal Guard** once per match after he moved |
 | Queen | Passes opponents; never captures, must end on an empty (or safe) space; collects spare gems; **Diplomacy** after she moved; **Dragon Slayer** on the wild dragon |
 | Witch | Portal hop; collects spare gems; **Alchemy** only in her palace (castle or own gate), each kind once per match; walks through the wild dragon; immune to Dragon Fire |
-| Knight | +1 vs monsters/encounters; **route attack** 2–3 eligible rivals when the route allows |
+| Knight | +1 vs monsters/encounters; **charge**: moves through any pieces and captures every eligible rival it passes or lands on |
 
 ## Captures, gems, path, temple
 
-- King/Witch/Knight capture by ending a move on a rival on an **unsafe** space. Knight may route-attack.
+- King/Witch/Knight capture by ending a move on a rival on an **unsafe** space. The Knight also captures every eligible rival it passes.
   Queen never captures (she cannot stop on an occupied unsafe space).
 - **Safe spaces** never allow a capture; rivals may share them: the four gold-star road stones, the
   four kingdom gates (plates), castles, Royal Paths, the temple, the Dungeon Entrance and the two

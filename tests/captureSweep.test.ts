@@ -46,7 +46,7 @@ describe('capture sweep (every space on both maps)', () => {
       place(s, mover, start.from);
       const r = rollWith(s, 'a', start.d);
       const opts = legalMoves(r, mover).filter((o) => o.path[o.path.length - 1] === n.id);
-      const cuts = opts.some((o) => o.landingCuts.includes('b-king'));
+      const cuts = opts.some((o) => o.landingCuts.includes('b-king') || o.routeTargets.includes('b-king'));
       if (n.safe) {
         safeChecked++;
         if (cuts) problems.push(`${n.id} (${n.name}) is safe but allows a capture`);

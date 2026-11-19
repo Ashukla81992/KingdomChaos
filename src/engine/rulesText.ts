@@ -253,7 +253,7 @@ export const CHARACTER_INFO: Record<CharacterKind, CharacterText> = {
   knight: {
     name: 'Knight',
     abilityName: 'Charge',
-    ability: `+${C.knightBonus} against dungeon monsters and encounters. On a route with at least two eligible rivals, may route-attack ${C.knightAttackMin}–${C.knightAttackMax} of them (an eligible rival on the final space must be included).`,
+    ability: `+${C.knightBonus} against dungeon monsters and encounters. Charges through: may move through any pieces on the route and captures every eligible rival it passes or lands on (pieces under protection or on safe spaces are passed unharmed).`,
   },
 };
 
@@ -416,7 +416,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'A move may never step on the same space twice.',
       'The main road is a 40-space two-way ring through all four gates. Cards leave it open.',
       'Inner routes (Temple, Lakeside, Camp and Glade, River Crossings, East Ruins, Sapphire Falls) trade speed for map-card risk and trap stones.',
-      'King and Witch capture by landing on an eligible opponent. The Queen passes opponents and must end on a space with no other piece. The Knight may take a normal move or a route attack when enough eligible rivals sit on the route.',
+      'King and Witch capture by landing on an eligible opponent. The Queen passes opponents and must end on a space with no other piece. The Knight charges: it moves through any pieces and captures every eligible rival it passes or lands on.',
       'A wild or guarding dragon blocks its space for most pieces; the Witch may pass a wild dragon. You stay out of an opponent’s castle or Royal Path.',
     ],
   },
@@ -458,7 +458,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Safe spaces (gold-star stones, the four kingdom gates, castles, Royal Paths, the Dungeon Entrance and dungeon safe rooms) refuse captures and can hold several pieces. Everywhere else, ending on a rival captures it unless it is shielded, immune or guarded. The Queen never captures.',
       'Shield, Immunity, sanctuary and Royal Guard make landing or a Knight attack illegal — the preview shows it first, with the time left ("Protection · 2 enemy moves", then "1 enemy move").',
       `Timed protection counts completed rival movements across every rival kingdom (a bonus-roll move counts too; dice, Adventure actions, cards and reconnects do not). It still protects during the ${C.protectionMoves === 2 ? 'second' : 'last'} movement and expires right after it. Recasting refreshes it; it never stacks. The Witch's Dragon Fire immunity is a permanent trait, not a timed power.`,
-      'Knight route attack: choose 2–3 eligible rivals among those he passes or lands on; an eligible rival on the final space must be included.',
+      'Knight charge (route attack): the Knight moves through any number of pieces and captures every eligible rival he passes or lands on. Protected rivals and rivals on safe spaces are passed unharmed. It still cannot end on a protected rival or on his own piece.',
       'One bonus roll per movement roll: a natural 6 or at least one movement capture. Chains re-check the same rule. Dragon Fire and card effects earn none.',
       'Capturing the dragon’s companion leaves the dragon wild on that space.',
     ],
@@ -485,7 +485,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       'King — Royal Treasury draws on banking a new kind; Royal Guard once per match after he moved.',
       'Queen — passes opponents, never captures, ends on empty or safe spaces, collects spare gems, Diplomacy once per turn after she moved; Dragon Slayer duel on the wild dragon.',
       'Witch — Portal Hop once per turn, Alchemy in her palace (each kind once per match), collects spare gems, walks through the wild dragon, immune to Dragon Fire.',
-      `Knight — +${C.knightBonus} vs monsters and encounters; route attack ${C.knightAttackMin}–${C.knightAttackMax} when the route allows.`,
+      `Knight — +${C.knightBonus} vs monsters and encounters; charges through pieces and captures every eligible rival on the route.`,
     ],
   },
   {

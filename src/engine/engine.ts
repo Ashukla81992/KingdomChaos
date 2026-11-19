@@ -376,18 +376,8 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       const key = action.path.join('>');
       const option = legalMoves(s, ch.id).find((m) => m.path.join('>') === key);
       if (!option) return fail('That route is not legal any more (a piece, the dragon or a road changed). Pick a glowing space.');
-      const attack = action.attack;
-      if (option.routeTargets.length >= cfg.knightAttackMin) {
-        if (!attack || attack.length < cfg.knightAttackMin || attack.length > Math.min(cfg.knightAttackMax, option.routeTargets.length))
-          return fail(`Choose ${cfg.knightAttackMin}–${cfg.knightAttackMax} rivals for the route attack.`);
-        if (attack.some((id) => !option.routeTargets.includes(id))) return fail('Those targets are not eligible on this route.');
-        if (new Set(attack).size !== attack.length) return fail('Pick each rival only once.');
-        const end = option.path[option.path.length - 1];
-        const endMust = option.routeTargets.filter((id) => s.characters[id]?.node === end);
-        if (endMust.some((id) => !attack.includes(id))) return fail('An eligible rival on the final space must be included.');
-      } else if (attack?.length) {
-        return fail('This route has no route attack.');
-      }
+      // A Knight charge captures every eligible rival on the route (any `attack` list sent by an older client is ignored).
+      const attack = option.routeTargets.length ? option.routeTargets : undefined;
       if (option.witchPortal) t.witchPortalUsed = true;
       t.moveDone = true;
       t.acted = true;
@@ -645,10 +635,7 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
       ctx.events.push({ type: 'moved', characterId: ch.id, path: pick.option.path });
       ch.webbed = false;
       ch.boosted = false;
-      const autoAttack =
-        pick.option.routeTargets.length >= s.config.knightAttackMin
-          ? pick.option.routeTargets.slice(0, Math.min(s.config.knightAttackMax, pick.option.routeTargets.length))
-          : undefined;
+      const autoAttack = pick.option.routeTargets.length ? pick.option.routeTargets : undefined;
       walk(ctx, ch, pick.option, undefined, autoAttack);
       afterMovement(ctx, pid);
       // The clock ran out: a battle the auto-move started ends in a retreat.

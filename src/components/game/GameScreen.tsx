@@ -43,7 +43,7 @@ import {
   type NodeDef,
   type PlayerView,
 } from '@/engine';
-import { arrivalFor, attackCandidates, captureTargets, chooseRoute, templeBlockersFor } from '@/lib/boardPreview';
+import { arrivalFor, captureTargets, chooseRoute, templeBlockersFor } from '@/lib/boardPreview';
 import { alternatives, choose, consequences, destinations, routeNote, startPlan, whyNot } from '@/lib/movePlan';
 import { royalPlaySeat, TEMPLE_UNLOCK_TITLE } from '@/lib/royalPath';
 import { portrait, seatTheme } from '@/lib/seats';
@@ -230,8 +230,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const [crowd, setCrowd] = useState<string | null>(null);
   const [map, setMap] = useState<MapId>('island');
   const [sel, setSel] = useState<{ characterId: string; path: string[] | null } | null>(null);
-  /** Knight route-attack targets chosen for the previewed path. */
-  const [attack, setAttack] = useState<string[]>([]);
   /** Card given up if a draw lands in a full hand (null: keep the hand and decline the new card). */
   const [replace, setReplace] = useState<string | null>(null);
   const [effects, setEffects] = useState<BoardEffect[]>([]);
@@ -509,55 +507,24 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
 
   const committing = useRef<string | null>(null);
   const commit = useCallback(
-    async (characterId: string, path: string[], attackIds?: string[]) => {
-      const key = `${view.version}:${characterId}:${path.join('>')}:${(attackIds ?? []).join(',')}`;
+    async (characterId: string, path: string[]) => {
+      const key = `${view.version}:${characterId}:${path.join('>')}`;
       if (committing.current === key) return;
       committing.current = key;
       const r = await run({
         type: 'move',
         characterId,
         path,
-        attack: attackIds && attackIds.length ? attackIds : undefined,
         discardCardId: discardId,
       });
       committing.current = null;
       if (r.ok || STALE.test(r.error)) {
         setSel(null);
-        setAttack([]);
       } else setSel({ characterId, path: null });
     },
     [run, view.version, discardId],
   );
 
-  const lockedAttack = useCallback(
-    (characterId: string, path: string[], candidates: string[]) => {
-      const end = path[path.length - 1];
-      return candidates.filter((id) => view.characters[id]?.node === end);
-    },
-    [view.characters],
-  );
-
-  const syncAttackFor = useCallback(
-    (characterId: string, path: string[] | null) => {
-      if (!path) {
-        setAttack([]);
-        return;
-      }
-      const opt = startPlan(view, characterId)?.options.find((o) => o.path.join('>') === path.join('>'));
-      if (!opt) {
-        setAttack([]);
-        return;
-      }
-      const candidates = attackCandidates(view, characterId, opt);
-      const min = view.config.knightAttackMin ?? 2;
-      if (candidates.length < min) {
-        setAttack([]);
-        return;
-      }
-      setAttack(lockedAttack(characterId, path, candidates));
-    },
-    [view, lockedAttack],
-  );
 
   // After rolling with exactly one piece able to move, select it; with one end, preview it.
   useEffect(() => {
@@ -567,9 +534,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       const path = endsOf.size === 1 ? m.options[0].path : null;
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setSel({ characterId: m.characterId, path });
-      syncAttackFor(m.characterId, path);
     }
-  }, [canPlan, sel, movers, cardId, syncAttackFor]);
+  }, [canPlan, sel, movers, cardId]);
 
   const select = (c: Character) => {
     setCardId(null);
@@ -579,7 +545,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     const endsOf = new Set(m?.options.map((o) => o.path[o.path.length - 1]));
     const path = m && endsOf.size === 1 ? m.options[0].path : null;
     setSel({ characterId: c.id, path });
-    syncAttackFor(c.id, path);
     tutorial?.onSelect?.(c.id);
     setAnnounce(`${label(c)} selected. ${m?.note ?? ''}. ${endsOf.size === 1 ? 'One place to go: confirm with Move here.' : `${endsOf.size} places to go. Tap a glowing space to preview.`}`);
   };
@@ -600,7 +565,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     const next = choose(plan, node);
     if (!next?.choice) return false;
     setSel({ characterId: plan.characterId, path: next.choice.path });
-    syncAttackFor(plan.characterId, next.choice.path);
     if (!quiet) {
       const what = consequences(view, plan.characterId, next.choice);
       setAnnounce(`Preview: ${nodeName(view.boardId, node)}. ${what.join('. ')}. Tap Move here to confirm.`);
@@ -609,22 +573,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     return true;
   };
 
-  const tryCommit = (characterId: string, path: string[]) => {
-    const opt = plan?.options.find((o) => o.path.join('>') === path.join('>')) ?? plan?.choice;
-    const candidates = opt ? attackCandidates(view, characterId, opt) : [];
-    const min = view.config.knightAttackMin ?? 2;
-    const max = view.config.knightAttackMax ?? 3;
-    if (candidates.length >= min) {
-      const locked = lockedAttack(characterId, path, candidates);
-      if (attack.length < min || attack.length > max || !locked.every((id) => attack.includes(id))) {
-        say(`Choose ${min}–${max} route-attack targets. Final-space rivals stay selected.`);
-        play('error');
-        return;
-      }
-      return void commit(characterId, path, attack);
-    }
-    return void commit(characterId, path);
-  };
+  // A Knight charge needs no choice: the server captures every eligible rival on the route.
+  const tryCommit = (characterId: string, path: string[]) => void commit(characterId, path);
 
   /** Every rival with the reason Dragon Fire cannot reach it (for the empty-target explanation). */
   const fireBlocks = () =>
@@ -637,7 +587,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const startFire = () => {
     if (!me) return;
     setSel(null);
-    setAttack([]);
     setCardId(null);
     setFireTarget(null);
     setFireMode(true);
@@ -686,29 +635,10 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       setFireTarget(id);
       return say(`Dragon Fire at ${label(c)}. Check the preview, then confirm to roll the attack die.`);
     }
-    if (plan?.choice) {
-      const candidates = attackCandidates(view, plan.characterId, plan.choice);
-      const min = view.config.knightAttackMin ?? 2;
-      if (candidates.includes(id) && candidates.length >= min) {
-        const locked = lockedAttack(plan.characterId, plan.choice.path, candidates);
-        if (locked.includes(id)) return say('That rival is on the final space and stays in the attack.');
-        const max = view.config.knightAttackMax ?? 3;
-        setAttack((list) => {
-          if (list.includes(id)) return list.filter((x) => x !== id);
-          if (list.length >= max) {
-            say(`Choose up to ${max} targets.`);
-            return list;
-          }
-          return [...list, id];
-        });
-        return;
-      }
-    }
     if (canPlan && movable.has(id)) {
       if (plan?.characterId === id) {
         if (plan.choice && ends.size > 1) {
           setSel({ characterId: id, path: null });
-          setAttack([]);
           setAnnounce('Preview cleared. Your roll is kept.');
         }
         return;
@@ -755,7 +685,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           const next = chooseRoute(plan, via.path);
           if (next?.choice) {
             setSel({ characterId: plan.characterId, path: next.choice.path });
-            syncAttackFor(plan.characterId, next.choice.path);
             return;
           }
         }
@@ -834,14 +763,12 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     if (node && ends.has(node)) {
       const route = plan.choice && plan.choice.path[plan.choice.path.length - 1] === node ? plan.choice : ends.get(node)![0];
       setSel({ characterId: plan.characterId, path: route.path });
-      syncAttackFor(plan.characterId, route.path);
       return void tryCommit(plan.characterId, route.path);
     }
     if (node && plan.options.some((o) => o.path.includes(node))) {
       const route = plan.options.find((o) => o.path.includes(node) && ends.has(o.path[o.path.length - 1])) ?? plan.options.find((o) => o.path.includes(node));
       if (route) {
         setSel({ characterId: plan.characterId, path: route.path });
-        syncAttackFor(plan.characterId, route.path);
         if (ends.has(route.path[route.path.length - 1]) && route.path[route.path.length - 1] === node) return void tryCommit(plan.characterId, route.path);
         return;
       }
@@ -860,7 +787,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       else if (e.key === 'e' && myTurn && view.turn.moveDone && !view.turn.adventureDone && !busy) void run({ type: 'skipAdventure' });
       else if (e.key === 'Escape' && (sel || cardId || tradeOpen)) {
         setSel(null);
-        setAttack([]);
         setCardId(null);
         setTradeOpen(false);
         setEdgePick(null);
@@ -888,8 +814,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   }, [shownTargets, fireOptions, plan?.choice, fireMode, fireTarget]);
   const coach = useMemo(() => new Set(tutorial?.coach ?? []), [tutorial?.coach]);
   const what = plan?.choice ? consequences(view, plan.characterId, plan.choice) : [];
-  const routeAttackIds = plan?.choice ? attackCandidates(view, plan.characterId, plan.choice) : [];
-  const needsAttack = routeAttackIds.length >= (view.config.knightAttackMin ?? 2);
   const previewCaptures = plan?.choice ? captureTargets(view, plan.characterId, plan.choice) : [];
   const previewHazards = plan?.choice
     ? plan.choice.path.filter((n) => {
@@ -914,8 +838,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         choice: plan.choice?.path ?? null,
         summary: what.join(' · '),
         captures: previewCaptures,
-        attackChoices: needsAttack ? routeAttackIds : [],
-        attackSelected: needsAttack ? attack : [],
+        attackChoices: [],
+        attackSelected: [],
         hazards: previewHazards,
         portalExits: previewPortals,
       }
@@ -931,7 +855,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     return set;
   })();
   const showDiplomacy = !!me && playing && ((view.trades?.length ?? 0) > 0 || myTurn);
-  const attackReady = !needsAttack || (attack.length >= (view.config.knightAttackMin ?? 2) && attack.length <= (view.config.knightAttackMax ?? 3));
 
   const turnLeft = view.turn.deadline ? view.turn.deadline - now : null;
   const matchLeft = view.endsAt ? view.endsAt - now : null;
@@ -968,7 +891,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       note,
       arrival ? `${arrival.name}: win — ${arrival.success}; lose — ${arrival.failure}` : '',
       blockers.length ? `Temple gate: ${blockers.join('; ')}` : '',
-      needsAttack ? `Choose ${view.config.knightAttackMin}–${view.config.knightAttackMax} targets` : '',
       'Tap Move here, tap the space again, or pick another glowing space.',
     ]
       .filter(Boolean)
@@ -1278,7 +1200,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
 
             {plan?.choice && (
               <div className="mt-2.5 flex flex-wrap gap-1.5" data-move-preview>
-                <button className="btn btn-green min-h-11 flex-1 text-base" disabled={busy || !attackReady} onClick={() => void tryCommit(plan.characterId, plan.choice!.path)} data-confirm>
+                <button className="btn btn-green min-h-11 flex-1 text-base" disabled={busy} onClick={() => void tryCommit(plan.characterId, plan.choice!.path)} data-confirm>
                   Move here
                 </button>
                 {alternatives(plan) > 1 && (
@@ -1295,7 +1217,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                     className="btn btn-ghost min-h-11 text-sm"
                     onClick={() => {
                       setSel({ characterId: plan.characterId, path: null });
-                      setAttack([]);
                     }}
                   >
                     Change
@@ -1317,7 +1238,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       data-route-chip={i}
                       onClick={() => {
                         setSel({ characterId: plan.characterId, path: o.path });
-                        syncAttackFor(plan.characterId, o.path);
                       }}
                     >
                       Route {i + 1}
@@ -1326,35 +1246,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                     </button>
                   );
                 })}
-              </div>
-            )}
-
-            {plan?.choice && needsAttack && (
-              <div className="mt-2 rounded-xl border border-[#c8281e]/35 bg-[#fff0ee] p-2.5" data-attack-picker>
-                <p className="text-sm font-extrabold text-[#8c2a10]">Choose {view.config.knightAttackMin}–{view.config.knightAttackMax} targets</p>
-                <p className="text-xs text-[#6b7086]">Final-space rivals stay locked in. Tap red-ringed pieces on the board.</p>
-                <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                  {routeAttackIds.map((id) => {
-                    const locked = lockedAttack(plan.characterId, plan.choice!.path, routeAttackIds).includes(id);
-                    const on = attack.includes(id);
-                    return (
-                      <li key={id}>
-                        <button
-                          type="button"
-                          className={`btn min-h-11 text-sm ${on ? 'btn-danger' : 'btn-ghost'}`}
-                          aria-pressed={on}
-                          disabled={locked}
-                          data-attack-target={id}
-                          data-attack-locked={locked ? 'true' : undefined}
-                          onClick={() => onPiece(id)}
-                        >
-                          {charLabel(view, id)}
-                          {locked ? ' (locked)' : ''}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
               </div>
             )}
 

@@ -47,7 +47,7 @@ export interface GameConfig {
   extraTurnRoll: number;
   /** At least one movement capture during a move earns one bonus roll. */
   extraTurnOnCut: boolean;
-  /** [A1] Knight route attack: how many rivals the player must choose (inclusive). */
+  /** Unused since the Knight charge captures every eligible rival on its route. Kept so old saves load. */
   knightAttackMin: number;
   knightAttackMax: number;
   /** [A1] Pieces a kingdom must get into the Crown Temple to win. */

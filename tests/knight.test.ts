@@ -1,73 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import { legalMoves } from '@/engine';
-import { act, game, noCards, place, reject, rollMove, rollWith } from './helpers';
+import { act, game, noCards, place, rollMove, rollWith } from './helpers';
 
-describe('Knight route attack', () => {
-  it('with 1 eligible rival offers only a normal landing cut (no routeTargets)', () => {
+describe('Knight charge', () => {
+  it('captures a rival it lands on', () => {
     let s = noCards(game());
     place(s, 'a-knight', 'c1');
     place(s, 'b-king', 'c4');
     s = rollWith(s, 'a', 3);
     const land = legalMoves(s, 'a-knight').find((m) => m.path[m.path.length - 1] === 'c4');
-    expect(land?.routeTargets).toEqual([]);
-    expect(land?.landingCuts).toEqual(['b-king']);
-    // A single mid-route rival cannot be passed without a 2+ attack option.
-    s = noCards(game());
+    expect(land?.routeTargets).toEqual(['b-king']);
+  });
+
+  it('passes through a single rival and captures it (the bug: it used to be blocked)', () => {
+    let s = noCards(game());
     place(s, 'a-knight', 'c1');
     place(s, 'b-king', 'c2');
     s = rollWith(s, 'a', 3);
-    expect(legalMoves(s, 'a-knight').every((m) => !m.path.includes('c2') || m.path[m.path.length - 1] === 'c2')).toBe(true);
-  });
-
-  it('with 2 eligible rivals lists routeTargets; final-space rival must be in attack', () => {
-    let s = noCards(game());
-    place(s, 'a-knight', 'c6');
-    place(s, 'b-king', 'c8');
-    place(s, 'b-queen', 'c9');
-    s = rollWith(s, 'a', 3);
-    const path = ['c6', 'c7', 'c8', 'c9'];
+    const path = ['c1', 'c2', 'c3', 'c4'];
     const opt = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === path.join('>'));
-    expect(opt?.routeTargets.sort()).toEqual(['b-king', 'b-queen'].sort());
-    reject(s, 'a', { type: 'move', characterId: 'a-knight', path }, /route attack/);
-    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path, attack: ['b-king', 'b-queen'] });
+    expect(opt?.routeTargets).toEqual(['b-king']);
+    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path });
     expect(s.characters['b-king'].node).toBe('home-purple');
-    expect(s.characters['b-queen'].node).toBe('home-purple');
-    expect(s.lastEvents.some((e) => e.type === 'routeAttack')).toBe(true);
-    expect(s.stats.a.cuts).toBe(2);
+    expect(s.characters['a-knight'].node).toBe('c4');
+    expect(s.stats.a.cuts).toBe(1);
   });
 
-  it('with 3 eligible rivals must choose 2–3 and must include the final-space rival', () => {
+  it('passes through its own pieces and captures every rival on the route', () => {
     let s = noCards(game());
     place(s, 'a-knight', 'c5');
+    place(s, 'a-king', 'c6');
     place(s, 'b-king', 'c7');
     place(s, 'b-queen', 'c8');
     place(s, 'b-witch', 'c9');
     s = rollWith(s, 'a', 4);
     const path = ['c5', 'c6', 'c7', 'c8', 'c9'];
     const opt = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === path.join('>'));
-    expect(opt?.routeTargets).toHaveLength(3);
-    reject(s, 'a', { type: 'move', characterId: 'a-knight', path, attack: ['b-king', 'b-queen'] }, /final space/);
-    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path, attack: ['b-king', 'b-witch'] });
-    expect(s.characters['b-witch'].node).toBe('home-purple');
-    expect(s.characters['b-queen'].node).toBe('c8');
-  });
-
-  it('with 5 eligible rivals must choose only 2–3', () => {
-    let s = noCards(game(3));
-    place(s, 'a-knight', 'c11');
-    place(s, 'b-king', 'c12');
-    place(s, 'b-queen', 'c13');
-    place(s, 'b-witch', 'c14');
-    place(s, 'c-king', 'c15');
-    place(s, 'c-queen', 'c16');
-    s = rollWith(s, 'a', 5);
-    const path = ['c11', 'c12', 'c13', 'c14', 'c15', 'c16'];
-    const opt = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === path.join('>'));
-    expect(opt?.routeTargets).toHaveLength(5);
-    reject(s, 'a', { type: 'move', characterId: 'a-knight', path, attack: opt!.routeTargets }, /2–3|2-3|rivals/);
-    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path, attack: ['b-witch', 'c-king', 'c-queen'] });
+    expect(opt?.routeTargets.sort()).toEqual(['b-king', 'b-queen', 'b-witch']);
+    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path });
+    for (const id of ['b-king', 'b-queen', 'b-witch']) expect(s.characters[id].node).toBe('home-purple');
+    expect(s.characters['a-king'].node).toBe('c6');
     expect(s.stats.a.cuts).toBe(3);
-    expect(s.turn.extra).toBe('capture');
+    // One bonus roll for the whole charge.
     if (!s.turn.bonus) s = act(s, 'a', { type: 'skipAdventure' });
     expect(s.turn).toMatchObject({ playerId: 'a', bonus: true });
   });
@@ -90,7 +64,7 @@ describe('Knight route attack', () => {
     const coast = ['c3', 'c4', 'c5', 'c6', 'c7', 'c8', 'c9'];
     const option = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === coast.join('>'));
     expect(option?.routeTargets.sort()).toEqual(['b-king', 'b-queen'].sort());
-    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path: coast, attack: ['b-king', 'b-queen'] });
+    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path: coast });
     expect(s.lastEvents.filter((e) => e.type === 'extraTurn')).toHaveLength(0);
     expect(s.turn).toMatchObject({ playerId: 'a', bonus: true, extra: null });
   });
@@ -104,11 +78,19 @@ describe('Knight route attack', () => {
     expect(s.characters['a-knight'].node).toBe('c4');
   });
 
-  it('cannot pass a protected rival', () => {
+  it('passes a protected rival unharmed but cannot end on it', () => {
     let s = noCards(game());
     place(s, 'a-knight', 'c1');
     place(s, 'b-king', 'c2', { shield: true });
     s = rollWith(s, 'a', 3);
-    expect(legalMoves(s, 'a-knight').every((m) => !m.path.includes('c2'))).toBe(true);
+    const through = legalMoves(s, 'a-knight').find((m) => m.path.join('>') === 'c1>c2>c3>c4');
+    expect(through?.routeTargets).toEqual([]);
+    s = act(s, 'a', { type: 'move', characterId: 'a-knight', path: ['c1', 'c2', 'c3', 'c4'] });
+    expect(s.characters['b-king'].node).toBe('c2');
+    s = noCards(game());
+    place(s, 'a-knight', 'c1');
+    place(s, 'b-king', 'c2', { shield: true });
+    s = rollWith(s, 'a', 1);
+    expect(legalMoves(s, 'a-knight').some((m) => m.path.at(-1) === 'c2')).toBe(false);
   });
 });

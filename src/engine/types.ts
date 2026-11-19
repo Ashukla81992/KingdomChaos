@@ -411,9 +411,9 @@ export type GameEvent =
   /** `steps`: the movement allowance after the dragon penalty or Slow Down; `penalty` says which applied. */
   | { type: 'rolled'; playerId: string; value: number; steps?: number; penalty?: 'dragon' | 'slowed' | null; bonus?: boolean }
   | { type: 'moved'; characterId: string; path: string[] }
-  /** A movement capture (landing, or one of the Knight's chosen route-attack targets) sent a piece home. */
+  /** A movement capture (landing, or a rival the Knight charged through) sent a piece home. */
   | { type: 'cut'; characterId: string; targetId: string; node: string; stole: GemKind[]; dropped: GemKind[] }
-  /** [A1] The Knight's route attack, with the 2–3 targets the player chose. */
+  /** [A1] The Knight's charge, with every rival it captured on the route. */
   | { type: 'routeAttack'; characterId: string; targets: string[] }
   | { type: 'teleported'; characterId: string; from: string; to: string; reason: TeleportReason; name?: string }
   | { type: 'pickedUp'; characterId: string; gem: GemKind; from: string | null }
@@ -599,8 +599,8 @@ export type GameAction =
   | { type: 'release' }
   | { type: 'roll' }
   /**
-   * The full route, starting at the character's current location. `attack` (Knight only): the 2–3
-   * rivals on this route the player chose for a route attack; omit for a normal move.
+   * The full route, starting at the character's current location. `attack` is ignored (older
+   * clients sent a Knight target choice; the Knight now captures every eligible rival on the route).
    */
   | { type: 'move'; characterId: string; path: string[]; attack?: string[]; discardCardId?: string | null }
   /** [A2] Free actions: they never use the Move or the Adventure action. */

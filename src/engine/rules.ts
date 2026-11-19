@@ -472,10 +472,10 @@ export interface MoveOption {
   cost: number;
   /** The Witch used her free portal hop (path contains a portal pair with no edge). */
   witchPortal: boolean;
-  /** Opponents cut on landing (King/Witch/Knight normal move). Empty when the Knight uses a route attack. */
+  /** Opponents cut on landing (King/Witch/Knight normal move). Empty for the Knight, whose captures are all in `routeTargets`. */
   landingCuts: string[];
   entersFinal: boolean;
-  /** Knight: every eligible rival on this route when there are at least `knightAttackMin`. The client picks 2–3. */
+  /** Knight charge: every eligible rival the route passes or ends on. All of them are captured. */
   routeTargets: string[];
   /** Preview of an encounter or slay duel if the move ends here. */
   arrival: ArrivalPreview | null;
@@ -502,8 +502,8 @@ function eligibleOn(s: BoardState, node: string, owner: string): Character[] {
 
 /**
  * Every legal exact-length route for one character (island and dungeon). Opponents on unsafe spaces
- * block passing except the Queen (passes, never captures) and the Knight (normal move cannot pass;
- * with 2+ eligible rivals the route is offered as a route attack). Dragon spaces use `dragonSpaceRule`.
+ * block passing except the Queen (passes, never captures) and the Knight (charges through and captures
+ * every eligible rival on the route: `routeTargets`). Dragon spaces use `dragonSpaceRule`.
  */
 export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRules): MoveOption[] {
   const { out, nodes, board } = getBoard(s.boardId);
@@ -517,7 +517,6 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
   const result = new Map<string, MoveOption>();
   const visited = new Set<string>([ch.node]);
   const exactTemple = s.config.exactTemple;
-  const attackMin = s.config.knightAttackMin;
   const withStats = s as BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
 
   const landing = (node: string): { ok: boolean; cuts: string[] } => {
@@ -551,13 +550,11 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
         }
       }
     }
-    const knightAttack = ch.kind === 'knight' && rules.allowCuts && targets.length >= attackMin;
-    if (midRival && !knightAttack) {
-      if (ch.kind === 'queen') {
-        /* queen already passed */
-      } else return;
-    }
-    if (midRival && ch.kind !== 'queen' && ch.kind !== 'knight') return;
+    // The Knight charges: it rides through any pieces on its route and captures every eligible rival
+    // it passes or lands on (protected rivals and rivals on safe spaces are passed unharmed).
+    const knightCharge = ch.kind === 'knight' && rules.allowCuts;
+    const knightAttack = knightCharge && targets.length > 0;
+    if (midRival && ch.kind !== 'queen' && !knightCharge) return;
     const key = path.join('>');
     if (result.has(key)) return;
     result.set(key, {
@@ -604,7 +601,7 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
           if (ch.kind === 'queen') {
             /* passes */
           } else if (ch.kind === 'knight' && rules.allowCuts) {
-            /* may pass for a route attack; legality checked at record */
+            /* charges through; captures are collected at record */
           } else continue;
         }
       }
@@ -645,7 +642,7 @@ export function walk(ctx: Ctx, ch: Character, option: MoveOption, discardCardId?
   }
   if (attack?.length) {
     ctx.events.push({ type: 'routeAttack', characterId: ch.id, targets: attack });
-    log(ctx, `${charLabel(s, ch.id)} charges a route attack!`, 'good', ch.owner);
+    log(ctx, `${charLabel(s, ch.id)} charges through ${attack.length > 1 ? `${attack.length} rivals` : 'a rival'}!`, 'good', ch.owner);
     for (const id of attack) cutCharacter(ctx, ch.id, id);
   } else {
     for (const id of option.landingCuts) cutCharacter(ctx, ch.id, id);
