@@ -6,6 +6,8 @@ import {
   CHARACTER_INFO,
   CHARACTER_KINDS,
   DUNGEON_GUIDE,
+  DUNGEON_LANDMARKS,
+  landmarkText,
   ISLAND_SIZE,
   gemList,
   gemsOf,
@@ -19,15 +21,19 @@ import {
   type Character,
   type EdgeDef,
   type MapId,
+  type MonsterId,
   type NodeDef,
   type PlayerView,
 } from '@/engine';
-import { monsterResting, monstersOf, monsterTargets } from '@/engine/dungeon';
+import { monsterReach, monsterResting, monstersOf, monsterTargets } from '@/engine/dungeon';
+import { activeWard, protectionLabel } from '@/engine/protection';
+import type { Strike } from '@/lib/eventFeed';
 import { readMapMarkers } from '@/lib/mapMarkers';
 import { seatTheme } from '@/lib/seats';
 import type { MarkerStyle } from '@/lib/settings';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
 import { PieceToken } from '../art/token';
+import { GolemArt, SpiderArt } from '../art/monsters';
 
 export interface BoardTargets {
   nodes: Set<string>;
@@ -74,6 +80,8 @@ export interface GameBoardProps {
   targets: BoardTargets;
   coach: Set<string>;
   effects: BoardEffect[];
+  /** Short attack animations driven by resolved events (Dragon Fire, monster attacks, shield blocks). */
+  strikes?: Strike[];
   /** Space flashed red after an invalid drop or tap. */
   invalid: { node: string; at: number } | null;
   reduced: boolean;
@@ -169,6 +177,9 @@ function routeBetween(adj: Record<string, EdgeDef[]>, nodes: Record<string, Node
 
 export function GameBoard(props: GameBoardProps) {
   const { view, map, me, movable, plan, targets, coach, effects, invalid, reduced, fast, resetKey, royal, platesDone } = props;
+  const strikes = props.strikes ?? [];
+  /** Monster whose danger zone is shown (tapped, or near the selected piece). */
+  const [zoneFor, setZoneFor] = useState<MonsterId | null>(null);
   const [fadingSeat, setFadingSeat] = useState<number | null>(null);
   const playedSeat = useRef<number | null>(null);
   useEffect(() => {
@@ -718,11 +729,18 @@ export function GameBoard(props: GameBoardProps) {
 
   // ---------------------------------------------------------------- monsters
   const lastMonster = view.lastEvents.find((e) => e.type === 'monsterEvent');
+  const mReach = monsterReach(view);
+  // The danger zone: tapped monster, else the monster whose reach holds the selected piece.
+  const selNode = plan ? view.characters[plan.characterId]?.node : null;
+  const zoneMonster = zoneFor ?? (selNode ? (monstersOf(view).find((m) => !m.slain && mReach.inside[m.id]?.has(selNode))?.id ?? null) : null);
+  const zoneNodes = zoneMonster ? [...mReach.inside[zoneMonster]].filter((n) => nodes[n]?.map === map) : [];
+  const zoneOutside = zoneFor ? [...mReach.outside].filter((n) => nodes[n]?.map === map) : [];
   const monsterSprites = monstersOf(view).filter((m) => !m.slain).flatMap((m) => {
     const ev = lastMonster && lastMonster.type === 'monsterEvent' && lastMonster.monster === m.id ? lastMonster : null;
     const resting = monsterResting(view, m);
-    const attacking = !!ev && ev.kind === 'attack';
-    const outsideAt = ev?.outside && ev.at ? ev.at : null;
+    // Only a resolved attack with a real target shows the attack pose; an idle event never does.
+    const attacking = !!ev && ev.kind === 'attack' && !!ev.characterId;
+    const outsideAt = attacking && ev?.outside && ev.at ? ev.at : null;
     const warning = !resting && monsterTargets(view, m.id).length > 0;
     const state = resting ? 'defeated' : attacking ? 'attack' : warning ? 'warning' : 'idle';
     const guide = GUIDE.get(m.home);
@@ -742,29 +760,28 @@ export function GameBoard(props: GameBoardProps) {
       .map((node) => {
         const [x, y] = nodes[node].xy;
         const w = 84;
-        const art = `/art/monster-${m.id}-${state === 'defeated' ? 'idle' : state}.png`;
         return (
           <g
             key={`monster-${m.id}-${node}`}
             transform={`translate(${x + 30 * pieceScale} ${y - 30 * pieceScale}) scale(${pieceScale})`}
             data-monster={m.id}
             data-monster-state={state}
-            aria-label={`${m.name}, ${state}`}
+            aria-label={`${m.name}, ${state}. Tap to show its attack range.`}
             {...explainProps(text)}
+            onClick={() => {
+              setZoneFor((z) => (z === m.id ? null : m.id));
+              props.onExplain?.(`${text} Its danger zone (${view.config.monsterRange ?? 3} connected steps${m.id === 'golem' || m.id === 'spider' ? ', plus the Dragon Gate road when it climbs out on a 6' : ''}) is shaded on the board.`);
+            }}
           >
             <circle r={36} fill="transparent" />
             {state !== 'idle' && state !== 'defeated' && (
               <circle r={38} fill={state === 'attack' ? 'rgba(200,40,30,0.25)' : 'rgba(242,161,26,0.22)'} stroke={state === 'attack' ? '#c8281e' : '#f2a11a'} strokeWidth={2.5} className={pulse} />
             )}
-            <image
-              href={art}
-              x={-w / 2}
-              y={-w / 2}
-              width={w}
-              height={w}
-              style={state === 'defeated' ? { filter: 'grayscale(0.9) brightness(0.8)', opacity: 0.75 } : undefined}
-              transform={state === 'defeated' ? 'rotate(-14)' : undefined}
-            />
+            {m.id === 'golem' ? (
+              <GolemArt state={state === 'warning' ? 'alert' : state} size={w} reduced={reduced} />
+            ) : (
+              <SpiderArt state={state === 'warning' ? 'alert' : state} size={w} reduced={reduced} />
+            )}
             {state === 'warning' && (
               <g transform="translate(30 -30)">
                 <circle r={8} fill="#f2a11a" stroke="#fff" strokeWidth={1.5} />
@@ -1015,6 +1032,111 @@ export function GameBoard(props: GameBoardProps) {
         <g ref={layerRef} transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`} data-layer>
           <image href={dungeon ? '/board/dungeon.jpg' : '/board/island.jpg'} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-art={map} />
 
+          {/* Dungeon landmarks: drawn under the spaces and paths so every dot stays visible. Tap one to learn what it is for. */}
+          {dungeon && (
+            <g data-dungeon-landmarks>
+              {DUNGEON_LANDMARKS.map((l) => {
+                const at = nodes[l.node]?.xy;
+                if (!at) return null;
+                const [x, y] = at;
+                const text = landmarkText(l);
+                const lit = !reduced;
+                return (
+                  <g key={l.id} data-landmark={l.id} {...explainProps(text)} aria-label={`${l.name}: tap for details`}>
+                    {l.id === 'entrance' && (
+                      <g>
+                        {[-62, 62].map((dx) => (
+                          <g key={dx} transform={`translate(${x + dx} ${y + 18})`}>
+                            <rect x={-6} y={0} width={12} height={22} fill="#4a3a2c" stroke="#1d150e" strokeWidth={2} />
+                            <path d="M-11 0 h22 l-4 -6 h-14 Z" fill="#6a5440" stroke="#1d150e" strokeWidth={2} />
+                            <path d="M0 -26 C-9 -16 -8 -8 0 -6 C8 -8 9 -16 0 -26 Z" fill="#ff9a1f" className={lit ? 'kc-glow' : undefined} />
+                            <path d="M0 -18 C-4 -12 -4 -8 0 -7 C4 -8 4 -12 0 -18 Z" fill="#ffe066" />
+                          </g>
+                        ))}
+                        <g transform={`translate(${x} ${y - 70})`}>
+                          <circle cx={-14} cy={0} r={4} fill="#ff4d2e" className={lit ? 'kc-glow' : undefined} />
+                          <circle cx={14} cy={0} r={4} fill="#ff4d2e" className={lit ? 'kc-glow' : undefined} />
+                        </g>
+                        <g transform={`translate(${x} ${y + 58})`}>
+                          <rect x={-46} y={-11} width={92} height={22} rx={11} fill="#2e9e62" stroke="#fff" strokeWidth={2} />
+                          <text y={4.5} textAnchor="middle" fontSize={12} fontWeight={900} fill="#fff">
+                            ★ SAFE · EXIT
+                          </text>
+                        </g>
+                      </g>
+                    )}
+                    {l.id === 'lair' && (
+                      <g transform={`translate(${x} ${y + 46})`}>
+                        {[-58, -44, 48].map((dx, i) => (
+                          <ellipse key={dx} cx={dx} cy={i === 2 ? 4 : 8} rx={7} ry={9} fill={['#f4e3c1', '#d8e9c9', '#e6d0f0'][i]} stroke="#5b3d20" strokeWidth={1.6} />
+                        ))}
+                        {[62, 70, 78, 66, -70].map((dx, i) => (
+                          <circle key={i} cx={dx} cy={14 - (i % 2) * 5} r={4} fill="#ffcf33" stroke="#8a5a00" strokeWidth={1.2} />
+                        ))}
+
+                      </g>
+                    )}
+                    {l.id === 'golem' && (
+                      <g>
+                        {[
+                          [-58, -34, 0],
+                          [54, 44, 12],
+                        ].map(([dx, dy, tilt], i) => (
+                          <g key={i} transform={`translate(${x + dx} ${y + dy}) rotate(${tilt})`}>
+                            <rect x={-8} y={-30} width={16} height={34} fill="#8f8577" stroke="#3a332b" strokeWidth={2} />
+                            <path d="M-8 -30 l5 -6 l4 4 l7 -5 v7 Z" fill="#8f8577" stroke="#3a332b" strokeWidth={2} />
+                          </g>
+                        ))}
+                        {(() => {
+                          const open = !!me && !!view.shortcutsOpen?.[l.node]?.includes(me);
+                          const slain = monstersOf(view).find((mm) => mm.id === 'golem')?.slain;
+                          return (
+                            <g transform={`translate(${x + 78} ${y + 34})`} data-shortcut-gate={open || slain ? 'open' : 'sealed'}>
+                              <path d="M-16 14 V-8 Q0 -22 16 -8 V14 Z" fill={open || slain ? '#2b1d14' : '#7a6d5e'} stroke="#2b241d" strokeWidth={2.5} />
+                              {!(open || slain) && <path d="M-10 -2 h20 M-10 6 h20 M0 -12 v24" stroke="#5d5348" strokeWidth={2} />}
+                              <text y={28} textAnchor="middle" fontSize={9} fontWeight={800} fill="#fff" stroke="#2b1d14" strokeWidth={3} paintOrder="stroke">
+                                {open || slain ? 'Shortcut open' : 'Sealed shortcut'}
+                              </text>
+                            </g>
+                          );
+                        })()}
+                      </g>
+                    )}
+                    {l.id === 'spider' && (
+                      <g stroke="#eef3ff" strokeWidth={1.3} fill="none" opacity={0.85}>
+                        {[
+                          [-46, -40],
+                          [50, -34],
+                        ].map(([dx, dy], i) => (
+                          <g key={i} transform={`translate(${x + dx} ${y + dy})`}>
+                            {[0, 45, 90, 135].map((a) => (
+                              <line key={a} x1={-18} x2={18} transform={`rotate(${a})`} />
+                            ))}
+                            <circle r={7} />
+                            <circle r={13} />
+                          </g>
+                        ))}
+                        <g transform={`translate(${x + 34} ${y + 40})`} stroke="#5b3d20" strokeWidth={2}>
+                          <rect x={-14} y={-10} width={28} height={20} rx={3} fill="#a86b32" />
+                          <path d="M-14 -2 h28" />
+                          <rect x={-3} y={-4} width={6} height={7} fill="#ffcf33" />
+                        </g>
+                      </g>
+                    )}
+                    {(l.id === 'ruins' || l.id === 'niche') && (
+                      <g transform={`translate(${x} ${y + 40})`}>
+                        <rect x={-38} y={-10} width={76} height={20} rx={10} fill="#2e9e62" stroke="#fff" strokeWidth={2} />
+                        <text y={4} textAnchor="middle" fontSize={11} fontWeight={900} fill="#fff">
+                          ★ SAFE ROOM
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          )}
+
           {overlays}
 
           {/* Previewed route and every reachable end. */}
@@ -1103,7 +1225,7 @@ export function GameBoard(props: GameBoardProps) {
             const attackOn = attackSelectedSet.has(c.id);
             const companion = view.dragon.state === 'companion' && view.dragon.companion === c.id;
             const carried = gemsOf(view, c);
-            const label = `${pieceLabel(c)} at ${nodeName(view.boardId, c.node)}${carried.length ? `, carrying ${gemList(carried.map((g) => g.kind))}` : ''}, ${c.lap} of 4 plates${c.shield ? ', Shield' : ''}${c.immune ? ', Immune' : ''}${c.guarded ? ', Guarded' : ''}${companion ? ', with the dragon' : ''}${canMove ? ', can move' : ''}${selected ? ', selected' : ''}${capture ? ', capture target' : ''}${attackPick ? ', route attack choice' : ''}`;
+            const label = `${pieceLabel(c)} at ${nodeName(view.boardId, c.node)}${carried.length ? `, carrying ${gemList(carried.map((g) => g.kind))}` : ''}, ${c.lap} of 4 plates${protectionLabel(view, c) ? `, ${protectionLabel(view, c)}` : ''}${companion ? ', with the dragon' : ''}${canMove ? ', can move' : ''}${selected ? ', selected' : ''}${capture ? ', capture target' : ''}${attackPick ? ', route attack choice' : ''}`;
             return (
               <g
                 key={c.id}
@@ -1150,14 +1272,24 @@ export function GameBoard(props: GameBoardProps) {
                       <GemShape kind={g.kind} size={9.5} />
                     </g>
                   ))}
-                  {(c.shield || c.immune || c.guarded) && (
-                    <g transform="translate(-11 9)">
-                      <circle r={6} fill={c.immune ? '#ffd166' : c.guarded ? '#6a3fd0' : '#2f7bf5'} stroke="#fff" strokeWidth={1.4} />
-                      <text y={2.6} textAnchor="middle" fontSize={7.5} fontWeight={800} fill={c.immune ? '#5a3d00' : '#fff'}>
-                        {c.immune ? 'I' : c.guarded ? 'G' : 'S'}
-                      </text>
-                    </g>
-                  )}
+                  {(() => {
+                    const w = activeWard(view, c);
+                    if (!w) return null;
+                    const fill = w.kind === 'immune' ? '#ffd166' : w.kind === 'guarded' ? '#6a3fd0' : '#2f7bf5';
+                    const ink = w.kind === 'immune' ? '#5a3d00' : '#fff';
+                    return (
+                      <g transform="translate(-13 9)" data-protection={w.kind} data-protection-left={w.left}>
+                        <title>{protectionLabel(view, c)}</title>
+                        <rect x={-8} y={-6.5} width={16} height={13} rx={6.5} fill={fill} stroke="#fff" strokeWidth={1.4} />
+                        <text x={-3} y={2.6} textAnchor="middle" fontSize={7.5} fontWeight={800} fill={ink}>
+                          {w.kind === 'immune' ? 'I' : w.kind === 'guarded' ? 'G' : 'S'}
+                        </text>
+                        <text x={3.6} y={2.6} textAnchor="middle" fontSize={7} fontWeight={900} fill={ink}>
+                          {w.left}
+                        </text>
+                      </g>
+                    );
+                  })()}
                   {companion && <image href="/art/dragon.png" x={6} y={-24} width={16} height={15} />}
                 </g>
               </g>
@@ -1256,6 +1388,63 @@ export function GameBoard(props: GameBoardProps) {
               </g>
             </g>
           )}
+
+          {/* Monster danger zone: where it can attack (shown on tap, or when a nearby piece is selected). */}
+          {(zoneNodes.length > 0 || zoneOutside.length > 0) && (
+            <g pointerEvents="none" data-danger-zone={zoneMonster ?? ''}>
+              {zoneNodes.map((n) => (
+                <circle key={`zone-${n}`} cx={nodes[n].xy[0]} cy={nodes[n].xy[1]} r={22} fill="rgba(200,40,30,0.16)" stroke="#c8281e" strokeWidth={2} strokeDasharray="5 4" />
+              ))}
+              {zoneOutside.map((n) => (
+                <circle key={`zone-out-${n}`} cx={nodes[n].xy[0]} cy={nodes[n].xy[1]} r={20} fill="rgba(242,161,26,0.14)" stroke="#f2a11a" strokeWidth={2} strokeDasharray="3 4" />
+              ))}
+            </g>
+          )}
+
+          {/* Attack animations from resolved events: telegraph (source and target), then the hit. */}
+          {strikes
+            .filter((st) => nodes[st.to]?.map === map)
+            .map((st) => {
+              const [tx, ty] = nodes[st.to].xy;
+              const src = nodes[st.from]?.map === map ? nodes[st.from].xy : nodes[st.to].xy;
+              const [fx, fy] = src;
+              const color = st.kind === 'fire' ? '#f26e1a' : st.kind === 'fireMiss' ? '#8a8f9e' : st.kind === 'web' ? '#d9e6ff' : st.kind === 'blocked' ? '#2f7bf5' : '#8a5a2b';
+              const line = `M${fx} ${fy} L${tx} ${ty}`;
+              return (
+                <g key={st.id} pointerEvents="none" data-strike={st.kind} data-strike-from={st.from} data-strike-to={st.to}>
+                  {/* Telegraph: who acts and who is targeted. */}
+                  <circle cx={fx} cy={fy} r={30} fill="none" stroke={color} strokeWidth={4} className={reduced ? undefined : 'kc-telegraph'} />
+                  <circle cx={tx} cy={ty} r={26} fill="none" stroke="#c8281e" strokeWidth={3} strokeDasharray="6 4" className={reduced ? undefined : 'kc-telegraph'} />
+                  {(st.kind === 'fire' || st.kind === 'fireMiss') && (
+                    <path d={line} stroke={color} strokeWidth={st.kind === 'fire' ? 12 : 6} strokeLinecap="round" fill="none" opacity={0.85} className={reduced ? undefined : 'kc-beam'} pathLength={1} />
+                  )}
+                  {st.kind === 'web' && !reduced && (
+                    <circle r={7} fill="#f4f7ff" stroke="#9fb3d9" strokeWidth={2}>
+                      <animateMotion dur="0.45s" begin="0.5s" path={line} fill="freeze" />
+                    </circle>
+                  )}
+                  {st.kind === 'web' && (
+                    <g transform={`translate(${tx} ${ty})`} className={reduced ? undefined : 'kc-land'} stroke="#e8eefc" strokeWidth={1.6} fill="none">
+                      {[0, 45, 90, 135].map((a) => (
+                        <line key={a} x1={-20} x2={20} transform={`rotate(${a})`} />
+                      ))}
+                      <circle r={9} />
+                      <circle r={16} />
+                    </g>
+                  )}
+                  {st.kind === 'slam' && <circle cx={tx} cy={ty} r={30} fill="none" stroke="#8a5a2b" strokeWidth={6} className={reduced ? undefined : 'kc-shock'} />}
+                  {st.kind === 'blocked' && <path d={`M${tx - 22} ${ty - 30} Q${tx} ${ty - 50} ${tx + 22} ${ty - 30}`} stroke="#2f7bf5" strokeWidth={6} fill="none" strokeLinecap="round" className={reduced ? undefined : 'kc-land'} />}
+                  {st.caption && (
+                    <g transform={`translate(${tx} ${ty + 34}) scale(${ui})`} className={reduced ? undefined : 'kc-land'}>
+                      <rect x={-st.caption.length * 3.6 - 10} y={-11} width={st.caption.length * 7.2 + 20} height={22} rx={11} fill="#1d2440" stroke="#fff" strokeWidth={1.5} />
+                      <text y={4} textAnchor="middle" fontSize={11.5} fontWeight={800} fill="#fff">
+                        {st.caption}
+                      </text>
+                    </g>
+                  )}
+                </g>
+              );
+            })}
 
           {/* Short-lived outcome labels. */}
           {effects

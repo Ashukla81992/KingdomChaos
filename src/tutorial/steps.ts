@@ -222,7 +222,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: 'Power card and the event strip',
     body: [
       'Cards use your adventure action — one per turn, before or after moving. After each action, the event strip (or event card) explains what happened and what you can do now.',
-      'Alex’s Knight is 4 behind your Queen. Tap the Shield card, then your Queen. Landing on a shielded piece is refused until your next turn.',
+      'Alex’s Knight is 4 behind your Queen. Tap the Shield card, then your Queen. Landing on a shielded piece is refused for the next 2 enemy moves.',
     ],
     setup: () => {
       const s = fresh();

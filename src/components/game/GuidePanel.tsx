@@ -2,7 +2,7 @@
 
 import { Check, Crown, Lock, Search, Swords } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { CHARACTER_INFO, RULE_SECTIONS, STATUS_INFO, charLabel, gemList, gemsOf, getBoard, nodeName, royalPathOpen, type Character, type PlayerView } from '@/engine';
+import { CHARACTER_INFO, RULE_SECTIONS, STATUS_INFO, charLabel, gemList, gemsOf, getBoard, nodeName, protectionLabel, royalPathOpen, type Character, type PlayerView } from '@/engine';
 import { seatTheme } from '@/lib/seats';
 import { whyBonusEarned, whyTempleNeeds } from '@/components/tutorial';
 import { EmblemBadge } from '../art/art';
@@ -255,6 +255,7 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
                 ))}
               </ul>
             )}
+            {protectionLabel(view, focus) && <p className="text-xs font-bold text-[#173e8c]">{protectionLabel(view, focus)}</p>}
             {focus.shield && <p className="text-xs text-[#173e8c]">{STATUS_INFO.shield}</p>}
             {focus.immune && <p className="text-xs text-[#5a3d00]">{STATUS_INFO.immune}</p>}
             {focus.guarded && <p className="text-xs text-[#173e8c]">{STATUS_INFO.guarded}</p>}

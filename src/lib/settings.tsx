@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { readJSON, writeJSON } from './storage';
-import { playSound, type SoundName } from './sound';
+import { playSound, unlockAudio, type SoundName } from './sound';
 
 export interface Settings {
   volume: number;
@@ -59,6 +59,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       writeJSON(KEY, next);
       return next;
     });
+  }, []);
+  useEffect(() => {
+    // Browsers keep audio locked until a user gesture: unlock on the first tap or key press.
+    const unlock = () => unlockAudio();
+    window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
   }, []);
   const reducedMotion = settings.motion === 'reduced' || (settings.motion === 'system' && systemReduced);
   useEffect(() => {

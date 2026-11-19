@@ -36,7 +36,11 @@ the Crown Temple.
 - **Safe spaces** never allow a capture; rivals may share them: the four gold-star road stones, the
   four kingdom gates (plates), castles, Royal Paths, the temple, the Dungeon Entrance and the two
   dungeon safe rooms. Shield, Immunity and Royal Guard also make a piece uncapturable (landing on it is
-  refused). `tests/captureSweep.test.ts` checks every space on both maps for King, Witch and Knight.
+  refused) for **2 opposing movement actions** (`protectionMoves`): every completed rival movement
+  counts, bonus-roll moves included; dice, failed requests, Adventure actions, cards and reconnects do
+  not. The ward still protects during the second movement and expires right after it
+  (`protectionEnded`). Recasting refreshes it to 2, never stacks. A Shield hit by a monster attack
+  blocks it and is used up at once. The Witch's Dragon Fire immunity is a permanent trait. `tests/captureSweep.test.ts` checks every space on both maps for King, Witch and Knight.
   Landing on a safe space beside a rival logs "safe space … no capture here", and the move preview says so.
 - Captured pieces keep their checkpoints. Capture credit is the kingdom’s temple requirement.
 - Banking adds copies to `bank`; duplicates are spares for Diplomacy and Alchemy.

@@ -11,6 +11,9 @@ import {
   LOCATION_INFO,
   STATUS_INFO,
   adventureOptions,
+  protectionLabel,
+  companionOf,
+  dragonFireBlock,
   DUNGEON_GUIDE,
   monstersOf,
   templeBlockers,
@@ -36,6 +39,7 @@ import {
   type Character,
   type GameAction,
   type MapId,
+  type MonsterId,
   type NodeDef,
   type PlayerView,
 } from '@/engine';
@@ -44,6 +48,7 @@ import { alternatives, choose, consequences, destinations, routeNote, startPlan,
 import { royalPlaySeat, TEMPLE_UNLOCK_TITLE } from '@/lib/royalPath';
 import { portrait, seatTheme } from '@/lib/seats';
 import { useSettings } from '@/lib/settings';
+import { markBatch, recapLines, seenBatch, soundsFor, strikesFor, type Strike } from '@/lib/eventFeed';
 import { EmblemBadge } from '../art/art';
 import { GEM_NAMES, GemIcon } from '../art/gems';
 import { TokenIcon } from '../art/token';
@@ -54,6 +59,7 @@ import { Modal } from '../ui/Modal';
 import { CardView } from './CardView';
 import { Die } from './Die';
 import { EventCard } from './EventCard';
+import { BattlePanel } from './BattlePanel';
 import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
 import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
@@ -208,6 +214,10 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const [edgePick, setEdgePick] = useState<{ cardId: string; target: CardTarget; edgeId: string; change: 'open' | 'close'; label: string } | null>(null);
   /** Dragon Fire: the chosen target, before the attack die is rolled. */
   const [fireTarget, setFireTarget] = useState<string | null>(null);
+  /** Dragon Fire aiming mode: eligible rivals glow; tapping one previews the attack. */
+  const [fireMode, setFireMode] = useState(false);
+  /** One Dragon Fire request at a time: repeated taps never send a second attack. */
+  const firing = useRef(false);
   const [toast, setToast] = useState<string | null>(null);
   const [announce, setAnnounce] = useState('');
   const [busy, setBusy] = useState(false);
@@ -223,6 +233,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   /** Card given up if a draw lands in a full hand (null: keep the hand and decline the new card). */
   const [replace, setReplace] = useState<string | null>(null);
   const [effects, setEffects] = useState<BoardEffect[]>([]);
+  const [strikes, setStrikes] = useState<Strike[]>([]);
   const [invalid, setInvalid] = useState<{ node: string; at: number } | null>(null);
   const [dragging, setDragging] = useState(false);
   const [tradeOpen, setTradeOpen] = useState(false);
@@ -296,23 +307,55 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   // ---------------------------------------------------------------- reacting to new states
   const lastVersion = useRef(view.version);
   const lastLog = useRef(view.log.length ? view.log[view.log.length - 1].id : 0);
+  // Each resolved event batch is handled once per device and match, whatever order polls arrive in.
+  const matchKey = `${view.startedAt}:${me ?? 'watch'}`;
+  const handled = useRef(view.eventSeq ?? 0);
+  const [recap, setRecap] = useState<string[] | null>(null);
+  useEffect(() => {
+    // Restoring a match (reload, reconnect, resume): no replay of old events, just a short recap.
+    const seq = view.eventSeq ?? 0;
+    const seen = seenBatch(matchKey);
+    handled.current = Math.max(seq, seen);
+    markBatch(matchKey, handled.current);
+    const lines = recapLines(view.log);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (view.turn.number > 1 && lines.length && view.status === 'playing') setRecap(lines);
+    // Only on mount and when a different match is loaded.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchKey]);
+  useEffect(() => {
+    if (!recap) return;
+    const t = setTimeout(() => setRecap(null), 9000);
+    return () => clearTimeout(t);
+  }, [recap]);
   useEffect(() => {
     if (view.version === lastVersion.current) return;
     // A lower version is a fresh board (tutorial steps, rematches): drop announcements for the old one.
-    if (view.version < lastVersion.current) setBanners([]);
+    if (view.version < lastVersion.current) {
+      setBanners([]);
+      handled.current = 0;
+    }
     lastVersion.current = view.version;
     // Any new board state invalidates a pending road preview or fire target.
     setEdgePick(null);
     setFireTarget(null);
+    setFireMode(false);
+    const seq = view.eventSeq;
+    // Already handled (a repeated poll, a retry, a stale instance): no sounds, effects or notices again.
+    if (seq !== undefined && seq > 0 && seq <= handled.current) return;
+    if (seq) {
+      handled.current = seq;
+      markBatch(matchKey, seq);
+    }
     const ev = view.lastEvents;
-    const types = new Set(ev.map((e) => e.type));
-    if (types.has('gameOver')) play('win');
-    else if (types.has('banked') || types.has('slay') || types.has('finalUnlocked')) play('bank');
-    else if (types.has('cut') || types.has('defeated') || types.has('dragonFire') || ev.some((e) => e.type === 'monsterEvent' && e.kind === 'attack')) play('capture');
-    else if (types.has('pickedUp') || types.has('tame') || types.has('discovery')) play('pickup');
-    else if (types.has('cardPlayed') || types.has('cardDrawn')) play('card');
-    else if (types.has('rolled') || types.has('monster')) play('roll');
-    else if (types.has('moved') || types.has('teleported')) play('step');
+    soundsFor(ev).forEach((s, i) => (i === 0 ? play(s) : setTimeout(() => play(s), i * 260)));
+    const homeOf = (m: MonsterId) => monstersOf(view).find((x) => x.id === m)?.home;
+    const hits = strikesFor(ev, homeOf, () => ++fxId.current);
+    if (hits.length) {
+      setStrikes((list) => [...list, ...hits].slice(-4));
+      const ids = new Set(hits.map((h) => h.id));
+      setTimeout(() => setStrikes((list) => list.filter((h) => !ids.has(h.id))), reducedMotion ? 2400 : 2200);
+    }
     if (ev.some((e) => e.type === 'turnStarted' && e.playerId === me)) setTimeout(() => play('turn'), 250);
 
     const fx: BoardEffect[] = [];
@@ -357,7 +400,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         lines.push(`Dragon Fire at ${nm(e.targetId)}: attack die ${e.roll}, a miss.`);
       } else if (e.type === 'defeated' && e.cause === 'fire') {
         const c = view.characters[e.characterId];
-        fx.push({ id: ++fxId.current, node: c.node, text: 'Dragon Fire!', tone: 'cut' });
+        const burnt = ev.find((x) => x.type === 'dragonFire' && x.targetId === e.characterId);
+        fx.push({ id: ++fxId.current, node: (burnt?.type === 'dragonFire' && burnt.at) || c.node, text: 'Dragon Fire!', tone: 'cut' });
         lines.push(`${nm(e.characterId)} was burned by Dragon Fire and sent home.`);
         if (c.owner === me) news.push({ title: `YOUR ${CHARACTER_INFO[c.kind].name.toUpperCase()} WAS BURNED!`, sub: `${PRONOUN[c.kind]} returns to your castle.`, tone: 'bad' });
       } else if (e.type === 'monsterHit') {
@@ -370,13 +414,13 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         const c = e.characterId ? view.characters[e.characterId] : null;
         const mName = e.monster === 'golem' ? 'Stone Golem' : e.monster === 'spider' ? 'Cave Spider' : 'Monster';
         if (e.kind === 'attack' && c) {
-          const what = e.effect === 'push' ? (e.to && e.to !== e.from ? `pushed back to ${nodeName(view.boardId, e.to)}` : 'shoved, but had nowhere to go') : `webbed: next move −${view.config.webPenalty ?? 2} (min 1)`;
+          const what = e.outcome === 'blocked' ? 'protected: the Shield blocked it and broke' : e.effect === 'push' ? (e.to && e.to !== e.from ? `pushed back to ${nodeName(view.boardId, e.to)}` : 'shoved, but had nowhere to go') : `webbed: next move −${view.config.webPenalty ?? 2} (min 1)`;
           if (e.from) fx.push({ id: ++fxId.current, node: e.from, text: `${mName}!`, tone: 'bad' });
           if (e.to && e.to !== e.from) fx.push({ id: ++fxId.current, node: e.to, text: 'Pushed here', tone: 'bad' });
-          if (e.effect === 'web') fx.push({ id: ++fxId.current, node: c.node, text: 'Webbed! Next move −2', tone: 'bad' });
+          if (e.effect === 'web' && e.outcome !== 'blocked') fx.push({ id: ++fxId.current, node: c.node, text: `Webbed! Next move −${view.config.webPenalty ?? 2}`, tone: 'bad' });
           lines.push(`Monster die ${e.die}: the ${mName}${e.outside ? ' climbed out of the Dragon Gate and' : ''} attacked ${nm(c.id)} — ${what}.`);
           if (c.owner === me) news.push({ title: `${mName.toUpperCase()} ATTACKS!`, sub: `Your ${CHARACTER_INFO[c.kind].name} was ${what}.`, tone: 'bad' });
-        } else lines.push(`Monster die ${e.die}: ${e.kind === 'quiet' ? 'the dungeon is quiet' : `the ${mName} patrols but finds nobody in reach`}.`);
+        } else lines.push(`Monster die ${e.die}: ${e.kind === 'quiet' ? 'the dungeon is quiet' : `the ${mName} stays idle, nobody is in reach`}.`);
       } else if (e.type === 'cut') {
         fx.push({ id: ++fxId.current, node: e.node, text: 'Cut! Sent home', tone: 'cut' });
         lines.push(`${nm(e.characterId)} cut ${nm(e.targetId)} — sent home.`);
@@ -389,6 +433,13 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         fx.push({ id: ++fxId.current, node: e.from, text: e.name ?? (e.reason === 'trap' ? 'Trap!' : 'Shortcut!'), tone: e.reason === 'trap' ? 'bad' : 'good' });
         lines.push(`${nm(e.characterId)}: ${e.name} — to ${nodeName(view.boardId, e.to)}.`);
       } else if (e.type === 'discovery') lines.push(`${nm(e.characterId)} dug up ${e.found === 'gem' && e.gem ? aGem(e.gem) : e.found.replace('_', ' ')}.`);
+      else if (e.type === 'battleStarted') lines.push(`${nm(e.characterId)} faces the Stone Golem. Fist swipe next, 1 damage.`);
+      else if (e.type === 'battleExchange')
+        lines.push(
+          `${e.choice === 'strike' ? (e.hit ? `Strike hit for ${e.damage}` : 'Strike deflected') : 'Guard up'}. ${e.monsterAttack ? (e.blocked ? 'Golem attack blocked.' : `Golem hit for ${e.taken}.`) : ''} Golem ${e.monsterHp}, stamina ${e.stamina}.${e.nextIntent ? ` Next: ${e.nextIntent === 'heavy' ? 'heavy slam, 2 damage' : 'swipe, 1 damage'}.` : ''}`,
+        );
+      else if (e.type === 'battleEnded') lines.push(e.outcome === 'won' ? 'The Stone Golem crumbles: the shortcut is open for your kingdom.' : e.outcome === 'lost' ? `${nm(e.characterId)} is out of stamina and limps to ${nodeName(view.boardId, e.to)}.` : `${nm(e.characterId)} retreats to ${nodeName(view.boardId, e.to)}.`);
+      else if (e.type === 'protectionEnded') lines.push(`${nm(e.characterId)}'s ${e.ward === 'shield' ? 'Shield' : e.ward === 'immune' ? 'Immunity' : 'Royal Guard'} ${e.reason === 'consumed' ? 'blocked an attack and broke' : 'expired'}.`);
       else if (e.type === 'rolled') lines.push(`${who(e.playerId)} rolled ${e.value}.`);
       else if (e.type === 'moved') {
         const end = e.path[e.path.length - 1];
@@ -573,15 +624,65 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     return void commit(characterId, path);
   };
 
+  /** Every rival with the reason Dragon Fire cannot reach it (for the empty-target explanation). */
+  const fireBlocks = () =>
+    me
+      ? Object.values(view.characters)
+          .filter((c) => c.owner !== me && !c.finished)
+          .map((c) => ({ c, why: dragonFireBlock(view, me, c.id) }))
+      : [];
+
+  const startFire = () => {
+    if (!me) return;
+    setSel(null);
+    setAttack([]);
+    setCardId(null);
+    setFireTarget(null);
+    setFireMode(true);
+    const n = fireOptions.filter((o) => o.action.type === 'dragonFire' && o.action.targetId).length;
+    if (n) return say(`Dragon Fire: ${n === 1 ? 'one rival glows' : `${n} rivals glow`} within ${view.config.dragonFireRange} steps. Tap one to preview the attack.`);
+    const blocked = fireBlocks().filter((b) => b.why);
+    say(`No rival can be burned right now. ${blocked.slice(0, 3).map((b) => `${label(b.c)}: ${b.why}`).join(' ')}`);
+  };
+
+  const confirmFire = (action: GameAction) => {
+    if (firing.current || busy) return;
+    firing.current = true;
+    setToast(null);
+    setFireTarget(null);
+    setFireMode(false);
+    void run(action).finally(() => {
+      firing.current = false;
+    });
+  };
+
   const onPiece = (id: string) => {
     const c = view.characters[id];
     if (!c || c.finished) return;
     const aimed = shownTargets.find((t) => (t.kind === 'character' && t.characterId === id) || (t.kind === 'swap' && t.targetId === id));
     if (aimed) return playTarget(aimed);
-    const fire = !selected && !plan?.choice ? fireOptions.find((o) => o.action.type === 'dragonFire' && o.action.targetId === id) : undefined;
-    if (fire) {
+    // A rival on a space the planned move can end on is a capture: that always wins over Dragon Fire.
+    if (plan && c.owner !== me && ends.has(c.node) && !fireMode) return void onNode(c.node);
+    const myDragon = me ? companionOf(view, me) : null;
+    if (fireMode && me) {
+      if (c.id === myDragon?.id) {
+        setFireMode(false);
+        setFireTarget(null);
+        return say('Dragon Fire cancelled.');
+      }
+      if (c.owner === me) return say('Dragon Fire targets rival pieces. Tap a glowing rival.');
+      const why = dragonFireBlock(view, me, c.id);
+      if (why) return flash(c.node, `${label(c)}: ${why}`);
       setFireTarget(id);
-      return say(`Dragon Fire at ${label(c)}: roll the attack die below (4–6 hits).`);
+      return say(`Dragon Fire at ${label(c)}. Check the preview, then confirm to roll the attack die.`);
+    }
+    // Tapping your dragon's rider (when it is not choosing a move) arms Dragon Fire.
+    if (myDragon && c.id === myDragon.id && mayAdventure && !(canPlan && movable.has(id))) return startFire();
+    const fire = !selected && !plan && !canPlan ? fireOptions.find((o) => o.action.type === 'dragonFire' && o.action.targetId === id) : undefined;
+    if (fire) {
+      setFireMode(true);
+      setFireTarget(id);
+      return say(`Dragon Fire at ${label(c)}. Check the preview, then confirm to roll the attack die.`);
     }
     if (plan?.choice) {
       const candidates = attackCandidates(view, plan.characterId, plan.choice);
@@ -601,7 +702,6 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         return;
       }
     }
-    if (plan && c.owner !== me && ends.has(c.node)) return void onNode(c.node);
     if (canPlan && movable.has(id)) {
       if (plan?.characterId === id) {
         if (plan.choice && ends.size > 1) {
@@ -763,6 +863,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         setTradeOpen(false);
         setEdgePick(null);
         setFireTarget(null);
+        setFireMode(false);
       } else return;
       e.preventDefault();
     };
@@ -780,9 +881,9 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       else if (x.kind === 'swap') t.characters.add(x.targetId);
       else if (x.kind === 'path') t.nodes.add(x.path[x.path.length - 1]);
     }
-    if (!shownTargets.length && !plan?.choice) for (const o of fireOptions) if (o.action.type === 'dragonFire' && o.action.targetId) t.characters.add(o.action.targetId);
+    if (!shownTargets.length && !plan?.choice && (fireMode || fireTarget)) for (const o of fireOptions) if (o.action.type === 'dragonFire' && o.action.targetId) t.characters.add(o.action.targetId);
     return t;
-  }, [shownTargets, fireOptions, plan?.choice]);
+  }, [shownTargets, fireOptions, plan?.choice, fireMode, fireTarget]);
   const coach = useMemo(() => new Set(tutorial?.coach ?? []), [tutorial?.coach]);
   const what = plan?.choice ? consequences(view, plan.characterId, plan.choice) : [];
   const routeAttackIds = plan?.choice ? attackCandidates(view, plan.characterId, plan.choice) : [];
@@ -835,7 +936,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const companion = view.dragon.state === 'companion' ? view.characters[view.dragon.companion ?? ''] : null;
   const canRelease = myTurn && !view.turn.acted && companion?.owner === me;
   const planChar = plan ? view.characters[plan.characterId] : null;
-  const mayAdventure = myTurn && !view.turn.adventureDone && !plan?.choice;
+  const mayAdventure = myTurn && !view.turn.adventureDone && !plan?.choice && !view.battle;
   const playableCount = cards.filter((c) => c.targets.length > 0).length;
 
   let headline: string;
@@ -876,8 +977,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   } else if (canPlan) {
     headline = `You rolled ${rolled!.roll} — choose a piece`;
     sub = movers.length ? 'Pieces that can move have a dashed gold ring. Tap one on the board or below.' : me ? noMoveReason(view, me) : '';
+  } else if (view.battle && view.battle.playerId === me) {
+    headline = 'Battle the Stone Golem';
+    sub = 'Strike, Guard or Retreat below. Watch its announced attack: guard a heavy slam to expose it.';
   } else if (fireChoice) {
-    headline = 'Dragon Fire: roll the attack die';
+    headline = 'Dragon Fire: confirm the attack';
     sub = fireChoice.detail;
   } else if (!view.turn.adventureDone) {
     headline = 'Adventure action (optional)';
@@ -922,6 +1026,19 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               <WifiOff size={15} aria-hidden="true" /> {controller.connection === 'reconnecting' ? 'Reconnecting…' : 'Offline'}
             </div>
           )}
+          <input
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={settings.muted ? 0 : settings.volume}
+            onChange={(e) => update({ volume: Number(e.target.value), muted: Number(e.target.value) === 0 })}
+            onPointerUp={() => play('pickup')}
+            className="hidden w-20 accent-[#f4a81d] sm:block"
+            aria-label="Volume"
+            aria-valuetext={`${Math.round((settings.muted ? 0 : settings.volume) * 100)}%`}
+            data-volume
+          />
           <button className="btn btn-ghost icon-btn" onClick={() => update({ muted: !settings.muted })} aria-label={settings.muted ? 'Unmute' : 'Mute'} aria-pressed={settings.muted}>
             {settings.muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
@@ -993,6 +1110,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             targets={targets}
             coach={coach}
             effects={effects}
+            strikes={strikes}
             invalid={invalid}
             reduced={reducedMotion}
             fast={fast}
@@ -1017,6 +1135,21 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           />
           {dragging && <div className="sr-only">Dragging</div>}
           <EventCard view={view} reduced={reducedMotion} />
+          {recap && (
+            <div className="absolute top-2 left-1/2 z-20 w-[min(92%,26rem)] -translate-x-1/2 rounded-2xl border border-white/30 bg-[#1d2440]/88 p-2.5 text-white shadow-lg" role="status" data-recap>
+              <div className="mb-1 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold tracking-wide uppercase">Welcome back · recent events</span>
+                <button type="button" className="btn btn-ghost icon-btn min-h-8! min-w-8! bg-white/10! text-white!" aria-label="Close recap" onClick={() => setRecap(null)}>
+                  <X size={14} />
+                </button>
+              </div>
+              <ul className="list-disc space-y-0.5 pl-4 text-xs leading-snug">
+                {recap.map((l, i) => (
+                  <li key={i}>{l}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           <BannerView banner={banners[0] ?? null} reduced={reducedMotion} />
           {(inspectedChar || inspectedNode || inspect?.kind === 'text') && (
             <div className="absolute bottom-2 left-2 z-10 max-w-[min(22rem,calc(100%-4.5rem))] rounded-2xl bg-white/95 p-3 shadow-lg" role="region" aria-label="Details">
@@ -1036,7 +1169,9 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                           return gs.length ? ` · carrying ${gemList(gs.map((g) => g.kind))} — bank at the gate` : '';
                         })()}
                       </p>
+                      {protectionLabel(view, inspectedChar) && <p className="text-xs font-bold text-[#173e8c]" data-protection-label>{protectionLabel(view, inspectedChar)}</p>}
                       {inspectedChar.shield && <p className="text-xs text-[#173e8c]">{STATUS_INFO.shield}</p>}
+                      {inspectedChar.guarded && <p className="text-xs text-[#173e8c]">{STATUS_INFO.guarded}</p>}
                       {inspectedChar.immune && <p className="text-xs text-[#5a3d00]">{STATUS_INFO.immune}</p>}
                       {companion?.id === inspectedChar.id && <p className="text-xs text-[#a3300b]">{STATUS_INFO.companion}</p>}
                     </>
@@ -1282,7 +1417,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                   {mine.map((c) => {
                     const gems = gemsOf(view, c);
                     const where = c.finished ? 'In the Crown Temple' : nodeName(view.boardId, c.node);
-                    const notes = [c.shield && 'Shield', c.immune && 'Immunity', c.guarded && 'Royal Guard', c.webbed && 'Webbed'].filter(Boolean) as string[];
+                    const notes = [protectionLabel(view, c), c.webbed && 'Webbed'].filter(Boolean) as string[];
                     return (
                       <li key={c.id}>
                         <button
@@ -1309,25 +1444,36 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               </div>
             )}
 
+            {view.battle && <BattlePanel view={view} me={me} busy={busy} reduced={reducedMotion} onChoose={(a) => run(a)} />}
+
+            {fireMode && !fireChoice && mayAdventure && (
+              <div className="mt-2.5 rounded-xl bg-[#fff1e6] p-2" data-dragon-fire="aiming">
+                <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire · tap a glowing rival</div>
+                {fireOptions.some((o) => o.action.type === 'dragonFire' && o.action.targetId) ? (
+                  <p className="text-xs text-[#4a5374]">Rivals within {view.config.dragonFireRange} connected steps of your dragon glow. Tap any other piece to see why it cannot be burned.</p>
+                ) : (
+                  <p className="text-xs text-[#4a5374]" data-fire-empty>
+                    No rival can be burned right now.{' '}
+                    {fireBlocks()
+                      .filter((b) => b.why)
+                      .slice(0, 4)
+                      .map((b) => `${label(b.c)}: ${b.why}`)
+                      .join(' ')}
+                  </p>
+                )}
+              </div>
+            )}
+
             {fireChoice && mayAdventure && (
               <div className="mt-2.5 rounded-xl bg-[#fff1e6] p-2" data-dragon-fire="armed">
-                <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire · no card needed · uses your Adventure action</div>
+                <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire preview · no card needed · uses your Adventure action</div>
                 <p className="text-xs text-[#4a5374]">
-                  Target: <b>{label(view.characters[fireTarget!])}</b>. Roll the attack die: {view.config.dragonFireHit ?? 4}–{view.config.dieSides} hits (
-                  {Math.round(((view.config.dieSides - (view.config.dragonFireHit ?? 4) + 1) / view.config.dieSides) * 100)}%), 1–{(view.config.dragonFireHit ?? 4) - 1} misses and the action is still spent. A hit sends them home and drops their gems.
+                  Target: <b>{label(view.characters[fireTarget!])}</b> at {nodeName(view.boardId, view.characters[fireTarget!].node)}. Confirm and the attack die rolls at once: {view.config.dragonFireHit ?? 4}–{view.config.dieSides} hits (
+                  {Math.round(((view.config.dieSides - (view.config.dragonFireHit ?? 4) + 1) / view.config.dieSides) * 100)}%), 1–{(view.config.dragonFireHit ?? 4) - 1} misses and the action is still spent. A hit sends them home and drops their gems. No capture credit, no bonus roll.
                 </p>
                 <div className="mt-1.5 flex gap-1.5">
-                  <button
-                    className="btn btn-danger min-h-11 text-sm"
-                    disabled={busy}
-                    data-fire-roll
-                    onClick={() => {
-                      const a = fireChoice.action;
-                      setFireTarget(null);
-                      void run(a);
-                    }}
-                  >
-                    🔥 Roll attack die
+                  <button className="btn btn-danger min-h-11 text-sm" disabled={busy} data-fire-roll onClick={() => confirmFire(fireChoice.action)}>
+                    🔥 Breathe fire
                   </button>
                   <button className="btn btn-ghost min-h-11 text-sm" onClick={() => setFireTarget(null)}>
                     Choose another
@@ -1336,7 +1482,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               </div>
             )}
 
-            {mayAdventure && (options.length > 0 || canRelease || shownTargets.length > 0) && (
+            {mayAdventure && (options.length > 0 || canRelease || shownTargets.length > 0 || !!(me && companionOf(view, me))) && (
               <div className="mt-2.5" data-adventure>
                 <div className="mb-1 text-xs font-bold text-[#4a5374]">Adventure action</div>
                 <div className="flex flex-wrap gap-1.5">
@@ -1345,7 +1491,20 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       Release the dragon (free)
                     </button>
                   )}
-                  {options.map((o) => {
+                  {companionOf(view, me ?? '') && (
+                    <button
+                      className={`btn text-sm ${fireMode ? 'btn-primary' : 'btn-danger'}`}
+                      disabled={busy}
+                      aria-pressed={fireMode}
+                      data-adventure-option="dragonFire"
+                      data-fire-mode={fireMode ? 'on' : 'off'}
+                      title={`No card needed. Uses your Adventure action. Targets within ${view.config.dragonFireRange} connected steps; ${view.config.dragonFireHit ?? 4}–${view.config.dieSides} on the attack die hits.`}
+                      onClick={() => (fireMode ? (setFireMode(false), setFireTarget(null)) : startFire())}
+                    >
+                      🔥 {fireMode ? 'Cancel Dragon Fire' : 'Dragon Fire'}
+                    </button>
+                  )}
+                  {options.filter((o) => !(o.action.type === 'dragonFire' && o.action.targetId)).map((o) => {
                     const a = o.action;
                     const withDiscard = o.mayDraw && a.type === 'dig' ? { ...a, discardCardId: discardId } : a;
                     const gem = a.type === 'dig' ? a.gem : undefined;
@@ -1355,7 +1514,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                         className={`btn text-sm ${a.type === 'dragonFire' ? 'btn-danger' : 'btn-green'}`}
                         disabled={busy}
                         title={o.detail}
-                        onClick={() => (a.type === 'dragonFire' && a.targetId ? setFireTarget(a.targetId) : void run(withDiscard))}
+                        onClick={() => (a.type === 'dragonFire' ? confirmFire(a) : void run(withDiscard))}
                         data-adventure-option={a.type}
                       >
                         {gem && <GemIcon kind={gem} size={16} />}
@@ -1382,7 +1541,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
 
             {myTurn && (
               <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {view.turn.moveDone && !view.turn.adventureDone && (
+                {view.turn.moveDone && !view.turn.adventureDone && !view.battle && (
                   <button className="btn btn-primary min-h-11 text-sm" disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-end-turn>
                     <SkipForward size={15} aria-hidden="true" /> End turn
                   </button>
