@@ -1,6 +1,6 @@
 'use client';
 
-import { CROWN_QUEST, DUNGEON_GUIDE, FEATURE_INFO, LOCATION_INFO, MAP_MARKER_INFO, MONSTER_KILL_RULE, MONSTER_RULE } from '@/engine';
+import { CROWN_QUEST, DUNGEON_GUIDE, DUNGEON_LANDMARKS, FEATURE_INFO, LOCATION_INFO, MAP_MARKER_INFO, MONSTER_KILL_RULE, MONSTER_RULE } from '@/engine';
 import { SEATS } from '@/lib/seats';
 import { EmblemShape } from '../art/art';
 import { PieceToken } from '../art/token';
@@ -210,8 +210,16 @@ export function MapGuide({ open, onClose }: { open: boolean; onClose: () => void
             {g.rule}
           </Row>
         ))}
+        {DUNGEON_LANDMARKS.map((l) => (
+          <Row key={`lm-${l.id}`} icon={<Art src={l.id === 'golem' ? '/art/monster-golem-idle.png' : l.id === 'spider' ? '/art/monster-spider-idle.png' : l.id === 'entrance' ? '/art/dungeon-dragon-face.png' : l.id === 'lair' ? '/art/dragon.png' : '/art/icon-chest.png'} />} name={`Landmark · ${l.name}`}>
+            <b>Purpose:</b> {l.purpose} <b>Action:</b> {l.action} <b>Reward:</b> {l.reward} <b>Risk:</b> {l.risk} <b>Needs:</b> {l.needs}
+          </Row>
+        ))}
+        <Row icon={<Art src="/art/icon-chest.png" />} name="Protection countdown">
+          A blue S (Shield), gold I (Immunity) or purple G (Royal Guard) badge with a number shows how many enemy moves of protection are left: “Protection · 2 enemy moves”, then “1 enemy move”. Every rival movement counts, bonus rolls included; it still protects during the last one and expires right after. Tap a protected piece to read why a capture is blocked.
+        </Row>
         <Row icon={<Art src="/art/monster-golem-warning.png" />} name="Roaming monsters">
-          {MONSTER_RULE} On the board a monster is calm (idle), shows a “!” when a piece is in reach (warning), flashes red when it has just attacked, and lies grey while resting after a defeat. Hearts under it show the hits it can still take.
+          {MONSTER_RULE} On the board a monster breathes quietly (idle), raises its fists or legs with a “!” when a piece is in reach (alert), flashes red when it has just attacked a named target, and lies grey while resting after a defeat. Tap it to shade its danger zone. With nobody in reach it stays idle and nothing is announced. Hearts under it show the hits it can still take.
         </Row>
         <Row icon={<Art src="/art/monster-spider-attack.png" />} name="Killing monsters">
           {MONSTER_KILL_RULE}

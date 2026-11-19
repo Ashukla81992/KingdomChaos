@@ -42,10 +42,12 @@ describe('roaming dungeon monsters', () => {
     expect([...outside].every((n) => nodes[n].map === 'island')).toBe(true);
   });
 
-  it('never target safe spaces, castles, Royal Paths, the temple or protected pieces', () => {
+  it('never target safe spaces, castles, Royal Paths, the temple, Immune or Guarded pieces', () => {
     const s = noCards(game());
     place(s, 'b-king', 'd-ruins');
-    place(s, 'b-queen', 'd-c2', { shield: true });
+    place(s, 'b-queen', 'd-c2', { immune: true });
+    expect(monsterTargets(s, 'golem')).toEqual([]);
+    place(s, 'b-queen', 'd-c2', { immune: false, guarded: true });
     expect(monsterTargets(s, 'golem')).toEqual([]);
     place(s, 'a-king', 'c16');
     const gateSafe = getBoard(s.boardId).nodes.c16.safe;
@@ -140,8 +142,8 @@ describe('roaming dungeon monsters', () => {
     expect(monsterEvent(s)).toMatchObject({ kind: 'patrol', monster: 'golem' });
   });
 
-  it('a beaten Golem opens its shortcut for that kingdom and rests for a round', () => {
-    const s = noCards(game());
+  it('a beaten Golem opens its shortcut for that kingdom and rests for a round (classic one-roll mode)', () => {
+    const s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-king', 'd-golem');
     s.forcedRolls = [5];
     resolveArrival({ state: s, events: [], now: 0 }, s.characters['a-king']);

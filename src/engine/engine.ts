@@ -3,10 +3,12 @@ import { getBoard } from './board';
 import { CARDS, attemptTame, canTameHere, cardTargets, targetKey } from './cards';
 import { DEFAULT_CONFIG, type GameConfig } from './config';
 import { nodeName } from './graph';
-import { adventureOptions, dragonFireTargets, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
+import { adventureOptions, dragonFireBlock, hasAdventure, legalMoves, movableCharacters, noMoveReason } from './queries';
 import { CARD_INFO } from './rulesText';
 import { attackableMonsters, attackMonster, damageMonster, fireableMonsters, initialMonsters, monsterPhase, monstersOf } from './dungeon';
-import { applyPower, clearGuards, expireTrades, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
+import { applyBattle } from './battle';
+import { movesLabel, protectionMoves, tickWards, WARD_NAMES } from './protection';
+import { applyPower, expireTrades, OFF_TURN_ACTIONS, POWER_ACTIONS, type PowerAction } from './powers';
 import {
   CARD_CATEGORY,
   handsFree,
@@ -217,12 +219,8 @@ function startTurn(ctx: Ctx, playerId: string, _bonus = false) {
     return;
   }
   s.stats[playerId].turns++;
-  clearGuards(ctx, playerId);
-  for (const c of Object.values(s.characters)) {
-    if (c.owner !== playerId) continue;
-    c.immune = false;
-    c.shield = false;
-  }
+  // Shields, Immunity and Royal Guard no longer end when their owner's turn starts: they count down
+  // opposing movement actions instead (see protection.ts and `afterMovement`).
   if (s.dragon.releasedBy === playerId) s.dragon.releasedBy = null;
   if (s.dragon.state === 'recovering' && number > s.dragon.recoverUntilTurn) {
     s.dragon = { state: 'guarding', node: getBoard(s.boardId).board.dragonHome, companion: null, recoverUntilTurn: 0, releasedBy: null };
@@ -236,6 +234,7 @@ function startTurn(ctx: Ctx, playerId: string, _bonus = false) {
 function finishTurn(ctx: Ctx) {
   const s = ctx.state;
   if (s.status !== 'playing') return;
+  if (s.battle) applyBattle(ctx, s.battle.playerId, 'retreat');
   if (s.turn.extra) {
     log(ctx, `${playerName(s, s.turn.playerId)} takes a bonus roll.`, 'good', s.turn.playerId);
     s.turn.moveDone = false;
@@ -253,6 +252,18 @@ function finishTurn(ctx: Ctx) {
   startTurn(ctx, s.players[(idx + 1) % s.players.length].id, false);
 }
 
+/**
+ * A movement action by `moverOwner` has fully resolved (captures were checked with every ward still
+ * up): rival wards count it, and those on their last count expire now.
+ */
+function afterMovement(ctx: Ctx, moverOwner: string) {
+  const s = ctx.state;
+  for (const e of tickWards(s, moverOwner)) {
+    ctx.events.push(e);
+    if (e.type === 'protectionEnded') log(ctx, `${charLabel(s, e.characterId)}'s ${WARD_NAMES[e.ward]} has expired (${movesLabel(protectionMoves(s))} passed). It can be captured again.`, 'info', s.characters[e.characterId].owner);
+  }
+}
+
 /** Grant at most one bonus roll for this roll (a 6 plus any number of captures is still one). */
 function earnExtra(ctx: Ctx, reason: 'six' | 'capture') {
   const t = ctx.state.turn;
@@ -266,6 +277,8 @@ function earnExtra(ctx: Ctx, reason: 'six' | 'capture') {
 function autoAdvance(ctx: Ctx) {
   const s = ctx.state;
   if (s.status !== 'playing') return;
+  // An open battle keeps the turn going until it ends.
+  if (s.battle) return;
   const pid = s.turn.playerId;
   if (s.turn.moveDone && !s.turn.adventureDone && !hasAdventure(s, pid, s.hands[pid])) {
     s.turn.adventureDone = true;
@@ -301,6 +314,15 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
     t.adventureDone = true;
     t.acted = true;
   };
+  if (s.battle && action.type !== 'battle' && !offTurn) return fail('Finish the battle first: Strike, Guard or Retreat.');
+  if (action.type === 'battle') {
+    if (!s.battle) return fail('There is no battle to fight.');
+    if (!['strike', 'guard', 'retreat'].includes(action.choice)) return fail('Choose Strike, Guard or Retreat.');
+    const error = applyBattle(ctx, playerId, action.choice);
+    if (error) return fail(error);
+    autoAdvance(ctx);
+    return done(s, ctx);
+  }
   if ((POWER_ACTIONS as string[]).includes(action.type)) {
     const error = applyPower(ctx, playerId, action as PowerAction);
     if (error) return fail(error);
@@ -376,6 +398,7 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       ch.boosted = false;
       walk(ctx, ch, option, action.discardCardId, attack);
       if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
+      afterMovement(ctx, playerId);
       break;
     }
     case 'skipMove': {
@@ -502,12 +525,13 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
         break;
       }
       const targetId = action.targetId ?? '';
-      if (!dragonFireTargets(s, playerId).some((c) => c.id === targetId)) return fail('That target is out of range, protected, or in a castle or Royal Path.');
+      const blocked = dragonFireBlock(s, playerId, targetId);
+      if (blocked) return fail(blocked);
       adventure();
       const value = roll(s);
       const hit = value >= need;
       s.stats[playerId].dragonFires++;
-      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId, roll: value, hit });
+      ctx.events.push({ type: 'dragonFire', characterId: comp.id, targetId, roll: value, hit, from: comp.node, at: s.characters[targetId].node });
       if (!hit) {
         log(ctx, `${charLabel(s, comp.id)}'s dragon breathes fire at ${charLabel(s, targetId)}: attack die ${value} (needed ${need}+) — it misses.`, 'dragon', playerId);
         break;
@@ -583,6 +607,7 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
 function done(s: GameState, ctx: Ctx): ActionResult {
   s.version++;
   s.lastEvents = ctx.events;
+  if (ctx.events.length) s.eventSeq = (s.eventSeq ?? 0) + 1;
   return { ok: true, state: s, events: ctx.events };
 }
 
@@ -602,6 +627,7 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
   const pid = s.turn.playerId;
   s.stats[pid].timeouts++;
   log(ctx, `${playerName(s, pid)} ran out of time.`, 'system', pid);
+  if (s.battle) applyBattle(ctx, s.battle.playerId, 'retreat');
   if (!s.turn.moveDone) {
     if (!s.turn.move) {
       const value = roll(s);
@@ -624,6 +650,9 @@ export function forceTimeout(state: GameState, now: number): ActionResult {
           ? pick.option.routeTargets.slice(0, Math.min(s.config.knightAttackMax, pick.option.routeTargets.length))
           : undefined;
       walk(ctx, ch, pick.option, undefined, autoAttack);
+      afterMovement(ctx, pid);
+      // The clock ran out: a battle the auto-move started ends in a retreat.
+      if (s.battle) applyBattle(ctx, s.battle.playerId, 'retreat');
     }
   }
   if (s.status === 'playing') {

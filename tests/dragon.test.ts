@@ -111,7 +111,7 @@ describe('dragon', () => {
     const fire = adventureOptions(s, 'a', []).filter((o) => o.action.type === 'dragonFire');
     expect(fire.map((o) => o.action)).toEqual([{ type: 'dragonFire', targetId: 'b-king' }]);
     expect(fire[0].detail).toMatch(/4–6 hits \(50%\)/);
-    reject(s, 'a', { type: 'dragonFire', targetId: 'b-queen' }, /out of range/);
+    reject(s, 'a', { type: 'dragonFire', targetId: 'b-queen' }, /castle cannot be burned/);
   });
 
   it('Witch may pass a wild dragon space', () => {

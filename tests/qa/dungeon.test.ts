@@ -41,7 +41,7 @@ describe('D1 Stone Golem and Cave Spider encounters', () => {
     expect(golem?.from).toBeTruthy();
     const enc = golem!.node.encounter!;
 
-    let s = noCards(game());
+    let s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-king', golem!.from!);
     qaFresh(s, 'a');
     s = rollWith(s, 'a', 1);
@@ -59,7 +59,7 @@ describe('D1 Stone Golem and Cave Spider encounters', () => {
     expect(s.lastEvents.some((e) => e.type === 'encounter' && e.monster === 'golem' && e.success)).toBe(true);
     expect(s.characters['a-king'].node).toBe(enc.shortcutTo);
 
-    s = noCards(game());
+    s = noCards(game(2, { golemBattle: false }));
     place(s, 'a-king', golem!.from!);
     qaFresh(s, 'a');
     s = rollWith(s, 'a', 1);

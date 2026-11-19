@@ -1,3 +1,4 @@
+import { grantWard, movesLabel, protectionMoves } from './protection';
 import { other } from './board';
 import { openEdges } from './graph';
 import {
@@ -221,14 +222,17 @@ function applyRoyalGuard(ctx: Ctx, playerId: string, targetId: string): string |
   if (target.id !== king.id && !adjacentOpen(s, king.node, target.node)) {
     return 'Royal Guard can protect the King or an unfinished ally on a space sharing an open edge with the King.';
   }
-  target.guarded = true;
+  const refreshed = target.guarded;
+  grantWard(s, target, 'guarded');
   player.royalGuardUsed = true;
   ctx.events.push({ type: 'royalGuard', characterId: king.id, targetId });
+  ctx.events.push({ type: 'protectionGranted', characterId: targetId, ward: 'guarded', moves: protectionMoves(s), refreshed });
+  const span = movesLabel(protectionMoves(s));
   log(
     ctx,
     target.id === king.id
-      ? `${charLabel(s, king.id)} raises the Royal Guard — protected until their next turn.`
-      : `${charLabel(s, king.id)} raises the Royal Guard over ${CHAR_NAMES[target.kind]} — protected until ${player.name}'s next turn.`,
+      ? `${charLabel(s, king.id)} raises the Royal Guard — protected for the next ${span}.`
+      : `${charLabel(s, king.id)} raises the Royal Guard over ${CHAR_NAMES[target.kind]} — protected for the next ${span}.`,
     'good',
     playerId,
   );
@@ -391,12 +395,6 @@ function applyCancelTrade(ctx: Ctx, playerId: string, offerId: string): string |
   return null;
 }
 
-/** Called by the turn flow at `playerId`'s `turnStarted`: their Royal Guard ends. */
-export function clearGuards(ctx: Ctx, playerId: string): void {
-  for (const c of Object.values(ctx.state.characters)) {
-    if (c.owner === playerId && c.guarded) c.guarded = false;
-  }
-}
 
 /** Called by the turn flow just before `playerId`'s turn ends: their open offers expire. */
 export function expireTrades(ctx: Ctx, playerId: string): void {

@@ -3,6 +3,7 @@ import {
   getBoard,
   houseOf,
   isProtected,
+  wardReason,
   legalMoves,
   neededGems,
   nodeName,
@@ -167,7 +168,7 @@ export function whyNot(s: S, plan: Plan, node: string): string {
   if (ch.kind === 'queen' && others.length) return 'The Queen must end on an empty space.';
   if (!target.safe && others.some((c) => c.owner === ch.owner)) return 'Your own piece is there, and it is not a safe space.';
   const prot = others.find((c) => c.owner !== ch.owner && isProtected(c));
-  if (!target.safe && prot) return `That piece is protected by ${prot.guarded ? 'Royal Guard' : prot.immune ? 'Immunity' : 'a Shield'}: you cannot land on it.`;
+  if (!target.safe && prot) return `No capture: that piece is protected by ${wardReason(s, prot) ?? 'a ward'}. You cannot land on it until it expires.`;
   if (here.map === 'island') {
     const route = shortestOpen(s, ch.node, node);
     if (!route) return `No open road leads to ${name} right now (a bridge, tunnel or road on the way is closed).`;

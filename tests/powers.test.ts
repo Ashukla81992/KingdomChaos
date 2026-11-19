@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, isProtected, toPlayerView, type GameState, type GemKind } from '@/engine';
-import { clearGuards, expireTrades, powerOptions, spareGems, tradesFor } from '@/engine/powers';
+import { expireTrades, powerOptions, spareGems, tradesFor } from '@/engine/powers';
 import { act, carry, freshTurn, game, hand, noCards, place, player, reject, rollMove, T0 } from './helpers';
 
 function bank(s: GameState, playerId: string, counts: Partial<Record<GemKind, number>>) {
@@ -95,7 +95,7 @@ describe('Royal Guard', () => {
     reject(s, 'a', { type: 'royalGuard', targetId: 'a-king' }, /already been used/i);
   });
 
-  it('sets guarded so capture is blocked when isProtected honors it, and clearGuards ends it', () => {
+  it('sets guarded so capture is blocked, and it lasts two opposing moves (not until the next turn)', () => {
     let s = noCards(game());
     place(s, 'a-king', 'c4');
     afterKingMoved(s);
@@ -111,8 +111,7 @@ describe('Royal Guard', () => {
       expect(cut.ok).toBe(false);
     }
 
-    clearGuards({ state: s, events: [], now: T0 }, 'a');
-    expect(s.characters['a-king'].guarded).toBe(false);
+    expect(s.characters['a-king'].wards?.guarded).toBe(2);
   });
 });
 

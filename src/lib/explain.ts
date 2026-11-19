@@ -120,21 +120,17 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
         if (e.kind === 'quiet') {
           cards.push({ kind: 'monster-quiet', title: `Round ${e.round}: the dungeon is quiet`, why: `Monster die ${e.die} (1–${view.config.monsterQuietMax ?? 3} means no attack)`, now: 'Play on.', tone: 'info' });
         } else if (e.kind === 'patrol') {
-          cards.push({
-            kind: 'monster-patrol',
-            title: `${name} patrols`,
-            why: `Monster die ${e.die}, but nobody is within ${view.config.monsterRange ?? 3} steps${e.outside ? ' of the Dragon Gate' : ''}`,
-            now: 'Nothing happens this round.',
-            tone: 'info',
-          });
+          // Idle: nobody was in its territory. No attack notice at all.
         } else if (e.characterId) {
           const target = piece(view, e.characterId);
           cards.push({
             kind: `monster-${e.effect}`,
-            title: e.counter ? `${name} strikes back!` : `${name} attacks${e.outside ? ' outside the Dragon Gate' : ''}!`,
-            why: e.counter ? `${target} attacked it and missed` : `Monster die ${e.die}: it picked ${target}, ${view.config.monsterRange ?? 3} steps or closer`,
+            title: e.outcome === 'blocked' ? `${name} attack blocked` : e.counter ? `${name} strikes back!` : `${name} hit ${target}`,
+            why: e.counter ? `${target} attacked it and missed` : `Monster die ${e.die}: ${target} was within ${view.config.monsterRange ?? 3} connected steps${e.outside ? ' of the Dragon Gate' : ''}`,
             now:
-              e.effect === 'push'
+              e.outcome === 'blocked'
+                ? `${target}'s Shield absorbed it and broke. No other effect.`
+                : e.effect === 'push'
                 ? e.to && e.to !== e.from
                   ? `${target} is pushed back from ${nodeName(view.boardId, e.from!)} to ${nodeName(view.boardId, e.to)}.`
                   : `${target} had no legal space behind them and stays put.`
@@ -142,6 +138,23 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
             tone: 'bad',
           });
         }
+        break;
+      }
+      case 'battleEnded': {
+        const who = piece(view, e.characterId);
+        cards.push(
+          e.outcome === 'won'
+            ? { kind: 'battle-won', title: 'Stone Golem defeated!', why: `${who} won the battle`, now: 'The stone gate is open: this kingdom takes the shortcut for the rest of the match.', tone: 'gold' }
+            : e.outcome === 'lost'
+              ? { kind: 'battle-lost', title: 'Battle lost', why: `${who} ran out of stamina`, now: `Carried gems dropped in the Golem's chamber. ${who} limps to ${nodeName(view.boardId, e.to)}.`, tone: 'bad' }
+              : { kind: 'battle-retreat', title: 'Retreat', why: `${who} backed away from the Golem`, now: `Back at ${nodeName(view.boardId, e.to)}. No reward.`, tone: 'info' },
+        );
+        break;
+      }
+      case 'protectionEnded': {
+        if (e.reason !== 'expired') break;
+        const ward = e.ward === 'shield' ? 'Shield' : e.ward === 'immune' ? 'Immunity' : 'Royal Guard';
+        cards.push({ kind: 'protection-expired', title: `${ward} expired`, why: `${piece(view, e.characterId)} has had its ${view.config.protectionMoves ?? 2} enemy moves`, now: 'It can be captured and attacked again.', tone: 'info' });
         break;
       }
       case 'monsterHit': {

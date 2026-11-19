@@ -34,5 +34,8 @@ export function toPlayerView(s: GameState, viewerId: string | null): PlayerView 
     monsters: s.monsters,
     monsterRound: s.monsterRound,
     shortcutsOpen: s.shortcutsOpen,
+    eventSeq: s.eventSeq ?? 0,
+    battle: s.battle ?? null,
+    rewardsClaimed: s.rewardsClaimed,
   };
 }

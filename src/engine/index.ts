@@ -10,5 +10,7 @@ export * from './engine';
 export * from './victory';
 export * from './powers';
 export * from './dungeon';
+export * from './protection';
+export * from './battle';
 export * from './view';
 export * from './ai';

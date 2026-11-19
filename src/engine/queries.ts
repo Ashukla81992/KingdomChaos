@@ -19,6 +19,7 @@ import {
   type MoveOption,
 } from './rules';
 import { finishersOf, royalPathOpen } from './victory';
+import { PERMANENT_TRAITS, wardReason } from './protection';
 import type { BoardState, CardInstance, CardTarget, Character, GameAction, PlayerStats } from './types';
 
 type Stats = { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
@@ -114,29 +115,37 @@ export function noMoveReason(s: QueryState, playerId: string): string {
   return `No legal move. ${parts.join('; ')}.`;
 }
 
-export function dragonFireTargets(s: BoardState, playerId: string): Character[] {
+/**
+ * Why `targetId` cannot be hit by `playerId`'s Dragon Fire right now (null = it can). Range is three
+ * connected open steps from the dragon's rider, on the same map. The Witch's immunity is a permanent
+ * trait; Shield, Immunity and Royal Guard are timed wards and say how long they last.
+ */
+export function dragonFireBlock(s: BoardState, playerId: string, targetId: string): string | null {
   const comp = companionOf(s, playerId);
-  if (!comp) return [];
-  const from = comp.node;
+  if (!comp) return 'You need a dragon companion to breathe fire.';
+  const c = s.characters[targetId];
+  if (!c) return 'There is no such piece.';
+  if (c.owner === playerId) return 'Dragon Fire only targets rival pieces.';
+  if (c.finished) return 'That piece is safe inside the Crown Temple.';
   const { nodes } = getBoard(s.boardId);
-  const dist = walkingDistances(s, from, s.config.dragonFireRange);
-  return Object.values(s.characters).filter((c) => {
-    const n = nodes[c.node];
-    const lane = n.lane;
-    // Witch is immune; Shield/Immunity/Royal Guard and safe spaces block fire; range is open paths only.
-    return (
-      c.owner !== playerId &&
-      c.kind !== 'witch' &&
-      !isProtected(c) &&
-      !c.guarded &&
-      !n.safe &&
-      lane !== 'home' &&
-      lane !== 'final' &&
-      lane !== 'temple' &&
-      dist[c.node] !== undefined &&
-      mapOf(s.boardId, c.node) === mapOf(s.boardId, from)
-    );
-  });
+  const n = nodes[c.node];
+  if (c.kind === 'witch') return PERMANENT_TRAITS.witchFireImmune;
+  const ward = wardReason(s, c);
+  if (ward) return `Protected by ${ward}.`;
+  if (n.lane === 'home' || n.type === 'castle') return 'Pieces in their castle cannot be burned.';
+  if (n.lane === 'final' || n.lane === 'temple') return 'The Royal Path and the temple are out of bounds for Dragon Fire.';
+  if (n.safe) return `${n.name} is a safe space: no attacks there.`;
+  if (mapOf(s.boardId, c.node) !== mapOf(s.boardId, comp.node)) return 'That piece is on the other map.';
+  const dist = walkingDistances(s, comp.node);
+  const d = dist[c.node];
+  if (d === undefined) return 'No open road connects your dragon to that piece.';
+  if (d > s.config.dragonFireRange) return `Out of range: ${d} steps away (Dragon Fire reaches ${s.config.dragonFireRange}).`;
+  return null;
+}
+
+export function dragonFireTargets(s: BoardState, playerId: string): Character[] {
+  if (!companionOf(s, playerId)) return [];
+  return Object.values(s.characters).filter((c) => c.owner !== playerId && !c.finished && dragonFireBlock(s, playerId, c.id) === null);
 }
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;

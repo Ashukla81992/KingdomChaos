@@ -240,7 +240,145 @@ svg :focus-visible {
   animation: kc-flash 0.9s ease-out both;
 }
 
+/* Attack animations: a short telegraph, then the hit lands (about 1.2 s in all). */
+@keyframes kc-telegraph {
+  0% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+  25%,
+  60% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+.kc-telegraph {
+  animation: kc-telegraph 1.4s ease-out both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes kc-beam {
+  0% {
+    stroke-dasharray: 0 1;
+    opacity: 0;
+  }
+  1% {
+    opacity: 0.9;
+  }
+  70% {
+    stroke-dasharray: 1 0;
+    opacity: 0.9;
+  }
+  100% {
+    stroke-dasharray: 1 0;
+    opacity: 0;
+  }
+}
+.kc-beam {
+  animation: kc-beam 0.9s ease-in 0.5s both;
+}
+@keyframes kc-shock {
+  0% {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.8);
+  }
+}
+.kc-shock {
+  animation: kc-shock 0.7s ease-out 0.55s both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes kc-land {
+  0% {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+.kc-land {
+  animation: kc-land 0.3s ease-out 0.9s both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes kc-idle-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03, 0.98);
+  }
+}
+.kc-breathe {
+  animation: kc-idle-breathe 3.2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+@keyframes kc-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+.kc-glow {
+  animation: kc-glow 2.4s ease-in-out infinite;
+}
+@keyframes kc-dust {
+  0% {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(18px);
+    opacity: 0;
+  }
+}
+.kc-dust {
+  animation: kc-dust 2.8s linear infinite;
+}
+@keyframes kc-legs {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+.kc-legs {
+  animation: kc-legs 0.9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .kc-telegraph,
+  .kc-beam,
+  .kc-shock,
+  .kc-land,
+  .kc-breathe,
+  .kc-glow,
+  .kc-dust,
+  .kc-legs,
   .kc-spin,
   .kc-pulse,
   .kc-flow,
