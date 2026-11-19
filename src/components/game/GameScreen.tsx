@@ -381,7 +381,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
         if (c?.owner === me && e.checkpoint === 4) news.push({ title: 'LAP COMPLETE!', sub: `Your ${CHARACTER_INFO[c.kind].name} has touched all four house plates. It may turn onto your Royal Path once it is open.`, tone: 'good' });
         lines.push(`${nm(e.characterId)} visited the ${plate?.name ?? ''} plate (${e.checkpoint} of 4).`);
       } else if (e.type === 'extraTurn') {
-        const why = e.reason === 'six' ? 'rolled a 6' : 'made a cut';
+        const why = e.reason === 'six' ? 'rolled a 6' : e.reason === 'temple' ? 'reached the Crown Temple' : 'made a cut';
         lines.push(`${who(e.playerId)} ${why} and earned an extra turn.`);
         if (e.playerId === me) news.push({ title: 'EXTRA TURN!', sub: `You ${why}. Finish this turn, then you go again.`, tone: 'good' });
       } else if (e.type === 'hazard') {

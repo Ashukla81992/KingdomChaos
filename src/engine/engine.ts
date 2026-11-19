@@ -265,12 +265,12 @@ function afterMovement(ctx: Ctx, moverOwner: string) {
 }
 
 /** Grant at most one bonus roll for this roll (a 6 plus any number of captures is still one). */
-function earnExtra(ctx: Ctx, reason: 'six' | 'capture') {
+function earnExtra(ctx: Ctx, reason: 'six' | 'capture' | 'temple') {
   const t = ctx.state.turn;
   if (t.extra) return;
   t.extra = reason;
   ctx.events.push({ type: 'extraTurn', playerId: t.playerId, reason });
-  log(ctx, `${playerName(ctx.state, t.playerId)} earns a bonus roll (${reason === 'six' ? 'rolled a 6' : 'made a cut'}).`, 'good', t.playerId);
+  log(ctx, `${playerName(ctx.state, t.playerId)} earns a bonus roll (${reason === 'six' ? 'rolled a 6' : reason === 'temple' ? 'reached the Crown Temple' : 'made a cut'}).`, 'good', t.playerId);
 }
 
 /** End the turn once both actions are used; skip an Adventure action that has no legal option. */
@@ -388,6 +388,8 @@ export function applyAction(state: GameState, envelope: ActionEnvelope, now: num
       ch.boosted = false;
       walk(ctx, ch, option, action.discardCardId, attack);
       if (cfg.extraTurnOnCut && ctx.events.some((e) => e.type === 'cut' && e.characterId === ch.id)) earnExtra(ctx, 'capture');
+      // Reaching the Crown Temple earns a bonus roll (still one per roll) as well as the card drawn on entry.
+      if (s.status === 'playing' && ctx.events.some((e) => e.type === 'finished' && e.characterId === ch.id)) earnExtra(ctx, 'temple');
       afterMovement(ctx, playerId);
       break;
     }

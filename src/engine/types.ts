@@ -16,6 +16,7 @@ export type NodeType =
   | 'temple'
   | 'side'
   | 'dEntrance'
+  | 'dTunnel'
   | 'path'
   | 'monster'
   | 'dragonChamber'
@@ -53,6 +54,8 @@ export interface NodeDef {
   /** Discovery site: the Dig action draws a discovery here. */
   dig?: boolean;
   dungeonGate?: boolean;
+  /** A second, quicker way in and out of the dungeon (the Tunnel Mouth). */
+  tunnelGate?: boolean;
   dock?: boolean;
   airfield?: boolean;
   /** The Witch may hop to this paired portal space for free once per turn. */
@@ -319,7 +322,7 @@ export interface TurnState {
    * [A1] Bonus roll earned by the current roll: a natural 6 or at least one movement capture. One at
    * most per roll (a 6 plus any number of captures is still one). Granted once the move resolves.
    */
-  extra: 'six' | 'capture' | null;
+  extra: 'six' | 'capture' | 'temple' | null;
   /** [A1] The current roll is a bonus roll (same turn; the Adventure action is still once per turn). */
   bonus: boolean;
   /** [A1] Rolls made this turn (1 + bonus rolls taken). */
@@ -422,7 +425,7 @@ export type GameEvent =
   /** A plate touched for the first time on this lap; `checkpoint` is how many it has now (4 = lap). */
   | { type: 'lap'; characterId: string; checkpoint: number; plate: number }
   /** [A1] A bonus roll was earned; it is granted when the current move resolves. */
-  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'capture' }
+  | { type: 'extraTurn'; playerId: string; reason: 'six' | 'capture' | 'temple' }
   /** [A1] No piece could use the full allowance; movement skipped. */
   | { type: 'noMove'; playerId: string; steps: number }
   | { type: 'hazard'; characterId: string; node: string; roll: number; sprung: boolean }

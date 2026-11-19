@@ -171,3 +171,23 @@ describe('dragon', () => {
     void freshTurn;
   });
 });
+
+describe('Dragon Fire on Royal Paths', () => {
+  it('can target a rival on a Royal Path, but still not on other safe spaces or in the temple', async () => {
+    const { dragonFireBlock } = await import('@/engine/queries');
+    const { getBoard } = await import('@/engine/board');
+    const { walkingDistances } = await import('@/engine/graph');
+    const s = noCards(game());
+    const { nodes } = getBoard(s.boardId);
+    // Find a Royal Path space and a road space within 3 steps of it for the dragon rider.
+    const final = Object.keys(nodes).find((n) => nodes[n].lane === 'final' && nodes[n].house !== undefined && nodes[n].map === 'island')!;
+    const near = Object.entries(walkingDistances(s, final)).find(([n, d]) => d >= 1 && d <= 3 && nodes[n].lane !== 'final' && !nodes[n].safe && nodes[n].type !== 'castle')![0];
+    companion(place(s, 'a-king', near), 'a-king');
+    place(s, 'b-king', final);
+    expect(dragonFireBlock(s, 'a', 'b-king')).toBeNull();
+    let t = structuredClone(s);
+    t.forcedRolls = [5];
+    t = act(t, 'a', { type: 'dragonFire', targetId: 'b-king' });
+    expect(t.characters['b-king'].node).toBe('home-purple');
+  });
+});

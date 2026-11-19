@@ -127,17 +127,20 @@ export function buildCrownQuest(): BoardDef {
   const docks: string[] = [];
   const airfields: string[] = [];
   let dungeonGate = '';
+  const backDoors: { island: string; dungeon: string }[] = [];
   for (const [idx, feats] of Object.entries(CIRCUIT_FEATURES)) {
     const n = byId.get(circuitId(Number(idx)))!;
     for (const f of feats) {
       if (f.kind === 'dock') docks.push(n.id);
       if (f.kind === 'airfield') airfields.push(n.id);
       if (f.kind === 'dungeon') dungeonGate = n.id;
+      if (f.kind === 'tunnel') backDoors.push({ island: n.id, dungeon: f.to });
       if (f.kind === 'station') Object.assign(n, { station: f.gem, name: f.name });
       else if (f.kind === 'name') n.name = f.name;
       else if (f.kind === 'safe') n.safe = true;
       else if (f.kind === 'dig') Object.assign(n, { dig: true, name: f.name });
       else if (f.kind === 'dungeon') Object.assign(n, { dungeonGate: true, name: f.name });
+      else if (f.kind === 'tunnel') Object.assign(n, { tunnelGate: true, name: f.name });
       else if (f.kind === 'dock') Object.assign(n, { dock: true, name: f.name });
       else if (f.kind === 'airfield') Object.assign(n, { airfield: true, name: f.name });
       else if (f.kind === 'portal') Object.assign(n, { portal: circuitId(f.pair), name: f.name });
@@ -227,7 +230,7 @@ export function buildCrownQuest(): BoardDef {
       lane: 'dungeon',
       name: d.name,
       xy: d.at,
-      safe: d.type === 'dEntrance' || d.type === 'safeRoom' || undefined,
+      safe: d.type === 'dEntrance' || d.type === 'dTunnel' || d.type === 'safeRoom' || undefined,
       dig: d.type === 'vault' || d.type === 'gemChamber' || undefined,
       encounter: d.encounter,
       teleport: d.type === 'trap' ? { type: 'trap', name: 'Dungeon Trapdoor', to: 'd-entrance', text: 'The floor gives way and the character slides back down to the Dungeon Entrance.' } : undefined,
@@ -259,7 +262,8 @@ export function buildCrownQuest(): BoardDef {
     houses,
     trails,
     temple: 'temple',
-    transitions: [{ island: dungeonGate, dungeon: 'd-entrance' }],
+    // The Dragon Gate stays first: monsters climb out there and the board treats it as the main gate.
+    transitions: [{ island: dungeonGate, dungeon: 'd-entrance' }, ...backDoors],
     docks,
     airfields,
     dragonHome: 'd-lair',

@@ -82,6 +82,8 @@ export type SpaceFeature =
   | { kind: 'name'; name: string }
   | { kind: 'dig'; name: string }
   | { kind: 'dungeon'; name: string }
+  /** A second way in and out of the dungeon, joined to dungeon space `to`. */
+  | { kind: 'tunnel'; name: string; to: string }
   | { kind: 'dock'; name: string }
   | { kind: 'airfield'; name: string }
   | { kind: 'portal'; name: string; pair: number }
@@ -92,7 +94,7 @@ export const CIRCUIT_FEATURES: Record<number, SpaceFeature[]> = {
   2: [{ kind: 'station', gem: 'ruby', name: 'Ruby Mine' }],
   3: [{ kind: 'safe' }],
   5: [{ kind: 'teleport', type: 'trap', name: 'Landslide', to: 37, text: 'Rocks give way under Dragon Mountain and sweep the character down to Willow Valley.' }],
-  6: [{ kind: 'name', name: 'Tunnel Mouth' }],
+  6: [{ kind: 'tunnel', name: 'Tunnel Mouth', to: 'd-tunnel' }],
   7: [{ kind: 'name', name: 'Crystal Mine' }],
   8: [{ kind: 'station', gem: 'sapphire', name: 'Sapphire Falls' }],
   12: [{ kind: 'airfield', name: 'East Airfield' }],
@@ -301,7 +303,7 @@ export interface DungeonSpace {
   id: string;
   name: string;
   at: Pt;
-  type: 'dEntrance' | 'path' | 'monster' | 'dragonChamber' | 'gemChamber' | 'trap' | 'vault' | 'safeRoom';
+  type: 'dEntrance' | 'dTunnel' | 'path' | 'monster' | 'dragonChamber' | 'gemChamber' | 'trap' | 'vault' | 'safeRoom';
   /** Arrival encounter (Stone Golem / Cave Spider). Separate from the Monster Den adventure fight. */
   encounter?: EncounterDef;
 }
@@ -340,6 +342,8 @@ export const DUNGEON_SPACES: DungeonSpace[] = [
   { id: 'd-safe-crystal', name: 'Crystal Niche', at: [1113, 497], type: 'safeRoom' },
   { id: 'd-e4', name: 'Crystal Path', at: [966, 318], type: 'path' },
   { id: 'd-shrine', name: 'Crystal Shrine', at: [1128, 332], type: 'gemChamber' },
+  // The back door under the mountain: two steps from the Dragon Lair, joined to the island's Tunnel Mouth.
+  { id: 'd-tunnel', name: 'Mountain Door', at: [1150, 178], type: 'dTunnel' },
 ];
 
 export const DUNGEON_HALLS: [string, string, { guard?: true; name?: string }?][] = [
@@ -364,4 +368,5 @@ export const DUNGEON_HALLS: [string, string, { guard?: true; name?: string }?][]
   ['d-e3', 'd-e4'],
   ['d-e4', 'd-shrine'],
   ['d-e4', 'd-lair'],
+  ['d-tunnel', 'd-e4'],
 ];

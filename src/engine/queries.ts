@@ -133,8 +133,9 @@ export function dragonFireBlock(s: BoardState, playerId: string, targetId: strin
   const ward = wardReason(s, c);
   if (ward) return `Protected by ${ward}.`;
   if (n.lane === 'home' || n.type === 'castle') return 'Pieces in their castle cannot be burned.';
-  if (n.lane === 'final' || n.lane === 'temple') return 'The Royal Path and the temple are out of bounds for Dragon Fire.';
-  if (n.safe) return `${n.name} is a safe space: no attacks there.`;
+  if (n.lane === 'temple') return 'The Crown Temple is out of bounds for Dragon Fire.';
+  // The dragon's fire reaches onto the Royal Paths: they are safe from captures, not from dragons.
+  if (n.safe && n.lane !== 'final') return `${n.name} is a safe space: no attacks there.`;
   if (mapOf(s.boardId, c.node) !== mapOf(s.boardId, comp.node)) return 'That piece is on the other map.';
   const dist = walkingDistances(s, comp.node);
   const d = dist[c.node];
@@ -172,7 +173,7 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
     const name = CHAR_NAMES[c.kind];
     const gate = board.transitions.find((t) => t.island === c.node);
     if (gate)
-      out.push({ action: { type: 'enterDungeon', characterId: c.id }, characterId: c.id, label: `${name}: enter the dungeon`, detail: 'Go down to the Dungeon Entrance. Optional side quest: the Crystal Shrine has every gem.' });
+      out.push({ action: { type: 'enterDungeon', characterId: c.id }, characterId: c.id, label: `${name}: enter the dungeon`, detail: `Go down to the ${nodes[gate.dungeon].name}${gate.dungeon === 'd-entrance' ? '' : ', two steps from the Dragon Lair'}. Optional side quest: the Crystal Shrine has every gem.` });
     const exit = board.transitions.find((t) => t.dungeon === c.node);
     if (exit) {
       const ok = canArrive(s, exit.island, c.id);

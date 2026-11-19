@@ -32,13 +32,36 @@ describe('Royal Path and temple victory', () => {
     expect(endsFor(s, 'a-king').has('temple')).toBe(false);
   });
 
-  it('lets a piece walk back off the Royal Path', () => {
-    let s = noCards(unlock(game(), 'a'));
-    place(s, 'a-queen', 'f-red-2', { lap: 4 });
+  it('a piece the temple gate would still refuse may walk back off the Royal Path', () => {
+    let s = noCards(bankAll(game(), 'a'));
+    place(s, 'a-queen', 'f-red-2', { lap: 4 }); // no capture credit yet: the gate would refuse her
     s = rollWith(s, 'a', 2);
     expect(endsFor(s, 'a-queen').has('c1')).toBe(true);
     s = move(s, 'a', 'a-queen', ['f-red-2', 'f-red-1', 'c1']);
     expect(s.characters['a-queen'].node).toBe('c1');
+  });
+
+  it('like Ludo: a ready piece only moves forward, and waits when the roll is bigger than the spaces left', () => {
+    const s = noCards(unlock(game(), 'a'));
+    for (const k of ['a-king', 'a-witch', 'a-knight']) place(s, k, 'home-red');
+    place(s, 'a-queen', 'f-red-3', { lap: 4 });
+    // f-red-3 -> f-red-4 -> f-red-5 -> temple: 3 spaces left.
+    const two = rollWith(s, 'a', 2);
+    expect([...endsFor(two, 'a-queen')]).toEqual(['f-red-5']);
+    const three = rollWith(s, 'a', 3);
+    expect([...endsFor(three, 'a-queen')]).toEqual(['temple']);
+    const five = rollWith(s, 'a', 5);
+    expect(endsFor(five, 'a-queen').size).toBe(0);
+  });
+
+  it('reaching the Crown Temple earns a bonus roll and an extra card', () => {
+    let s = noCards(unlock(game(), 'a'));
+    s.deck = [{ id: 'k1', type: 'shield' }];
+    place(s, 'a-king', 'f-red-5', { lap: 4 });
+    s = rollMove(s, 'a', 'a-king', 1, 'temple');
+    expect(s.characters['a-king'].finished).toBe(true);
+    expect(s.hands.a.map((c) => c.id)).toContain('k1');
+    expect(s.lastEvents).toContainEqual(expect.objectContaining({ type: 'extraTurn', reason: 'temple' }));
   });
 
   it('finishes a piece in the temple without ending the match until the 4th finisher', () => {

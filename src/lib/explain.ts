@@ -60,7 +60,7 @@ export function explainEvents(view: PlayerView, events: GameEvent[] = view.lastE
         cards.push({
           kind: `bonus-${e.reason}`,
           title: 'Bonus roll earned',
-          why: e.reason === 'six' ? 'You rolled a 6' : 'You captured on this move',
+          why: e.reason === 'six' ? 'You rolled a 6' : e.reason === 'temple' ? 'A piece reached the Crown Temple' : 'You captured on this move',
           now: me === e.playerId ? 'Finish this move, then roll again in the same turn.' : `${who(view, e.playerId)} will roll again.`,
           tone: 'good',
         });

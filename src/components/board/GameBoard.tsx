@@ -139,6 +139,7 @@ const MARKER_LOOK: Record<MarkerStyle, { glyph: number; frame: boolean; labels: 
 /** Distinct colours for the dungeon's special spaces (also used by the legend). */
 export const DUNGEON_TONE: Record<string, string> = {
   dEntrance: '#c58b00',
+  dTunnel: '#c58b00',
   safeRoom: '#0369a1',
   encounter: '#be123c',
   monster: '#7c2d12',
@@ -963,8 +964,15 @@ export function GameBoard(props: GameBoardProps) {
       deco.push(caption('entrance-cap', n.dungeonGate ? 'Enter Dungeon' : 'Start · Exit', r + 10 * cs, '#7a1d0b'));
       deco.push(<circle key="entrance-ring" r={r + 4} fill="none" stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={3} className={ready ? pulse : undefined} pointerEvents="none" />);
     }
+    if (n.tunnelGate || n.type === 'dTunnel') {
+      // The second way in and out of the dungeon: the Tunnel Mouth and the Mountain Door.
+      const size = iconSize * (dungeon ? 1.6 : 1.3);
+      deco.push(<image key="tunnel-icon" href="/art/icon-tunnel.png" x={-size / 2} y={-size - r} width={size} height={size} data-landmark="tunnel" pointerEvents="none" />);
+      deco.push(caption('tunnel-cap', n.tunnelGate ? 'Tunnel to Dungeon' : 'Door · Exit', r + 10 * cs, '#7a1d0b'));
+      deco.push(<circle key="tunnel-ring" r={r + 4} fill="none" stroke={ready ? '#2e9e62' : '#ffcf33'} strokeWidth={3} className={ready ? pulse : undefined} pointerEvents="none" />);
+    }
     const guide = n.map === 'dungeon' ? GUIDE.get(n.id) : undefined;
-    if (guide && n.type !== 'dEntrance') {
+    if (guide && n.type !== 'dEntrance' && n.type !== 'dTunnel') {
       const tone = n.encounter ? DUNGEON_TONE.encounter : (DUNGEON_TONE[n.type] ?? '#5b6676');
       deco.push(<circle key="guide-ring" r={r + 4} fill="none" stroke={ready ? '#2e9e62' : tone} strokeWidth={ready ? 4 : 2.5} className={ready ? pulse : undefined} pointerEvents="none" />);
       deco.push(caption('guide-cap', `${guide.name} · ${guide.tag}`, r + 14 * cs, tone));

@@ -278,6 +278,7 @@ export const LOCATION_INFO: Record<NodeType, LocationText> = {
   },
   side: { name: 'Inner route', rule: 'A two-way trail across the island: often shorter, but cards can open or close it, and some stones carry a trap risk.' },
   dEntrance: { name: 'Dungeon Entrance', rule: 'Where you arrive in the dungeon, and its exit. Safe from captures and monsters. Adventure: climb out to the Dragon Gate.' },
+  dTunnel: { name: 'Mountain Door', rule: 'The back door under Dragon Mountain, two steps from the Dragon Lair. Safe from captures and monsters. Adventure: climb out to the Tunnel Mouth on the Mountain Road.' },
   path: { name: 'Dungeon passage', rule: 'Dungeon moves use the exact allowance, the same as the island.' },
   monster: {
     name: 'Monster Den',
@@ -297,6 +298,7 @@ export const FEATURE_INFO = {
   fork: 'Fork: once your Royal Path is open, a piece may turn in here — even before it has every checkpoint. The temple gate still checks checkpoints and capture credit.',
   station: 'Gem station: passing or landing with free hands picks up this gem if your kingdom still needs that kind.',
   dig: 'Dig site: adventure action to draw a discovery — a gem, a card, a key, a hidden route opened for everyone, or a buried trap.',
+  tunnelGate: 'Tunnel Mouth, on the Mountain Road: a second way in and out of the dungeon. Enter here as an Adventure action and you arrive at the Mountain Door, two steps from the Dragon Lair.',
   dungeonGate: `Dragon Gate, on the east coast: Enter Dungeon here as an Adventure action (you arrive at the Dungeon Entrance). On a monster die of ${C.monsterOutsideRoll} a monster climbs out and attacks along this road within ${C.monsterRange} steps.`,
   dock: 'Dock: when the boat is here, sail to the other dock. Cost: your Adventure action only. Why: it skips a long walk round the coast, and gems ride safely. The boat then waits at the far dock, so a rival may take it back. Plates on the way do not count.',
   airfield: 'Airfield: when the plane is here, fly to another airfield. Cost: your Adventure action and one card from your hand as fuel. Why: the fastest jump across the island, ideal to rush gems home or reach a far plate. The plane stays where it lands. Plates on the way do not count.',
@@ -309,7 +311,7 @@ export const STATUS_INFO = {
   shield: `Shield — safe from captures and Dragon Fire for ${C.protectionMoves} enemy moves (any rival's move counts, bonus rolls too). A monster attack breaks it.`,
   immune: `Immune — safe from captures, Dragon Fire, monster attacks and Swap for ${C.protectionMoves} enemy moves.`,
   carrying: 'Carrying gems — bank them at your house gate. If captured, the attacker takes what it can carry.',
-  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die.`,
+  companion: `Dragon companion — moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}); Dragon Fire needs no card: spend the Adventure action and roll ${C.dragonFireHit}+ on the attack die. The fire reaches onto Royal Paths too.`,
   slowed: `Slowed — next move is at most ${C.slowDownMaxSteps}.`,
   beatMonster: 'Beat the monster — the Vault Door is open for this visit.',
   lap: 'Checkpoints — this piece must touch all four public markers (Red, Blue, Purple, Green), in any order. Captured pieces keep the markers they have touched.',
@@ -377,6 +379,8 @@ export const RULE_SECTIONS: RuleSection[] = [
       'Gems and capture credit belong to the kingdom. Checkpoints belong to each character.',
       'Your Royal Path opens once one of each of the four gem kinds is banked. Captures and checkpoints are separate.',
       'A piece may enter an open Royal Path early and walk back onto the island. The temple gate still needs all four checkpoints on that piece and the kingdom’s capture credit.',
+      'Like Ludo: once a piece that the temple gate would let in is on its Royal Path, it only moves forward. A roll bigger than the spaces left means it waits (move another piece instead).',
+      'Reaching the Crown Temple earns a bonus roll and an extra card.',
       `Victory: the first kingdom with ${C.finishersToWin} finished characters in the Crown Temple wins.`,
     ],
   },
@@ -526,7 +530,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     id: 'dungeon',
     title: 'Dungeon encounters',
     paragraphs: [
-      'Enter from the Dragon Gate on the east coast (space 16) as an adventure action. Dungeon moves use the exact allowance.',
+      'Enter from the Dragon Gate on the east coast (space 16) or the Tunnel Mouth on the Mountain Road (space 6) as an adventure action. The tunnel brings you out at the Mountain Door, two steps from the Dragon Lair. Leave the same way from either door. Dungeon moves use the exact allowance.',
       'Why go down: the Crystal Shrine hands you any gem your kingdom still needs, the Old Vault holds a dig, and the Dragon Lair is where the dragon is tamed. Tap any dungeon space for what it does.',
     ],
     bullets: [
@@ -565,7 +569,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     id: 'victory',
     title: 'Royal Path, temple and victory',
     paragraphs: [
-      'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Finished pieces stay on the temple; get all four in to win.',
+      'Bank one of each gem kind to open your Royal Path. Pieces may enter early and walk back until they are ready for the temple; a ready piece only moves forward and needs a roll that fits the spaces left. At the temple gate, the piece needs all four checkpoints and the kingdom needs its capture credit. Each piece that gets in earns a bonus roll and an extra card. Finished pieces stay on the temple; get all four in to win.',
     ],
     bullets: [
       'Royal Paths are safe and belong to their house. All of them are always drawn with their dots: faded with a lock badge while that kingdom’s path is locked, full colour once it has banked all four gems, and bright along the selected piece’s legal route. Tap the Crown Temple to see what each of your pieces still needs.',

@@ -495,6 +495,27 @@ export type StepBlock = 'closed' | 'opponentCastle' | 'finalLocked' | 'notYourFi
 
 type MoveBoard = BoardState & { stats?: Record<string, Pick<PlayerStats, 'cuts'>> };
 
+const templeSteps = new Map<string, Record<string, number>>();
+/** Steps from each Royal Path space to the Crown Temple, along the Royal Paths only. */
+function royalDistances(boardId: string): Record<string, number> {
+  const hit = templeSteps.get(boardId);
+  if (hit) return hit;
+  const { adj, nodes, board } = getBoard(boardId);
+  const dist: Record<string, number> = { [board.temple]: 0 };
+  const queue = [board.temple];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const ed of adj[cur]) {
+      const nx = other(ed, cur);
+      if (dist[nx] !== undefined || nodes[nx].lane !== 'final') continue;
+      dist[nx] = dist[cur] + 1;
+      queue.push(nx);
+    }
+  }
+  templeSteps.set(boardId, dist);
+  return dist;
+}
+
 function eligibleOn(s: BoardState, node: string, owner: string): Character[] {
   if (isSafe(s.boardId, node)) return [];
   return opponentsAt(s, node, owner).filter((c) => !isProtected(c));
@@ -518,6 +539,10 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
   const visited = new Set<string>([ch.node]);
   const exactTemple = s.config.exactTemple;
   const withStats = s as BoardState & { stats: Record<string, Pick<PlayerStats, 'cuts'>> };
+  // Like Ludo: once a piece that may enter the temple is on its Royal Path, it only moves forward, and a
+  // roll bigger than the spaces left means it waits. A piece the temple gate would still refuse may walk back.
+  const royal = royalDistances(s.boardId);
+  const forwardOnly = templeBlockers(withStats, characterId).length === 0;
 
   const landing = (node: string): { ok: boolean; cuts: string[] } => {
     if (ch.kind === 'queen') {
@@ -580,6 +605,7 @@ export function enumerateMoves(s: MoveBoard, characterId: string, rules: MoveRul
       const to = other(ed, node);
       const target = nodes[to];
       if (target.type === 'castle') continue;
+      if (forwardOnly && nodes[node].lane === 'final' && !((royal[to] ?? Infinity) < (royal[node] ?? Infinity))) continue;
       if (ed.guard && ed.guard.from === node && !ch.beatMonster && playerOf(s, ch.owner).keys <= 0) continue;
       if (target.lane === 'final' && nodes[node].lane !== 'final') {
         if (target.house !== house.seat || !unlocked) continue;
@@ -800,7 +826,9 @@ export function enterTemple(ctx: Ctx, ch: Character, discardCardId?: string | nu
   const count = finishersOf(s, ch.owner);
   ctx.events.push({ type: 'finished', characterId: ch.id, playerId: ch.owner, count });
   log(ctx, `${charLabel(s, ch.id)} enters the Crown Temple! (${count}/${s.config.finishersToWin})`, 'system', ch.owner);
-  if (count >= s.config.finishersToWin) finishGame(ctx, 'temple', [ch.owner]);
+  if (count >= s.config.finishersToWin) return finishGame(ctx, 'temple', [ch.owner]);
+  // The temple's reward: one extra card (the bonus roll is granted by the move).
+  if (drawCard(ctx, ch.owner, { discardCardId }) === 'drawn') log(ctx, `${playerName(s, ch.owner)} takes a card from the temple's treasury.`, 'good', ch.owner);
 }
 
 /** Most finishers; then gems banked; then a cut made; then shared. */

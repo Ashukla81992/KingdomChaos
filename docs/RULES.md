@@ -51,10 +51,16 @@ the Crown Temple.
   it is banked at once. Each kind of stone may be transmuted once per match (`alchemyUsed`).
 - **Diplomacy** (Queen, after she moved): offer a spare for a rival's spare or a power card. The panel
   explains what is missing when it cannot be used.
-- Royal Path opens on four different banked kinds alone. Enter early; walk back.
+- Royal Path opens on four different banked kinds alone. Enter early; walk back while the temple gate
+  would still refuse the piece. Like Ludo, a piece ready for the temple only moves forward, and a roll
+  bigger than the spaces left means it waits.
 - Temple gate: four checkpoints on that piece **and** kingdom capture credit. Four finishers win.
+- Reaching the temple earns a **bonus roll** (one per roll, as usual) and **an extra card**.
 
 ## Dungeon and dragon
+
+- Two ways in and out (Adventure action): the **Dragon Gate** (space 16) ↔ Dungeon Entrance, and the
+  **Tunnel Mouth** (space 6) ↔ Mountain Door, two steps from the Dragon Lair.
 
 - Stone Golem / Cave Spider: end on their space, roll 4+ (Knight +1). Win: Golem shortcut to the
   Crystal Path / Spider power card. Fail → safe room.
@@ -103,7 +109,8 @@ the Crown Temple.
 - **Dragon Fire** needs no card: it is an Adventure action of the dragon companion. Choose an
   eligible target (≤3 open spaces), then roll a separate attack die: **4–6 hits** (`dragonFireHit`),
   1–3 misses and the action is still spent. The attack die never earns a bonus roll. A hit sends the
-  target home and drops its gems; no capture credit, no bonus.
+  target home and drops its gems; no capture credit, no bonus. The fire reaches onto **Royal Paths**
+  (they are safe from captures, not from the dragon); castles, other safe spaces and the temple stay out of bounds.
 - Release → wild dragon blocks; Witch may pass. Dragon Slayer: Queen only, end on wild dragon, 4+.
 
 ## Modes
