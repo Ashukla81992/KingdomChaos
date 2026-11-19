@@ -370,6 +370,98 @@ svg :focus-visible {
   transform-origin: center;
 }
 
+@keyframes kc-stomp {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+  25% {
+    transform: translateY(-4px) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(0) rotate(0);
+  }
+  75% {
+    transform: translateY(-4px) rotate(2deg);
+  }
+}
+.kc-stomp {
+  animation: kc-stomp 0.9s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+@keyframes kc-slam {
+  0% {
+    transform: translateY(-10px) scale(1.04);
+  }
+  35% {
+    transform: translateY(4px) scale(1.08, 0.94);
+  }
+  60%,
+  100% {
+    transform: none;
+  }
+}
+.kc-slam {
+  animation: kc-slam 0.7s cubic-bezier(0.5, 0, 0.3, 1.4) 2;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+@keyframes kc-sway {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0);
+  }
+  50% {
+    transform: translateX(1.5px) rotate(1.5deg) scale(1.02, 0.98);
+  }
+}
+.kc-sway {
+  animation: kc-sway 2.6s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+@keyframes kc-skitter {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-3px);
+  }
+  40% {
+    transform: translateX(3px);
+  }
+  60% {
+    transform: translateX(-2px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+.kc-skitter {
+  animation: kc-skitter 0.5s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+@keyframes kc-lunge {
+  0% {
+    transform: none;
+  }
+  30% {
+    transform: translateY(-8px) scale(1.12);
+  }
+  60%,
+  100% {
+    transform: none;
+  }
+}
+.kc-lunge {
+  animation: kc-lunge 0.6s ease-out 2;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kc-telegraph,
   .kc-beam,
@@ -379,6 +471,11 @@ svg :focus-visible {
   .kc-glow,
   .kc-dust,
   .kc-legs,
+  .kc-stomp,
+  .kc-slam,
+  .kc-sway,
+  .kc-skitter,
+  .kc-lunge,
   .kc-spin,
   .kc-pulse,
   .kc-flow,
