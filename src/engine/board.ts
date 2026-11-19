@@ -1,7 +1,7 @@
 import { buildCrownQuest } from './crownquest';
 import type { BoardDef, EdgeDef, HouseInfo, NodeDef } from './types';
 
-export { ISLAND_SIZE, CIRCUIT_LENGTH, FINAL_LENGTH, HOUSES } from './crownLayout';
+export { BOARD_W, BOARD_H, BOARD_CONTENT, CIRCUIT_LENGTH, FINAL_LENGTH, HOUSES } from './crownLayout';
 export { circuitId } from './crownquest';
 
 /** Kingdom Chaos: Crown Quest. The layout lives in crownLayout.ts; this module indexes it. */

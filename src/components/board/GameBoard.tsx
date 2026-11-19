@@ -8,7 +8,9 @@ import {
   DUNGEON_GUIDE,
   DUNGEON_LANDMARKS,
   landmarkText,
-  ISLAND_SIZE,
+  BOARD_CONTENT,
+  BOARD_H,
+  BOARD_W,
   gemList,
   gemsOf,
   dragonNode,
@@ -148,13 +150,33 @@ export const DUNGEON_TONE: Record<string, string> = {
 const GUIDE = new Map(DUNGEON_GUIDE.map((g) => [g.node, g]));
 
 type Pt = [number, number];
-const W = ISLAND_SIZE;
-const H = ISLAND_SIZE;
+const W = BOARD_W;
+const H = BOARD_H;
 
 /**
  * The view box around the W × H painting for a board area of the given size: the same shape as the
  * area, with the painting fitted and centred. The extra room shows the painting's mirrored bleed.
  */
+type Cam = { k: number; x: number; y: number };
+
+/**
+ * The opening camera: the playable part of the painting (BOARD_CONTENT) as large as the screen allows,
+ * never smaller than the whole painting. On a wide screen that is the whole painting; on a phone held
+ * upright it trims the open sea at the sides.
+ */
+export function homeView(vw: number, vh: number): Cam {
+  const c = BOARD_CONTENT;
+  const k = Math.max(1, Math.min(vw / c.w, vh / c.h));
+  if (k === 1) return { k: 1, x: 0, y: 0 };
+  const lo = (size: number, frame: number) => (size - frame) / 2;
+  const fit = (v: number, size: number, frame: number) => {
+    const a = lo(size, frame);
+    const b = a + frame - size * k;
+    return Math.min(Math.max(a, b), Math.max(Math.min(a, b), v));
+  };
+  return { k, x: fit(W / 2 - (c.x + c.w / 2) * k, W, vw), y: fit(H / 2 - (c.y + c.h / 2) * k, H, vh) };
+}
+
 export function viewFrame(width: number, height: number): { vw: number; vh: number } {
   const a = width > 0 && height > 0 ? width / height : W / H;
   return a >= W / H ? { vw: H * a, vh: H } : { vw: W, vh: W / a };
@@ -224,9 +246,12 @@ export function GameBoard(props: GameBoardProps) {
   const layerRef = useRef<SVGGElement>(null);
   /** On-screen size of the board area. The view box takes its shape, so the board fills any screen. */
   const [box, setBox] = useState({ w: W * 0.6, h: H * 0.6 });
-  const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   const { vw: VW, vh: VH } = viewFrame(box.w, box.h);
   const px = box.w / VW;
+  /** null: the home view, which follows the screen shape (the island framed, the open sea trimmed). */
+  const [cam, setCam] = useState<Cam | null>(null);
+  const zoom = cam ?? homeView(VW, VH);
+  const setZoom = useCallback((u: Cam | null | ((z: Cam) => Cam)) => setCam((prev) => (typeof u === 'function' ? u(prev ?? homeView(VW, VH)) : u)), [VW, VH]);
 
   useLayoutEffect(() => {
     const el = svgRef.current;
@@ -244,7 +269,7 @@ export function GameBoard(props: GameBoardProps) {
   useEffect(() => {
     // Reset view and map switches are explicit user commands that reset the camera.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setZoom({ k: 1, x: 0, y: 0 });
+    setCam(null);
   }, [resetKey, map]);
 
   const scale = px * zoom.k;
@@ -280,7 +305,8 @@ export function GameBoard(props: GameBoardProps) {
   // A resize (rotating a phone, leaving full screen) can leave the camera off the board.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setZoom((z) => {
+    setCam((z) => {
+      if (!z) return z;
       const c = clamp(z);
       return c.k === z.k && c.x === z.x && c.y === z.y ? z : c;
     });
@@ -473,7 +499,7 @@ export function GameBoard(props: GameBoardProps) {
   };
 
   const onWheel = (e: React.WheelEvent<SVGSVGElement>) => {
-    if (!e.ctrlKey && !e.metaKey && !e.altKey && zoom.k === 1 && e.deltaY > 0) return;
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && zoom.k <= 1 && e.deltaY > 0) return;
     const p = toView(e.clientX, e.clientY);
     if (p) zoomAt(e.deltaY < 0 ? 1.15 : 1 / 1.15, p[0], p[1]);
   };
@@ -490,7 +516,7 @@ export function GameBoard(props: GameBoardProps) {
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === '+' || e.key === '=') zoomAt(1.25);
     else if (e.key === '-' || e.key === '_') zoomAt(1 / 1.25);
-    else if (e.key === '0') setZoom({ k: 1, x: 0, y: 0 });
+    else if (e.key === '0') setZoom(null);
     else return;
     e.preventDefault();
   };
@@ -1510,7 +1536,7 @@ export function GameBoard(props: GameBoardProps) {
             aria-label={zoom.k >= fillK - 0.01 ? 'Show the whole map' : 'Fill the screen with the map'}
             title={zoom.k >= fillK - 0.01 ? 'Show the whole map' : 'Fill the screen with the map'}
             data-fill-board={zoom.k >= fillK - 0.01 ? 'on' : 'off'}
-            onClick={() => (zoom.k >= fillK - 0.01 ? setZoom({ k: 1, x: 0, y: 0 }) : setZoom(clamp({ k: fillK, x: (W / 2) * (1 - fillK), y: (H / 2) * (1 - fillK) })))}
+            onClick={() => (zoom.k >= fillK - 0.01 ? setZoom(null) : setZoom(clamp({ k: fillK, x: (W / 2) * (1 - fillK), y: (H / 2) * (1 - fillK) })))}
           >
             {zoom.k >= fillK - 0.01 ? <Shrink size={16} /> : <Expand size={16} />}
           </button>
@@ -1521,7 +1547,7 @@ export function GameBoard(props: GameBoardProps) {
         <button type="button" className="btn btn-ghost icon-btn bg-white/90!" aria-label="Zoom out" disabled={zoom.k <= 1} onClick={() => zoomAt(1 / 1.3)}>
           <Minus size={18} />
         </button>
-        <button type="button" className="btn btn-ghost icon-btn bg-white/90!" aria-label="Reset zoom" disabled={zoom.k === 1} onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>
+        <button type="button" className="btn btn-ghost icon-btn bg-white/90!" aria-label="Reset zoom" disabled={cam === null} onClick={() => setZoom(null)}>
           <RotateCcw size={16} />
         </button>
       </div>

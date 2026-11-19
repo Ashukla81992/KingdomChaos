@@ -1,7 +1,7 @@
 import type { EncounterDef, GemKind } from './types';
 
 /**
- * Crown Quest board data, in pixels of the island painting (public/board/island.jpg, 1024 × 1024).
+ * Crown Quest board data, in pixels of the island painting (public/board/island.jpg, 1536 × 1024).
  *
  * The painting is decoration; these lists are the rules. The main road is a ring of CIRCUIT_LENGTH
  * spaces through all four house plates, walked in either direction; it crosses Dragon Mountain
@@ -10,7 +10,11 @@ import type { EncounterDef, GemKind } from './types';
  * `snap`) onto the painting and writes crownRoutes.ts, and the builder spaces the stones evenly.
  */
 
-export const ISLAND_SIZE = 1024;
+/** Both paintings (island and dungeon) are 3:2, 1536 × 1024; every position below is in their pixels. */
+export const BOARD_W = 1536;
+export const BOARD_H = 1024;
+/** The playable middle of both paintings: everything outside it is open sea or cave wall. */
+export const BOARD_CONTENT = { x: 270, y: 0, w: 1030, h: 1024 };
 export const CIRCUIT_LENGTH = 40;
 export const FINAL_LENGTH = 5;
 
@@ -29,23 +33,23 @@ export interface CircuitAnchor {
 
 /** Clockwise from the Red gate. */
 export const CIRCUIT_ANCHORS: CircuitAnchor[] = [
-  { idx: 0, at: [205, 175], via: [[248, 178]] },
-  { idx: 2, at: [292, 174], via: [[322, 205]] },
-  { idx: 4, at: [345, 238], via: [[395, 224]] },
-  { idx: 6, at: [443, 205], snap: false, tunnel: 'Dragon Mountain Tunnel' },
-  { idx: 7, at: [676, 150], via: [[718, 165]] },
-  { idx: 8, at: [756, 184], via: [[801, 183]] },
-  { idx: 10, at: [845, 175], via: [[843, 221], [871, 254]] },
-  { idx: 12, at: [880, 290], via: [[925, 311], [941, 351], [939, 393], [959, 432], [933, 467]] },
-  { idx: 16, at: [872, 496], via: [[869, 549], [877, 591], [874, 633], [866, 674], [829, 695]] },
-  { idx: 19, at: [811, 699], via: [[800, 724], [797, 767]] },
-  { idx: 20, at: [812, 810], via: [[769, 799], [725, 794], [682, 789], [642, 771]] },
-  { idx: 23, at: [608, 755], via: [[565, 778], [546, 817], [506, 829], [473, 855], [431, 866], [402, 841], [364, 822]] },
-  { idx: 28, at: [334, 792], via: [[295, 788], [253, 801]] },
-  { idx: 30, at: [210, 805], via: [[173, 777]] },
-  { idx: 31, at: [164, 712], via: [[147, 705], [106, 694], [84, 670], [81, 628], [92, 587], [80, 549], [65, 508], [91, 473]] },
-  { idx: 35, at: [105, 459], via: [[106, 435], [97, 392], [127, 362], [152, 334], [197, 329]] },
-  { idx: 38, at: [215, 313], via: [[202, 297], [165, 273], [148, 238], [186, 217]] },
+  { idx: 0, at: [483, 175], via: [[526, 178]] },
+  { idx: 2, at: [570, 174], via: [[600, 205]] },
+  { idx: 4, at: [623, 238], via: [[673, 224]] },
+  { idx: 6, at: [721, 205], snap: false, tunnel: 'Dragon Mountain Tunnel' },
+  { idx: 7, at: [954, 150], via: [[996, 165]] },
+  { idx: 8, at: [1034, 184], via: [[1079, 183]] },
+  { idx: 10, at: [1123, 175], via: [[1121, 221], [1149, 254]] },
+  { idx: 12, at: [1158, 290], via: [[1203, 311], [1219, 351], [1217, 393], [1237, 432], [1211, 467]] },
+  { idx: 16, at: [1150, 496], via: [[1147, 549], [1155, 591], [1152, 633], [1144, 674], [1107, 695]] },
+  { idx: 19, at: [1089, 699], via: [[1078, 724], [1075, 767]] },
+  { idx: 20, at: [1090, 810], via: [[1047, 799], [1003, 794], [960, 789], [920, 771]] },
+  { idx: 23, at: [886, 755], via: [[843, 778], [824, 817], [784, 829], [751, 855], [709, 866], [680, 841], [642, 822]] },
+  { idx: 28, at: [612, 792], via: [[573, 788], [531, 801]] },
+  { idx: 30, at: [488, 805], via: [[451, 777]] },
+  { idx: 31, at: [442, 712], via: [[425, 705], [384, 694], [362, 670], [359, 628], [370, 587], [358, 549], [343, 508], [369, 473]] },
+  { idx: 35, at: [383, 459], via: [[384, 435], [375, 392], [405, 362], [430, 334], [475, 329]] },
+  { idx: 38, at: [493, 313], via: [[480, 297], [443, 273], [426, 238], [464, 217]] },
 ];
 
 export const HOUSE_KEYS = ['red', 'blue', 'purple', 'green'] as const;
@@ -64,13 +68,13 @@ export interface HouseDef {
 
 /** Clockwise seat order around the island. */
 export const HOUSES: HouseDef[] = [
-  { key: 'red', name: 'Red', castleName: 'Red Castle', castle: [135, 100], entry: 0, finalVia: [[290, 238], [345, 300], [405, 330], [460, 362]] },
-  { key: 'blue', name: 'Blue', castleName: 'Blue Castle', castle: [912, 105], entry: 10, finalVia: [[812, 250], [742, 290], [665, 335], [585, 372]] },
-  { key: 'purple', name: 'Purple', castleName: 'Purple Castle', castle: [905, 735], entry: 20, finalVia: [[715, 735], [672, 655], [628, 560], [560, 470]] },
-  { key: 'green', name: 'Green', castleName: 'Green Castle', castle: [92, 740], entry: 30, finalVia: [[240, 630], [305, 580], [350, 500], [440, 445]] },
+  { key: 'red', name: 'Red', castleName: 'Red Castle', castle: [413, 100], entry: 0, finalVia: [[568, 238], [623, 300], [683, 330], [738, 362]] },
+  { key: 'blue', name: 'Blue', castleName: 'Blue Castle', castle: [1190, 105], entry: 10, finalVia: [[1090, 250], [1020, 290], [943, 335], [863, 372]] },
+  { key: 'purple', name: 'Purple', castleName: 'Purple Castle', castle: [1183, 735], entry: 20, finalVia: [[993, 735], [950, 655], [906, 560], [838, 470]] },
+  { key: 'green', name: 'Green', castleName: 'Green Castle', castle: [370, 740], entry: 30, finalVia: [[518, 630], [583, 580], [628, 500], [718, 445]] },
 ];
 
-export const TEMPLE_AT: Pt = [512, 388];
+export const TEMPLE_AT: Pt = [790, 388];
 
 export type SpaceFeature =
   | { kind: 'station'; gem: GemKind; name: string }
@@ -193,22 +197,22 @@ export interface RouteHub {
 }
 
 export const ROUTE_HUBS: RouteHub[] = [
-  { id: 'plaza', name: 'Temple Plaza', at: [509, 462], trail: 'temple' },
-  { id: 'temple-west', name: 'West Temple Gate', at: [397, 448], trail: 'temple' },
-  { id: 'temple-east', name: 'East Temple Gate', at: [583, 496], trail: 'temple' },
-  { id: 'camp-west', name: 'Camp Crossing', at: [254, 524], trail: 'camp' },
-  { id: 'camp-east', name: 'Camp Corner', at: [386, 553], trail: 'camp' },
-  { id: 'fern', name: 'Fern Crossing', at: [195, 652], trail: 'camp' },
-  { id: 'glade', name: 'Emerald Glade', at: [353, 656], trail: 'camp' },
-  { id: 'rope-west', name: 'Rope Bridge Landing', at: [377, 716], trail: 'river' },
-  { id: 'bridge-west', name: 'Stone Bridge West', at: [409, 602], trail: 'river' },
-  { id: 'bridge-east', name: 'Stone Bridge East', at: [593, 606], trail: 'river' },
-  { id: 'falls', name: 'Falls Crossing', at: [618, 678], trail: 'river' },
-  { id: 'ruins', name: 'Old Ruins', at: [672, 556], trail: 'ruins' },
-  { id: 'vale', name: 'Diamond Vale', at: [783, 681], trail: 'ruins' },
-  { id: 'pit', name: 'Pit Crossing', at: [731, 496], trail: 'ruins' },
-  { id: 'crag', name: 'Crag Crossing', at: [711, 378], trail: 'falls' },
-  { id: 'sapphire', name: 'Sapphire Pool', at: [759, 301], trail: 'falls' },
+  { id: 'plaza', name: 'Temple Plaza', at: [787, 462], trail: 'temple' },
+  { id: 'temple-west', name: 'West Temple Gate', at: [675, 448], trail: 'temple' },
+  { id: 'temple-east', name: 'East Temple Gate', at: [861, 496], trail: 'temple' },
+  { id: 'camp-west', name: 'Camp Crossing', at: [532, 524], trail: 'camp' },
+  { id: 'camp-east', name: 'Camp Corner', at: [664, 553], trail: 'camp' },
+  { id: 'fern', name: 'Fern Crossing', at: [473, 652], trail: 'camp' },
+  { id: 'glade', name: 'Emerald Glade', at: [631, 656], trail: 'camp' },
+  { id: 'rope-west', name: 'Rope Bridge Landing', at: [655, 716], trail: 'river' },
+  { id: 'bridge-west', name: 'Stone Bridge West', at: [687, 602], trail: 'river' },
+  { id: 'bridge-east', name: 'Stone Bridge East', at: [871, 606], trail: 'river' },
+  { id: 'falls', name: 'Falls Crossing', at: [896, 678], trail: 'river' },
+  { id: 'ruins', name: 'Old Ruins', at: [950, 556], trail: 'ruins' },
+  { id: 'vale', name: 'Diamond Vale', at: [1061, 681], trail: 'ruins' },
+  { id: 'pit', name: 'Pit Crossing', at: [1009, 496], trail: 'ruins' },
+  { id: 'crag', name: 'Crag Crossing', at: [989, 378], trail: 'falls' },
+  { id: 'sapphire', name: 'Sapphire Pool', at: [1037, 301], trail: 'falls' },
 ];
 
 export interface SideRoute {
@@ -240,59 +244,59 @@ export interface SideRoute {
  */
 export const SIDE_ROUTES: SideRoute[] = [
   // Temple roads
-  { id: 'red-road', name: 'Red Temple Road', trail: 'temple', from: 4, to: 'temple-west', via: [[370, 278], [416, 289], [435, 318], [405, 353], [398, 399]], spaces: 3, snap: true },
-  { id: 'temple-pass', name: 'Temple Pass', trail: 'temple', from: 'temple-west', to: 'plaza', via: [[433, 461], [471, 461]], spaces: 1, snap: true, blockable: [{ at: [480, 462], id: 'temple-pass', name: 'Temple Pass' }] },
-  { id: 'camp-steps', name: 'Camp Steps', trail: 'temple', from: 'camp-east', to: 'plaza', via: [[431, 510], [467, 482]], spaces: 1, snap: true },
-  { id: 'east-steps', name: 'East Temple Steps', trail: 'temple', from: 'temple-east', to: 'plaza', via: [[555, 494]], spaces: 0, snap: true },
-  { id: 'crag-road', name: 'Crag Road', trail: 'temple', from: 'crag', to: 'temple-east', via: [[669, 385], [631, 397], [626, 438], [596, 460]], spaces: 2, snap: true },
+  { id: 'red-road', name: 'Red Temple Road', trail: 'temple', from: 4, to: 'temple-west', via: [[648, 278], [694, 289], [713, 318], [683, 353], [676, 399]], spaces: 3, snap: true },
+  { id: 'temple-pass', name: 'Temple Pass', trail: 'temple', from: 'temple-west', to: 'plaza', via: [[711, 461], [749, 461]], spaces: 1, snap: true, blockable: [{ at: [758, 462], id: 'temple-pass', name: 'Temple Pass' }] },
+  { id: 'camp-steps', name: 'Camp Steps', trail: 'temple', from: 'camp-east', to: 'plaza', via: [[709, 510], [745, 482]], spaces: 1, snap: true },
+  { id: 'east-steps', name: 'East Temple Steps', trail: 'temple', from: 'temple-east', to: 'plaza', via: [[833, 494]], spaces: 0, snap: true },
+  { id: 'crag-road', name: 'Crag Road', trail: 'temple', from: 'crag', to: 'temple-east', via: [[947, 385], [909, 397], [904, 438], [874, 460]], spaces: 2, snap: true },
   // Lakeside
-  { id: 'lake', name: 'Lakeside Road', trail: 'lake', from: 38, to: 'temple-west', via: [[251, 334], [296, 339], [322, 370], [358, 383]], spaces: 3, snap: true, terrainSites: [[322, 370]], digSites: [{ at: [270, 336], name: 'Lakeside Dig' }] },
-  { id: 'willow', name: 'Willow Road', trail: 'lake', from: 38, to: 4, via: [[248, 276], [295, 258]], spaces: 1, snap: true },
+  { id: 'lake', name: 'Lakeside Road', trail: 'lake', from: 38, to: 'temple-west', via: [[529, 334], [574, 339], [600, 370], [636, 383]], spaces: 3, snap: true, terrainSites: [[600, 370]], digSites: [{ at: [548, 336], name: 'Lakeside Dig' }] },
+  { id: 'willow', name: 'Willow Road', trail: 'lake', from: 38, to: 4, via: [[526, 276], [573, 258]], spaces: 1, snap: true },
   // Camp and glade
-  { id: 'camp-trail', name: 'Camp Trail', trail: 'camp', from: 35, to: 'camp-west', via: [[146, 470], [180, 494], [213, 513]], spaces: 1, snap: true },
-  { id: 'camp-road', name: 'Camp Road', trail: 'camp', from: 'camp-west', to: 'camp-east', via: [[300, 511], [347, 511]], spaces: 1, snap: true, structures: [{ at: [360, 515], kind: 'plot', gate: 'camp-road', name: 'Camp Road (unbuilt)', open: false }], digSites: [{ at: [310, 512], name: 'Old Camp Dig' }] },
-  { id: 'bridge-lane', name: 'Bridge Lane', trail: 'camp', from: 'camp-east', to: 'bridge-west', via: [[383, 571]], spaces: 0, snap: true },
-  { id: 'bramble', name: 'Bramble Lane', trail: 'camp', from: 'camp-west', to: 'fern', via: [[230, 551], [198, 574], [196, 613]], spaces: 1, snap: true, hazards: [{ at: [205, 590], name: 'Bramble Snare' }] },
-  { id: 'green-lane', name: 'Green Lane', trail: 'camp', from: 'fern', to: 31, via: [[172, 676]], spaces: 0, snap: true },
-  { id: 'glade-road', name: 'Glade Road', trail: 'camp', from: 'fern', to: 'glade', via: [[235, 651], [274, 644], [314, 647]], spaces: 1, snap: true, digSites: [{ at: [274, 644], name: 'Glade Dig' }] },
-  { id: 'glade-north', name: 'Glade Path', trail: 'camp', from: 'glade', to: 'bridge-west', via: [[390, 638]], spaces: 0, snap: true },
-  { id: 'glade-south', name: 'Glade Path', trail: 'camp', from: 'glade', to: 'rope-west', via: [[351, 692]], spaces: 0, snap: true },
-  { id: 'harbour-lane', name: 'Harbour Lane', trail: 'camp', from: 'rope-west', to: 28, via: [[357, 753]], spaces: 0, snap: true },
+  { id: 'camp-trail', name: 'Camp Trail', trail: 'camp', from: 35, to: 'camp-west', via: [[424, 470], [458, 494], [491, 513]], spaces: 1, snap: true },
+  { id: 'camp-road', name: 'Camp Road', trail: 'camp', from: 'camp-west', to: 'camp-east', via: [[578, 511], [625, 511]], spaces: 1, snap: true, structures: [{ at: [638, 515], kind: 'plot', gate: 'camp-road', name: 'Camp Road (unbuilt)', open: false }], digSites: [{ at: [588, 512], name: 'Old Camp Dig' }] },
+  { id: 'bridge-lane', name: 'Bridge Lane', trail: 'camp', from: 'camp-east', to: 'bridge-west', via: [[661, 571]], spaces: 0, snap: true },
+  { id: 'bramble', name: 'Bramble Lane', trail: 'camp', from: 'camp-west', to: 'fern', via: [[508, 551], [476, 574], [474, 613]], spaces: 1, snap: true, hazards: [{ at: [483, 590], name: 'Bramble Snare' }] },
+  { id: 'green-lane', name: 'Green Lane', trail: 'camp', from: 'fern', to: 31, via: [[450, 676]], spaces: 0, snap: true },
+  { id: 'glade-road', name: 'Glade Road', trail: 'camp', from: 'fern', to: 'glade', via: [[513, 651], [552, 644], [592, 647]], spaces: 1, snap: true, digSites: [{ at: [552, 644], name: 'Glade Dig' }] },
+  { id: 'glade-north', name: 'Glade Path', trail: 'camp', from: 'glade', to: 'bridge-west', via: [[668, 638]], spaces: 0, snap: true },
+  { id: 'glade-south', name: 'Glade Path', trail: 'camp', from: 'glade', to: 'rope-west', via: [[629, 692]], spaces: 0, snap: true },
+  { id: 'harbour-lane', name: 'Harbour Lane', trail: 'camp', from: 'rope-west', to: 28, via: [[635, 753]], spaces: 0, snap: true },
   // River crossings
-  { id: 'rope', name: 'Rope Bridge Road', trail: 'river', from: 'rope-west', to: 'falls', via: [[413, 700], [453, 688], [493, 676], [533, 681], [573, 688]], spaces: 2, snap: true, structures: [{ at: [448, 690], kind: 'bridge', gate: 'broken-bridge', name: 'Rope Bridge', open: false }], hazards: [{ at: [540, 680], name: 'Spray Snare' }] },
-  { id: 'stone', name: 'Stone Bridge Road', trail: 'river', from: 'bridge-west', to: 'bridge-east', via: [[455, 602], [501, 602], [547, 605]], spaces: 1, snap: true, structures: [{ at: [470, 602], kind: 'bridge', gate: 'stone-bridge', name: 'Stone Bridge', open: true }] },
-  { id: 'gorge', name: 'Gorge Path', trail: 'river', from: 'bridge-east', to: 'falls', via: [[605, 640]], spaces: 0, snap: true },
-  { id: 'falls-road', name: 'Falls Road', trail: 'river', from: 'falls', to: 23, via: [[606, 716]], spaces: 0, snap: true },
-  { id: 'vale-road', name: 'Vale Road', trail: 'river', from: 'falls', to: 'vale', via: [[660, 669], [703, 661]], spaces: 1, snap: true, terrainSites: [[680, 665]] },
+  { id: 'rope', name: 'Rope Bridge Road', trail: 'river', from: 'rope-west', to: 'falls', via: [[691, 700], [731, 688], [771, 676], [811, 681], [851, 688]], spaces: 2, snap: true, structures: [{ at: [726, 690], kind: 'bridge', gate: 'broken-bridge', name: 'Rope Bridge', open: false }], hazards: [{ at: [818, 680], name: 'Spray Snare' }] },
+  { id: 'stone', name: 'Stone Bridge Road', trail: 'river', from: 'bridge-west', to: 'bridge-east', via: [[733, 602], [779, 602], [825, 605]], spaces: 1, snap: true, structures: [{ at: [748, 602], kind: 'bridge', gate: 'stone-bridge', name: 'Stone Bridge', open: true }] },
+  { id: 'gorge', name: 'Gorge Path', trail: 'river', from: 'bridge-east', to: 'falls', via: [[883, 640]], spaces: 0, snap: true },
+  { id: 'falls-road', name: 'Falls Road', trail: 'river', from: 'falls', to: 23, via: [[884, 716]], spaces: 0, snap: true },
+  { id: 'vale-road', name: 'Vale Road', trail: 'river', from: 'falls', to: 'vale', via: [[938, 669], [981, 661]], spaces: 1, snap: true, terrainSites: [[958, 665]] },
   // East ruins
-  { id: 'ruins-lane', name: 'Ruins Lane', trail: 'ruins', from: 'bridge-east', to: 'ruins', via: [[631, 584]], spaces: 0, snap: true },
-  { id: 'ruins-steps', name: 'Ruins Steps', trail: 'ruins', from: 'ruins', to: 'temple-east', via: [[617, 523]], spaces: 1, snap: true, digSites: [{ at: [617, 523], name: 'Ruins Dig' }] },
-  { id: 'vale-pass', name: 'Vale Pass', trail: 'ruins', from: 'vale', to: 'ruins', via: [[750, 616], [742, 578], [703, 565]], spaces: 1, snap: true, blockable: [{ at: [705, 562], id: 'vale-pass', name: 'Vale Pass' }] },
-  { id: 'purple-lane', name: 'Purple Lane', trail: 'ruins', from: 'vale', to: 19, via: [[778, 678]], spaces: 0, snap: true },
-  { id: 'ruins-road', name: 'Ruins Road', trail: 'ruins', from: 'pit', to: 'ruins', via: [[697, 520]], spaces: 0, snap: true, structures: [{ at: [697, 520], kind: 'plot', gate: 'ruins-road', name: 'Ruins Road (unbuilt)', open: false }] },
-  { id: 'gate-road', name: 'Dragon Gate Road', trail: 'ruins', from: 'pit', to: 16, via: [[774, 493], [816, 495]], spaces: 1, snap: true },
-  { id: 'pit-road', name: 'Pit Road', trail: 'ruins', from: 'pit', to: 'crag', via: [[735, 452], [744, 409]], spaces: 1, snap: true, hazards: [{ at: [740, 430], name: 'Crag Snare' }] },
+  { id: 'ruins-lane', name: 'Ruins Lane', trail: 'ruins', from: 'bridge-east', to: 'ruins', via: [[909, 584]], spaces: 0, snap: true },
+  { id: 'ruins-steps', name: 'Ruins Steps', trail: 'ruins', from: 'ruins', to: 'temple-east', via: [[895, 523]], spaces: 1, snap: true, digSites: [{ at: [895, 523], name: 'Ruins Dig' }] },
+  { id: 'vale-pass', name: 'Vale Pass', trail: 'ruins', from: 'vale', to: 'ruins', via: [[1028, 616], [1020, 578], [981, 565]], spaces: 1, snap: true, blockable: [{ at: [983, 562], id: 'vale-pass', name: 'Vale Pass' }] },
+  { id: 'purple-lane', name: 'Purple Lane', trail: 'ruins', from: 'vale', to: 19, via: [[1056, 678]], spaces: 0, snap: true },
+  { id: 'ruins-road', name: 'Ruins Road', trail: 'ruins', from: 'pit', to: 'ruins', via: [[975, 520]], spaces: 0, snap: true, structures: [{ at: [975, 520], kind: 'plot', gate: 'ruins-road', name: 'Ruins Road (unbuilt)', open: false }] },
+  { id: 'gate-road', name: 'Dragon Gate Road', trail: 'ruins', from: 'pit', to: 16, via: [[1052, 493], [1094, 495]], spaces: 1, snap: true },
+  { id: 'pit-road', name: 'Pit Road', trail: 'ruins', from: 'pit', to: 'crag', via: [[1013, 452], [1022, 409]], spaces: 1, snap: true, hazards: [{ at: [1018, 430], name: 'Crag Snare' }] },
   // Sapphire falls
-  { id: 'crag-pass', name: 'Crag Pass', trail: 'falls', from: 'crag', to: 'sapphire', via: [[742, 343]], spaces: 0, snap: true, blockable: [{ at: [742, 343], id: 'crag-pass', name: 'Crag Pass' }] },
-  { id: 'blue-road', name: 'Blue Falls Road', trail: 'falls', from: 'sapphire', to: 12, via: [[798, 298], [837, 293]], spaces: 1, snap: true },
-  { id: 'falls-path', name: 'Falls Path', trail: 'falls', from: 'sapphire', to: 8, via: [[775, 262], [758, 225]], spaces: 1, snap: true, terrainSites: [[768, 245]] },
+  { id: 'crag-pass', name: 'Crag Pass', trail: 'falls', from: 'crag', to: 'sapphire', via: [[1020, 343]], spaces: 0, snap: true, blockable: [{ at: [1020, 343], id: 'crag-pass', name: 'Crag Pass' }] },
+  { id: 'blue-road', name: 'Blue Falls Road', trail: 'falls', from: 'sapphire', to: 12, via: [[1076, 298], [1115, 293]], spaces: 1, snap: true },
+  { id: 'falls-path', name: 'Falls Path', trail: 'falls', from: 'sapphire', to: 8, via: [[1053, 262], [1036, 225]], spaces: 1, snap: true, terrainSites: [[1046, 245]] },
   {
     id: 'mine',
     name: 'Crystal Mine Road',
     trail: 'falls',
     from: 'sapphire',
     to: 7,
-    via: [[714, 288], [670, 292], [625, 302], [612, 258], [621, 213], [636, 168]],
+    via: [[992, 288], [948, 292], [903, 302], [890, 258], [899, 213], [914, 168]],
     spaces: 3,
     snap: true,
-    structures: [{ at: [640, 170], kind: 'tunnel', gate: 'mine-tunnel', name: 'Crystal Mine Tunnel', open: false }],
+    structures: [{ at: [918, 170], kind: 'tunnel', gate: 'mine-tunnel', name: 'Crystal Mine Tunnel', open: false }],
   },
 ];
 
 /** Chance (out of the die) that stopping on a trap-risk stone springs the snare: 1–2 on a d6. */
 export const HAZARD_ROLL_MAX = 2;
 
-/** Dungeon spaces on the dungeon painting (public/board/dungeon.jpg, 1024 × 1024). */
+/** Dungeon spaces on the dungeon painting (public/board/dungeon.jpg, 1536 × 1024). */
 export interface DungeonSpace {
   id: string;
   name: string;
@@ -303,39 +307,39 @@ export interface DungeonSpace {
 }
 
 export const DUNGEON_SPACES: DungeonSpace[] = [
-  { id: 'd-entrance', name: 'Dungeon Entrance', at: [495, 880], type: 'dEntrance' },
-  { id: 'd-w1', name: 'West Tunnel', at: [400, 790], type: 'path' },
-  { id: 'd-e1', name: 'East Tunnel', at: [600, 790], type: 'path' },
-  { id: 'd-w2', name: 'West Tunnel', at: [290, 720], type: 'path' },
-  { id: 'd-ruins', name: 'Fallen Ruins', at: [175, 668], type: 'safeRoom' },
-  { id: 'd-w3', name: 'Bone Passage', at: [110, 560], type: 'path' },
-  { id: 'd-monster', name: 'Monster Den', at: [175, 445], type: 'monster' },
-  { id: 'd-w4', name: 'Vault Stair', at: [150, 270], type: 'path' },
-  { id: 'd-vault', name: 'Old Vault', at: [135, 165], type: 'vault' },
-  { id: 'd-c1', name: 'Pool Path', at: [380, 640], type: 'path' },
-  { id: 'd-c2', name: 'Waterfall Pool', at: [355, 470], type: 'path' },
+  { id: 'd-entrance', name: 'Dungeon Entrance', at: [765, 835], type: 'dEntrance' },
+  { id: 'd-w1', name: 'West Tunnel', at: [672, 751], type: 'path' },
+  { id: 'd-e1', name: 'East Tunnel', at: [868, 751], type: 'path' },
+  { id: 'd-w2', name: 'West Tunnel', at: [564, 685], type: 'path' },
+  { id: 'd-ruins', name: 'Fallen Ruins', at: [452, 636], type: 'safeRoom' },
+  { id: 'd-w3', name: 'Bone Passage', at: [388, 534], type: 'path' },
+  { id: 'd-monster', name: 'Monster Den', at: [452, 426], type: 'monster' },
+  { id: 'd-w4', name: 'Vault Stair', at: [427, 262], type: 'path' },
+  { id: 'd-vault', name: 'Old Vault', at: [412, 163], type: 'vault' },
+  { id: 'd-c1', name: 'Pool Path', at: [652, 610], type: 'path' },
+  { id: 'd-c2', name: 'Waterfall Pool', at: [628, 450], type: 'path' },
   {
     id: 'd-golem',
     name: 'Stone Golem',
-    at: [250, 530],
+    at: [525, 506],
     type: 'path',
     encounter: { monster: 'golem', name: 'Stone Golem', shortcutTo: 'd-e4', safeRoom: 'd-ruins' },
   },
-  { id: 'd-c3', name: 'Lair Steps', at: [330, 320], type: 'path' },
-  { id: 'd-lair', name: 'Dragon Lair', at: [505, 185], type: 'dragonChamber' },
-  { id: 'd-e2', name: 'Spike Hall', at: [700, 690], type: 'path' },
-  { id: 'd-pit', name: 'Spike Pit', at: [820, 640], type: 'trap' },
-  { id: 'd-e3', name: 'Crystal Path', at: [700, 520], type: 'path' },
+  { id: 'd-c3', name: 'Lair Steps', at: [603, 309], type: 'path' },
+  { id: 'd-lair', name: 'Dragon Lair', at: [775, 182], type: 'dragonChamber' },
+  { id: 'd-e2', name: 'Spike Hall', at: [966, 657], type: 'path' },
+  { id: 'd-pit', name: 'Spike Pit', at: [1084, 610], type: 'trap' },
+  { id: 'd-e3', name: 'Crystal Path', at: [966, 497], type: 'path' },
   {
     id: 'd-spider',
     name: 'Cave Spider',
-    at: [800, 450],
+    at: [1064, 431],
     type: 'path',
     encounter: { monster: 'spider', name: 'Cave Spider', safeRoom: 'd-safe-crystal' },
   },
-  { id: 'd-safe-crystal', name: 'Crystal Niche', at: [850, 520], type: 'safeRoom' },
-  { id: 'd-e4', name: 'Crystal Path', at: [700, 330], type: 'path' },
-  { id: 'd-shrine', name: 'Crystal Shrine', at: [865, 345], type: 'gemChamber' },
+  { id: 'd-safe-crystal', name: 'Crystal Niche', at: [1113, 497], type: 'safeRoom' },
+  { id: 'd-e4', name: 'Crystal Path', at: [966, 318], type: 'path' },
+  { id: 'd-shrine', name: 'Crystal Shrine', at: [1128, 332], type: 'gemChamber' },
 ];
 
 export const DUNGEON_HALLS: [string, string, { guard?: true; name?: string }?][] = [

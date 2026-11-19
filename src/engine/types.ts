@@ -40,7 +40,7 @@ export interface NodeDef {
   type: NodeType;
   lane: Lane;
   name: string;
-  /** Position in artwork pixels (both maps are 1024 × 1024 paintings). */
+  /** Position in artwork pixels (both maps are 1536 × 1024 paintings). */
   xy: [number, number];
   /** Index on the shared circuit (circuit spaces only). */
   circuit?: number;

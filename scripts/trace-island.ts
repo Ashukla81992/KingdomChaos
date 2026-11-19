@@ -3,9 +3,9 @@
  *
  *   NODE_OPTIONS=--max-old-space-size=512 npx tsx scripts/trace-island.ts
  *
- * Loads public/board/island.jpg with sharp, masks road-coloured pixels at 1024², then
- * downsamples to 512² before thinning and A*. Each segment is searched on its own small
- * window and scaled back to 1024. Jobs are the circuit stretches between anchors and the
+ * Loads public/board/island.jpg with sharp, masks road-coloured pixels at full size (BOARD_W × BOARD_H),
+ * then downsamples by 2 before thinning and A*. Each segment is searched on its own small
+ * window and scaled back up. Jobs are the circuit stretches between anchors and the
  * inner routes marked `snap`. Writes src/engine/crownRoutes.ts. Re-run after editing
  * anchors or routes. Run twice when one inner route ends on a space another route places.
  */
@@ -13,15 +13,17 @@ import sharp from 'sharp';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { CROWN_QUEST, circuitId } from '../src/engine/board';
-import { CIRCUIT_ANCHORS, SIDE_ROUTES } from '../src/engine/crownLayout';
+import { BOARD_H, BOARD_W, CIRCUIT_ANCHORS, SIDE_ROUTES } from '../src/engine/crownLayout';
 import { CIRCUIT_ROUTES } from '../src/engine/crownRoutes';
 
 type Pt = [number, number];
 
 const root = resolve(import.meta.dirname, '..');
-const SRC = 1024;
-const GRID = 512;
-const SCALE = SRC / GRID;
+const SRC_W = BOARD_W;
+const SRC_H = BOARD_H;
+const SCALE = 2;
+const GW = SRC_W / SCALE;
+const GH = SRC_H / SCALE;
 
 const circuitJobs = CIRCUIT_ANCHORS.flatMap((a, i) => {
   const b = CIRCUIT_ANCHORS[(i + 1) % CIRCUIT_ANCHORS.length];
@@ -36,74 +38,74 @@ const jobs = [...circuitJobs, ...sideJobs];
 
 const isRoad = (r: number, g: number, b: number) => r > 190 && g > 160 && b > 110 && r - b > 35 && r - b < 110 && r >= g && g - b > 15 && r - g < 45;
 
-/** One 1024² mask, immediately reduced to 512². Nothing else keeps the full image. */
+/** One full-size mask, immediately reduced by SCALE. Nothing else keeps the full image. */
 async function loadGrid(): Promise<Uint8Array> {
-  const { data, info } = await sharp(resolve(root, 'public/board/island.jpg')).resize(SRC, SRC).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  if (info.width !== SRC || info.height !== SRC || info.channels !== 3) throw new Error(`unexpected image ${info.width}x${info.height}x${info.channels}`);
+  const { data, info } = await sharp(resolve(root, 'public/board/island.jpg')).resize(SRC_W, SRC_H).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (info.width !== SRC_W || info.height !== SRC_H || info.channels !== 3) throw new Error(`unexpected image ${info.width}x${info.height}x${info.channels}`);
   let full = 0;
-  for (let i = 0; i < SRC * SRC; i++) {
+  for (let i = 0; i < SRC_W * SRC_H; i++) {
     const o = i * 3;
     if (isRoad(data[o], data[o + 1], data[o + 2])) full++;
   }
-  const small = new Uint8Array(GRID * GRID);
-  for (let y = 0; y < GRID; y++) {
+  const small = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) {
     const sy = y * SCALE;
-    for (let x = 0; x < GRID; x++) {
+    for (let x = 0; x < GW; x++) {
       const sx = x * SCALE;
       let v = 0;
       for (let dy = 0; dy < SCALE && !v; dy++) {
-        const row = (sy + dy) * SRC + sx;
+        const row = (sy + dy) * SRC_W + sx;
         for (let dx = 0; dx < SCALE; dx++) {
           const o = (row + dx) * 3;
           if (isRoad(data[o], data[o + 1], data[o + 2])) { v = 1; break; }
         }
       }
-      small[y * GRID + x] = v;
+      small[y * GW + x] = v;
     }
   }
   let kept = 0;
   for (let i = 0; i < small.length; i++) kept += small[i];
-  console.log(`Road mask: ${full} px at ${SRC} (${((100 * full) / (SRC * SRC)).toFixed(1)}%), ${kept} cells at ${GRID} (${((100 * kept) / small.length).toFixed(1)}%).`);
+  console.log(`Road mask: ${full} px (${((100 * full) / (SRC_W * SRC_H)).toFixed(1)}%), ${kept} cells (${((100 * kept) / small.length).toFixed(1)}%).`);
   return small;
 }
 
 /** Square close on the small grid. Radius stays tiny so parallel roads do not merge. */
 function close1(src: Uint8Array): Uint8Array {
-  const dil = new Uint8Array(GRID * GRID);
-  for (let y = 0; y < GRID; y++) {
-    for (let x = 0; x < GRID; x++) {
+  const dil = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
       let v = 0;
       for (let dy = -1; dy <= 1 && !v; dy++) {
         const yy = y + dy;
-        if (yy < 0 || yy >= GRID) continue;
-        const row = yy * GRID;
+        if (yy < 0 || yy >= GH) continue;
+        const row = yy * GW;
         const x0 = Math.max(0, x - 1);
-        const x1 = Math.min(GRID - 1, x + 1);
+        const x1 = Math.min(GW - 1, x + 1);
         for (let xx = x0; xx <= x1; xx++) if (src[row + xx]) { v = 1; break; }
       }
-      dil[y * GRID + x] = v;
+      dil[y * GW + x] = v;
     }
   }
-  const out = new Uint8Array(GRID * GRID);
-  for (let y = 1; y < GRID - 1; y++) {
-    for (let x = 1; x < GRID - 1; x++) {
+  const out = new Uint8Array(GW * GH);
+  for (let y = 1; y < GH - 1; y++) {
+    for (let x = 1; x < GW - 1; x++) {
       let v = 1;
       for (let dy = -1; dy <= 1 && v; dy++) {
-        const row = (y + dy) * GRID + x;
+        const row = (y + dy) * GW + x;
         if (!dil[row - 1] || !dil[row] || !dil[row + 1]) v = 0;
       }
-      out[y * GRID + x] = v;
+      out[y * GW + x] = v;
     }
   }
   return out;
 }
 
-/** Zhang–Suen on the 512² mask. Live pixels only, so empty sea is never scanned. */
+/** Zhang–Suen on the reduced mask. Live pixels only, so empty sea is never scanned. */
 function thin(src: Uint8Array): Uint8Array {
   const m = src.slice();
-  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= GRID || y >= GRID ? 0 : m[y * GRID + x]);
+  const at = (x: number, y: number) => (x < 0 || y < 0 || x >= GW || y >= GH ? 0 : m[y * GW + x]);
   let live = 0;
-  const ids = new Int32Array(GRID * GRID);
+  const ids = new Int32Array(GW * GH);
   for (let i = 0; i < m.length; i++) if (m[i]) ids[live++] = i;
   const del = new Int32Array(ids.length);
   let guard = 0;
@@ -115,9 +117,9 @@ function thin(src: Uint8Array): Uint8Array {
       for (let i = 0; i < live; i++) {
         const k = ids[i];
         if (!m[k]) continue;
-        const x = k % GRID;
-        const y = (k / GRID) | 0;
-        if (x < 1 || y < 1 || x >= GRID - 1 || y >= GRID - 1) continue;
+        const x = k % GW;
+        const y = (k / GW) | 0;
+        if (x < 1 || y < 1 || x >= GW - 1 || y >= GH - 1) continue;
         const p0 = at(x, y - 1), p1 = at(x + 1, y - 1), p2 = at(x + 1, y), p3 = at(x + 1, y + 1);
         const p4 = at(x, y + 1), p5 = at(x - 1, y + 1), p6 = at(x - 1, y), p7 = at(x - 1, y - 1);
         const b = p0 + p1 + p2 + p3 + p4 + p5 + p6 + p7;
@@ -149,19 +151,19 @@ function thin(src: Uint8Array): Uint8Array {
 }
 
 function dilate1(src: Uint8Array): Uint8Array {
-  const out = new Uint8Array(GRID * GRID);
-  for (let y = 0; y < GRID; y++) {
+  const out = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) {
     const y0 = Math.max(0, y - 1);
-    const y1 = Math.min(GRID - 1, y + 1);
-    for (let x = 0; x < GRID; x++) {
+    const y1 = Math.min(GH - 1, y + 1);
+    for (let x = 0; x < GW; x++) {
       const x0 = Math.max(0, x - 1);
-      const x1 = Math.min(GRID - 1, x + 1);
+      const x1 = Math.min(GW - 1, x + 1);
       let v = 0;
       for (let yy = y0; yy <= y1 && !v; yy++) {
-        const row = yy * GRID;
+        const row = yy * GW;
         for (let xx = x0; xx <= x1; xx++) if (src[row + xx]) { v = 1; break; }
       }
-      out[y * GRID + x] = v;
+      out[y * GW + x] = v;
     }
   }
   return out;
@@ -175,18 +177,18 @@ const segDist = (x: number, y: number, a: Pt, b: Pt) => {
 
 function nearest(p: Pt, mask: Uint8Array, rad: number): Pt {
   const x = p[0], y = p[1];
-  if (mask[y * GRID + x]) return p;
+  if (mask[y * GW + x]) return p;
   let best: Pt | null = null;
   let bestD = rad * rad + 1;
   for (let dy = -rad; dy <= rad; dy++) {
     const yy = y + dy;
-    if (yy < 0 || yy >= GRID) continue;
-    const row = yy * GRID;
+    if (yy < 0 || yy >= GH) continue;
+    const row = yy * GW;
     for (let dx = -rad; dx <= rad; dx++) {
       const d = dx * dx + dy * dy;
       if (d >= bestD) continue;
       const xx = x + dx;
-      if (xx < 0 || xx >= GRID) continue;
+      if (xx < 0 || xx >= GW) continue;
       if (mask[row + xx]) { bestD = d; best = [xx, yy]; }
     }
   }
@@ -207,12 +209,12 @@ const simplify = (pts: Pt[], tol: number): Pt[] => {
   return [...simplify(pts.slice(0, best + 1), tol).slice(0, -1), ...simplify(pts.slice(best), tol)];
 };
 
-/** One A* on a corridor around `via` (512² coordinates). The distance grids die with the call. */
+/** One A* on a corridor around `via` (reduced-grid coordinates). The distance grids die with the call. */
 function astar(via: Pt[], cost: Float32Array): Pt[] | null {
   const a = via[0], b = via[via.length - 1];
   const pad = 26;
   const hard = 24;
-  let x0 = GRID, x1 = 0, y0 = GRID, y1 = 0;
+  let x0 = GW, x1 = 0, y0 = GH, y1 = 0;
   for (const [x, y] of via) {
     if (x < x0) x0 = x;
     if (x > x1) x1 = x;
@@ -221,8 +223,8 @@ function astar(via: Pt[], cost: Float32Array): Pt[] | null {
   }
   x0 = Math.max(0, x0 - pad);
   y0 = Math.max(0, y0 - pad);
-  x1 = Math.min(GRID - 1, x1 + pad);
-  y1 = Math.min(GRID - 1, y1 + pad);
+  x1 = Math.min(GW - 1, x1 + pad);
+  y1 = Math.min(GH - 1, y1 + pad);
   const bw = x1 - x0 + 1;
   const bh = y1 - y0 + 1;
   const n = bw * bh;
@@ -321,7 +323,7 @@ function astar(via: Pt[], cost: Float32Array): Pt[] | null {
         if (xx < x0 || xx > x1) continue;
         const q = idx(xx, yy);
         if (closed[q] || !corr[q]) continue;
-        const nd = base + cost[yy * GRID + xx] * corr[q] * (dx && dy ? Math.SQRT2 : 1);
+        const nd = base + cost[yy * GW + xx] * corr[q] * (dx && dy ? Math.SQRT2 : 1);
         if (nd < dist[q]) {
           dist[q] = nd;
           from[q] = k;
@@ -342,14 +344,14 @@ function astar(via: Pt[], cost: Float32Array): Pt[] | null {
 
 function traceAll(cost: Float32Array, centre: Uint8Array, road: Uint8Array) {
   const on = (p: Pt): Pt => {
-    if (centre[p[1] * GRID + p[0]]) return p;
+    if (centre[p[1] * GW + p[0]]) return p;
     const hit = nearest(p, centre, 14);
     return hit !== p ? hit : nearest(p, road, 14);
   };
   const out: Record<string, Pt[]> = {};
   for (const job of jobs) {
     const t0 = Date.now();
-    const via = job.via.map(([x, y]): Pt => [Math.max(0, Math.min(GRID - 1, Math.round(x / SCALE))), Math.max(0, Math.min(GRID - 1, Math.round(y / SCALE)))]);
+    const via = job.via.map(([x, y]): Pt => [Math.max(0, Math.min(GW - 1, Math.round(x / SCALE))), Math.max(0, Math.min(GH - 1, Math.round(y / SCALE)))]);
     via[0] = on(via[0]);
     via[via.length - 1] = on(via[via.length - 1]);
     const path = astar(via, cost);
@@ -363,9 +365,9 @@ function traceAll(cost: Float32Array, centre: Uint8Array, road: Uint8Array) {
 
 const grid = close1(await loadGrid());
 const centre = dilate1(thin(grid));
-const cost = new Float32Array(GRID * GRID);
+const cost = new Float32Array(GW * GH);
 let centreCount = 0;
-for (let i = 0; i < GRID * GRID; i++) {
+for (let i = 0; i < GW * GH; i++) {
   cost[i] = centre[i] ? 1 : grid[i] ? 5 : 28;
   centreCount += centre[i];
 }
