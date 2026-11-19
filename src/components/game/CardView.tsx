@@ -30,7 +30,7 @@ export function CardView({ type, selected, disabled, compact, fluid, onClick, re
       whileHover={reducedMotion ? undefined : { y: -6, rotate: -1 }}
       animate={{ y: selected ? -12 : 0 }}
       className={`relative shrink-0 overflow-hidden rounded-xl bg-transparent p-0 text-left ${
-        compact ? 'w-[104px]' : fluid ? 'w-[132px] lg:w-full' : 'w-[132px]'
+        compact ? 'w-[6.5rem]' : fluid ? 'w-[8.25rem] lg:w-full' : 'w-[8.25rem]'
       } ${selected ? 'ring-4 ring-[#ffcf3f]' : ''} ${disabled ? 'saturate-[0.45]' : ''}`}
       data-card={type}
     >
@@ -38,13 +38,13 @@ export function CardView({ type, selected, disabled, compact, fluid, onClick, re
       <img src={cardArt(type)} alt="" className="block h-auto w-full" draggable={false} />
       <span
         className={`pointer-events-none absolute inset-x-[11%] top-[79%] bottom-[4.5%] flex items-center justify-center text-center font-display leading-[1.05] font-semibold text-[#6a3d12] ${
-          compact ? 'text-[10px]' : 'text-[12px]'
+          compact ? 'text-[0.625rem]' : 'text-[0.75rem]'
         }`}
       >
         {info.name}
       </span>
       {disabled && reason && selected && (
-        <div className="absolute inset-x-0 bottom-0 bg-[#1d2440]/85 px-2 py-1 text-[11px] leading-tight font-semibold text-white">{reason}</div>
+        <div className="absolute inset-x-0 bottom-0 bg-[#1d2440]/85 px-2 py-1 text-[0.6875rem] leading-tight font-semibold text-white">{reason}</div>
       )}
     </motion.button>
   );

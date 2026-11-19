@@ -15,7 +15,7 @@ interface Props {
 function Marks({ n, max, color, label }: { n: number; max: number; color: string; label: string }) {
   return (
     <span className="inline-flex items-center gap-1" aria-label={`${label}: ${n} of ${max}`} data-marks={label}>
-      <span className="text-[10px] font-bold tracking-wide text-[#4a5374] uppercase">{label}</span>
+      <span className="text-[0.625rem] font-bold tracking-wide text-[#4a5374] uppercase">{label}</span>
       {Array.from({ length: max }, (_, i) => (
         <span key={i} className="inline-block h-3 w-3 rounded-sm border border-white shadow" style={{ background: i < n ? color : '#5b4a3a' }} />
       ))}

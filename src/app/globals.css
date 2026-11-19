@@ -21,6 +21,14 @@
   color-scheme: light;
 }
 
+/* Big monitors and TVs that report their full pixel width (a 4K TV at 3840 px): grow the whole
+   interface with the screen, so text and buttons stay readable from the sofa. Everything is in rem. */
+@media (min-width: 1921px) {
+  html {
+    font-size: clamp(16px, 0.833vw, 34px);
+  }
+}
+
 html,
 body {
   min-height: 100%;

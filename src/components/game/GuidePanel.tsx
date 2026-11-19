@@ -123,7 +123,7 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 font-bold">
           {current && <EmblemBadge theme={seatTheme(current.seat)} size={16} />}
           <span>{!playing ? 'Match over' : current?.id === me ? 'Your turn' : `${current?.name}'s turn`}</span>
-          {view.turn.bonus && playing && <span className="rounded-full bg-[#2e9e62] px-1.5 text-[11px] text-white">bonus roll</span>}
+          {view.turn.bonus && playing && <span className="rounded-full bg-[#2e9e62] px-1.5 text-[0.6875rem] text-white">bonus roll</span>}
           {playing && <span className="text-xs font-semibold text-[#4a5374]">Die: {view.turn.move ? view.turn.move.roll : '—'}</span>}
           {playing && turn.steps != null && <span className="text-xs font-semibold text-[#4a5374]">· {turn.steps} steps to move</span>}
           {playing && <span className="text-xs font-semibold text-[#4a5374]">· Move {view.turn.moveDone ? 'done' : view.turn.move ? 'to choose' : 'to roll'} · Adventure {view.turn.adventureDone ? 'done' : 'optional'}</span>}
@@ -168,11 +168,11 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
                     <span className="truncate">
                       {p.id === me ? 'You' : p.name} <span className="font-semibold text-[#6b7086]">· {th.kingdom}</span>
                     </span>
-                    <span className={`ml-auto flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] ${open ? 'bg-[#ffcf33] text-[#5a3d00]' : 'bg-[#1d2440] text-white'}`} data-guide-final={open ? 'open' : 'locked'}>
+                    <span className={`ml-auto flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[0.6875rem] ${open ? 'bg-[#ffcf33] text-[#5a3d00]' : 'bg-[#1d2440] text-white'}`} data-guide-final={open ? 'open' : 'locked'}>
                       {open ? <Crown size={11} aria-hidden="true" /> : <Lock size={10} aria-hidden="true" />} {open ? 'Path open' : 'Path locked'}
                     </span>
                   </div>
-                  <ul className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-semibold">
+                  <ul className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[0.6875rem] font-semibold">
                     {GEM_KINDS.map((k) => (
                       <li key={k} className="flex items-center gap-0.5" data-gem-state={st[k]}>
                         <GemIcon kind={k} size={14} empty={st[k] === 'needed'} />
@@ -185,12 +185,12 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
                       <Swords size={12} aria-hidden="true" /> capture {cut ? '✓' : '○'}
                     </li>
                   </ul>
-                  <p className="mt-0.5 text-[11px] leading-snug text-[#4a5374]">
+                  <p className="mt-0.5 text-[0.6875rem] leading-snug text-[#4a5374]">
                     {open
                       ? 'Royal Path open: pieces may enter early and walk back. The temple gate still needs four checkpoints and a capture.'
                       : `Royal Path locked — still needs ${need}.`}
                   </p>
-                  <ul className="mt-1 grid grid-cols-2 gap-x-2 text-[11px]">
+                  <ul className="mt-1 grid grid-cols-2 gap-x-2 text-[0.6875rem]">
                     {pieces.map((c) => (
                       <li key={c.id} className="flex items-center gap-1">
                         <span className="w-12 truncate font-semibold">{CHARACTER_INFO[c.kind].name}</span>
@@ -249,7 +249,7 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
                   : `Checkpoints: ${focus.lap} of 4. ${STATUS_INFO.lap.replace(/^Checkpoints — /, '')}`}
             </p>
             {!focus.finished && (
-              <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-snug text-[#4a5374]" data-temple-needs={focus.id}>
+              <ul className="list-disc space-y-0.5 pl-4 text-[0.6875rem] leading-snug text-[#4a5374]" data-temple-needs={focus.id}>
                 {whyTempleNeeds(view, focus).map((line) => (
                   <li key={line}>{line}</li>
                 ))}
@@ -286,13 +286,13 @@ export function GuidePanel({ view, me, focusId, turn, compact }: Props) {
                   {l.text}
                 </li>
               ))}
-            <li className="pt-1 text-[11px] text-[#4a5374]">
+            <li className="pt-1 text-[0.6875rem] text-[#4a5374]">
               Carried gems at risk: {view.players.map((p) => `${p.id === me ? 'you' : p.name} ${Object.values(view.characters).filter((c) => c.owner === p.id).flatMap((c) => gemsOf(view, c)).map((g) => GEM_NAMES[g.kind]).join(', ') || 'none'}`).join(' · ')}
             </li>
           </ul>
         )}
       </div>
-      {tab === 'progress' && <p className="mt-1.5 text-[11px] text-[#4a5374]">Gems are per house; checkpoints are per piece and stay when captured. Every gem station supplies every house.</p>}
+      {tab === 'progress' && <p className="mt-1.5 text-[0.6875rem] text-[#4a5374]">Gems are per house; checkpoints are per piece and stay when captured. Every gem station supplies every house.</p>}
     </div>
   );
 }

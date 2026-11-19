@@ -56,11 +56,11 @@ export function KingdomProgress({ view, me, focusId, compact }: Props) {
                 const n = bankCount(view, p.id, k);
                 const spare = Math.max(0, n - 1);
                 return (
-                  <li key={k} className="flex items-center gap-0.5 text-[11px] font-bold" data-bank-gem={k} data-bank-count={n} title={`${GEM_NAMES[k]}: ${n} banked${spare ? `, ${spare} spare` : ''}`}>
+                  <li key={k} className="flex items-center gap-0.5 text-[0.6875rem] font-bold" data-bank-gem={k} data-bank-count={n} title={`${GEM_NAMES[k]}: ${n} banked${spare ? `, ${spare} spare` : ''}`}>
                     <GemIcon kind={k} size={16} empty={n === 0} />
                     <span className={n ? 'text-[#155c36]' : 'text-[#6b7086]'}>{n || '·'}</span>
                     {spare > 0 && (
-                      <span className="rounded-full bg-[#2e9e62] px-1 text-[10px] text-white" data-spare={k}>
+                      <span className="rounded-full bg-[#2e9e62] px-1 text-[0.625rem] text-white" data-spare={k}>
                         +{spare}
                       </span>
                     )}
