@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglass, LogOut, Map as MapIcon, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglass, LogOut, Map as MapIcon, Maximize, Minimize, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CARD_INFO,
@@ -67,6 +67,7 @@ import { ObjectiveStrip } from './ObjectiveStrip';
 import { ResultsOverlay } from './ResultsOverlay';
 import { TradePanel } from './TradePanel';
 import { formatClock, useNow } from './useNow';
+import { useUiScale } from '@/lib/useUiScale';
 
 export type SendResult = { ok: true } | { ok: false; error: string };
 
@@ -203,6 +204,7 @@ function locationTip(node: NodeDef, view: PlayerView): string {
 export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch }: Props) {
   const { view, send, mode } = controller;
   const { reducedMotion, play, settings, update } = useSettings();
+  const uiScale = useUiScale();
   const railOpen = settings.rulesRail === 'open';
   const me = view.viewerId;
   const { nodes } = getBoard(view.boardId);
@@ -997,7 +999,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const crowdPieces = crowd ? Object.values(view.characters).filter((c) => c.node === crowd) : [];
 
   return (
-    <div className={`flex min-h-[100dvh] flex-col pb-16 lg:pb-0! ${tutorial?.reserveBottom ? 'pb-[46dvh] sm:pb-0' : ''}`}>
+    <div className={`flex min-h-[100dvh] flex-col pb-16 lg:h-[100dvh] lg:pb-0! ${tutorial?.reserveBottom ? 'pb-[46dvh] sm:pb-0' : ''}`}>
       <header className="sticky top-0 z-30 flex min-h-12 flex-wrap items-center gap-1.5 bg-[#fffaf0]/85 px-2 py-1.5 backdrop-blur sm:px-4">
         <button className="btn btn-ghost icon-btn" onClick={() => setLeaveOpen(true)} aria-label="Leave game">
           <LogOut size={20} />
@@ -1048,6 +1050,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           <button className="btn btn-ghost hidden! px-3! py-1.5! lg:inline-flex!" onClick={() => setRulesOpen(true)}>
             <BookOpen size={18} aria-hidden="true" /> Rules
           </button>
+          <FullscreenButton />
           <button className="btn btn-ghost icon-btn" onClick={() => setSettingsOpen(true)} aria-label="Settings">
             <Settings size={18} />
           </button>
@@ -1057,11 +1060,12 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       <ObjectiveStrip view={view} me={me} presence={controller.presence} />
 
       <div
-        className={`grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:px-3 ${
-          railOpen ? 'lg:grid-cols-[260px_minmax(0,1fr)_300px] 2xl:grid-cols-[280px_minmax(0,1fr)_340px]' : 'lg:grid-cols-[40px_minmax(0,1fr)_300px] 2xl:grid-cols-[40px_minmax(0,1fr)_340px]'
+        className={`grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)] gap-2 px-2 pb-2 lg:grid-rows-[minmax(0,1fr)] lg:px-3 ${
+          railOpen ? 'lg:grid-cols-[16.25rem_minmax(0,1fr)_18.75rem] 2xl:grid-cols-[17.5rem_minmax(0,1fr)_21.25rem]' : 'lg:grid-cols-[2.5rem_minmax(0,1fr)_18.75rem] 2xl:grid-cols-[2.5rem_minmax(0,1fr)_21.25rem]'
         }`}
+        data-play-grid
       >
-        <aside className="hidden min-h-0 lg:flex lg:h-[calc(100dvh-7.25rem)] lg:flex-col lg:gap-1.5" data-play-column="rules" data-rail={railOpen ? 'open' : 'folded'}>
+        <aside className="hidden min-h-0 lg:flex lg:h-full lg:flex-col lg:gap-1.5" data-play-column="rules" data-rail={railOpen ? 'open' : 'folded'}>
           <button
             type="button"
             className={`btn btn-ghost shrink-0 text-sm ${railOpen ? 'self-end px-2! py-1!' : 'h-full w-10 flex-col justify-start gap-2 px-0! py-3!'}`}
@@ -1080,7 +1084,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           )}
         </aside>
         <section
-          className="panel relative mx-auto aspect-square w-full max-w-[min(100%,calc(100dvh-7.5rem))] overflow-hidden p-0! lg:max-w-none lg:aspect-auto lg:h-[calc(100dvh-7.25rem)]"
+          className="panel relative h-[clamp(18rem,calc(100dvh-9rem),125vw)] w-full overflow-hidden p-0! lg:h-full"
           data-tutorial="board"
           data-play-column="board"
           aria-label={map === 'dungeon' ? 'Dungeon map' : 'Island map'}
@@ -1209,7 +1213,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           )}
         </section>
 
-        <aside className="flex min-h-0 flex-col gap-2 lg:h-[calc(100dvh-7.25rem)] lg:overflow-y-auto" data-play-column="turn" aria-label="Your turn and cards">
+        <aside className="flex min-h-0 flex-col gap-2 lg:h-full lg:overflow-y-auto" data-play-column="turn" aria-label="Your turn and cards">
           <div className="panel p-3" data-tutorial="actions">
             <div className="flex items-center gap-2 rounded-xl px-2 py-1 text-sm font-extrabold tracking-wide uppercase" style={{ background: theme.light, color: theme.dark }} data-turn-banner>
               <EmblemBadge theme={theme} size={20} />
@@ -1230,11 +1234,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                 aria-label={canRoll ? 'Roll the die' : rolled ? `Die shows ${rolled.roll}` : 'Die'}
                 data-dice
               >
-                <Die value={rolled?.roll ?? null} rollId={view.version} size={52} reducedMotion={reducedMotion} fast={fast} />
-                {canRoll && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-[#1d2440] px-2 py-0.5 text-[11px] font-bold text-white">Roll</span>}
+                <Die value={rolled?.roll ?? null} rollId={view.version} size={Math.round(52 * uiScale)} reducedMotion={reducedMotion} fast={fast} />
+                {canRoll && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-[#1d2440] px-2 py-0.5 text-[0.6875rem] font-bold text-white">Roll</span>}
               </button>
               <div className="min-w-0 flex-1">
-                <p className="font-display text-[17px] leading-tight font-bold" data-status>
+                <p className="font-display text-[1.0625rem] leading-tight font-bold" data-status>
                   {headline}
                 </p>
                 {sub && (
@@ -1376,7 +1380,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       <button
                         key={c.id}
                         type="button"
-                        className={`relative flex min-h-11 flex-col items-center rounded-xl border-2 px-1 pt-1 pb-0.5 text-[11px] font-bold transition ${on ? 'border-[#1d2440] bg-white' : can ? 'border-[#ffcf33] bg-[#fffbe8]' : 'border-transparent bg-white/60 text-[#6b7086]'}`}
+                        className={`relative flex min-h-11 flex-col items-center rounded-xl border-2 px-1 pt-1 pb-0.5 text-[0.6875rem] font-bold transition ${on ? 'border-[#1d2440] bg-white' : can ? 'border-[#ffcf33] bg-[#fffbe8]' : 'border-transparent bg-white/60 text-[#6b7086]'}`}
                         aria-pressed={on}
                         aria-label={`${label(c)}, ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ''}${can ? ', can move' : rolled ? `, cannot move: ${whyStuck(view, c.id)}` : ''}`}
                         data-character={c.id}
@@ -1388,9 +1392,9 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                           onPiece(c.id);
                         }}
                       >
-                        <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={30} />
+                        <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={Math.round(30 * uiScale)} />
                         {CHARACTER_INFO[c.kind].name}
-                        <PlateDots view={view} ch={c} size={7} />
+                        <PlateDots view={view} ch={c} size={Math.round(7 * uiScale)} />
                         {gems.length > 0 && (
                           <span className="absolute top-0.5 right-0.5 flex flex-col">
                             {gems.map((g) => (
@@ -1422,19 +1426,19 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       <li key={c.id}>
                         <button
                           type="button"
-                          className="flex w-full items-center gap-1.5 rounded-xl bg-white/70 px-1.5 py-1 text-left text-[11px] leading-tight"
+                          className="flex w-full items-center gap-1.5 rounded-xl bg-white/70 px-1.5 py-1 text-left text-[0.6875rem] leading-tight"
                           data-roster={c.id}
                           aria-label={`${label(c)} at ${where}: ${c.lap} of 4 plates${gems.length ? `, carrying ${gemList(gems.map((g) => g.kind))}` : ', carrying nothing'}${notes.length ? `, ${notes.join(', ')}` : ''}`}
                           onClick={() => onPiece(c.id)}
                         >
-                          <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={24} />
+                          <TokenIcon kind={c.kind} theme={seatTheme(mySeat)} size={Math.round(24 * uiScale)} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate font-bold">{CHARACTER_INFO[c.kind].name}</span>
                             <span className="block truncate text-[#6b7086]">{where}</span>
                             {notes.length > 0 && <span className="block truncate text-[#173e8c]">{notes.join(' · ')}</span>}
                           </span>
                           <span className="flex shrink-0 flex-col items-end gap-0.5" data-carrying={gems.map((g) => g.kind).join(',')}>
-                            {gems.length ? gems.map((g) => <GemIcon key={g.id} kind={g.kind} size={16} title={`Carrying ${aGem(g.kind)}`} />) : <span className="text-[10px] text-[#9aa0b5]">no gems</span>}
+                            {gems.length ? gems.map((g) => <GemIcon key={g.id} kind={g.kind} size={16} title={`Carrying ${aGem(g.kind)}`} />) : <span className="text-[0.625rem] text-[#9aa0b5]">no gems</span>}
                           </span>
                         </button>
                       </li>
@@ -1744,6 +1748,31 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       )}
       {tutorial?.overlay}
     </div>
+  );
+}
+
+/** Full screen hides the browser bars so only the game shows. Hidden where the browser can't do it (iPhone Safari). */
+function FullscreenButton() {
+  const [supported, setSupported] = useState(false);
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    const sync = () => setOn(!!document.fullscreenElement);
+    // Feature detection has to wait for the browser; the server render shows no button.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSupported(!!document.fullscreenEnabled);
+    sync();
+    document.addEventListener('fullscreenchange', sync);
+    return () => document.removeEventListener('fullscreenchange', sync);
+  }, []);
+  if (!supported) return null;
+  const toggle = () => {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
+    else void document.documentElement.requestFullscreen({ navigationUI: 'hide' }).catch(() => {});
+  };
+  return (
+    <button className="btn btn-ghost icon-btn" onClick={toggle} aria-label={on ? 'Exit full screen' : 'Full screen'} aria-pressed={on} title={on ? 'Exit full screen' : 'Full screen'} data-fullscreen>
+      {on ? <Minimize size={18} /> : <Maximize size={18} />}
+    </button>
   );
 }
 

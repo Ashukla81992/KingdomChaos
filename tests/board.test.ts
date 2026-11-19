@@ -105,7 +105,7 @@ describe('Crown Quest board', () => {
     const island = CROWN_QUEST.nodes.filter((n) => n.map === 'island');
     for (const n of CROWN_QUEST.nodes) {
       expect(n.xy[0]).toBeGreaterThanOrEqual(0);
-      expect(n.xy[0]).toBeLessThanOrEqual(1024);
+      expect(n.xy[0]).toBeLessThanOrEqual(1536);
       expect(n.xy[1]).toBeGreaterThanOrEqual(0);
       expect(n.xy[1]).toBeLessThanOrEqual(1024);
     }

@@ -16,7 +16,7 @@ function Svg({ children, vb = '-14 -14 28 28' }: { children: React.ReactNode; vb
 }
 
 // eslint-disable-next-line @next/next/no-img-element
-const Art = ({ src }: { src: string }) => <img src={src} alt="" width={30} height={30} className="h-[30px] w-[30px] object-contain" />;
+const Art = ({ src }: { src: string }) => <img src={src} alt="" width={30} height={30} className="h-[1.875rem] w-[1.875rem] object-contain" />;
 
 function Swatch({ color }: { color: string }) {
   return (
