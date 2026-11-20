@@ -62,6 +62,7 @@ import { Die } from './Die';
 import { EventCard } from './EventCard';
 import { BattlePanel } from './BattlePanel';
 import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
+import { TurnHowTo } from './TurnHowTo';
 import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
 import { ObjectiveStrip } from './ObjectiveStrip';
@@ -1590,6 +1591,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       </div>
       <AnimateToast text={toast} />
       {finished && view.result && <ResultsOverlay view={view} primary={results?.primary} secondary={results?.secondary} />}
+      {mode !== 'tutorial' && <TurnHowTo matchKey={matchKey} starting={playing && view.turn.round <= 1} />}
       <RulesPanel open={rulesOpen} onClose={() => setRulesOpen(false)} activeMatch={mode === 'tutorial' ? null : mode === 'online' ? 'online' : 'local'} onLeaveMatch={onExit} />
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <Modal open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Rules & Guide">
