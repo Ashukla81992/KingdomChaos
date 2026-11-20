@@ -7,6 +7,7 @@ import { MenuShell } from '@/components/MenuShell';
 import { ROOM_CONFIG, type MatchPace } from '@/engine';
 import {
   createOnlineRoom,
+  fetchAuthProviders,
   fetchMe,
   joinOnlineRoom,
   loginAccount,
@@ -16,6 +17,17 @@ import {
 } from '@/lib/onlineClient';
 import { savedPace, savePace } from '@/lib/storage';
 import { TimerChoice } from '@/components/TimerChoice';
+
+function GoogleMark() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.2-.1-2.3-.4-3.5z" />
+    </svg>
+  );
+}
 
 function OnlineForms() {
   const router = useRouter();
@@ -30,11 +42,15 @@ function OnlineForms() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [loadingMe, setLoadingMe] = useState(true);
+  const [googleOn, setGoogleOn] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setCode((params.get('code') ?? '').toUpperCase());
     setPace(savedPace());
+    const authError = params.get('authError');
+    if (authError) setError(authError === 'google-off' ? 'Google sign-in is not set up yet. Use a username and password instead.' : 'Google sign-in did not finish. Please try again.');
+    void fetchAuthProviders().then((r) => setGoogleOn(r.ok && r.data.google));
     void fetchMe().then((r) => {
       if (r.ok) setAccount(r.data.account);
       setLoadingMe(false);
@@ -93,6 +109,18 @@ function OnlineForms() {
         <form className="panel space-y-4 p-5" onSubmit={auth}>
           <h3 className="text-lg font-semibold">{authMode === 'register' ? 'Create an account' : 'Sign in'}</h3>
           <p className="text-sm text-[#4a5374]">Online rooms save your seat — sign in on any device to resume.</p>
+          <p className="rounded-2xl bg-[#e8f0ff] px-4 py-3 text-sm text-[#2c3a66]">
+            <strong>No email needed.</strong> Just pick any username and password — a quick throwaway one for today or one you’ll keep. Remember them to get back into your games.
+          </p>
+          {googleOn && (
+            <>
+              <a className="btn btn-ghost w-full" href="/api/auth/google">
+                <GoogleMark />
+                Continue with Google
+              </a>
+              <p className="text-center text-xs font-semibold uppercase tracking-wide text-[#6b7393]">or use a username</p>
+            </>
+          )}
           <label className="block">
             <span className="font-display mb-1 block font-semibold">Username</span>
             <input className="field" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" minLength={3} maxLength={24} required />

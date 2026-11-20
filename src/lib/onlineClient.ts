@@ -15,11 +15,15 @@ async function api<T>(path: string, init?: RequestInit): Promise<{ ok: true; dat
       credentials: 'include',
     });
     const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-    if (!res.ok) return { ok: false, error: data.error || `Request failed (${res.status})`, status: res.status, data };
+    if (!res.ok) return { ok: false, error: data.error || (res.status >= 500 ? 'The game server hit a problem. Please try again in a moment.' : `Request failed (${res.status})`), status: res.status, data };
     return { ok: true, data, status: res.status };
   } catch {
     return { ok: false, error: 'Could not reach the game server. Try again.', status: 0 };
   }
+}
+
+export async function fetchAuthProviders() {
+  return api<{ google: boolean }>('/api/auth/providers');
 }
 
 export async function fetchMe() {
