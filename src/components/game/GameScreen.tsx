@@ -62,7 +62,7 @@ import { Die } from './Die';
 import { EventCard } from './EventCard';
 import { BattlePanel } from './BattlePanel';
 import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
-import { TurnHowTo } from './TurnHowTo';
+import { TurnHowTo, TurnSteps } from './TurnHowTo';
 import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
 import { ChatToggle, MatchChatPanel, useMatchChat, type ChatController } from './MatchChat';
@@ -1099,6 +1099,11 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           />
           {dragging && <div className="sr-only">Dragging</div>}
           <EventCard view={view} reduced={reducedMotion} />
+          {myTurn && mode !== 'tutorial' && !idleHint && !recap && !view.battle && (
+            <div className="pointer-events-none absolute top-12 left-2 z-10 max-w-[calc(100%-1rem)] xl:top-2 xl:left-[58%] xl:-translate-x-1/2">
+              <TurnSteps step={!view.turn.moveDone ? 'roll' : !view.turn.adventureDone ? 'card' : 'end'} cardDone={view.turn.adventureDone} />
+            </div>
+          )}
           {idleHint && !recap && (
             <div className="absolute top-2 left-1/2 z-20 flex w-[min(92%,26rem)] -translate-x-1/2 items-start gap-2 rounded-2xl border-2 border-[#f2a11a] bg-[#fffaf0]/95 p-2.5 text-[#1d2440] shadow-lg" role="status" data-idle-hint={idleStage ?? ''}>
               <Hourglass size={16} className="mt-0.5 shrink-0 text-[#c27a0e]" aria-hidden="true" />
