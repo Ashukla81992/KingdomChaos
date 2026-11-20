@@ -127,6 +127,38 @@ export function connectionBreakReason(
 }
 
 export const mapOf = (boardId: string, node: string) => getBoard(boardId).nodes[node].map;
+
+const stepCache = new Map<string, number>();
+/** Typical length of one step on a map, in artwork pixels (median road length between neighbouring spaces). */
+export function mapStepLength(boardId: string, map: string): number {
+  const key = `${boardId}:${map}`;
+  const hit = stepCache.get(key);
+  if (hit) return hit;
+  const { nodes, edges } = getBoard(boardId);
+  const lens = Object.values(edges)
+    .filter((e) => nodes[e.a].map === map && nodes[e.b].map === map)
+    .map((e) => Math.hypot(nodes[e.a].xy[0] - nodes[e.b].xy[0], nodes[e.a].xy[1] - nodes[e.b].xy[1]))
+    .sort((a, b) => a - b);
+  const len = lens.length ? lens[lens.length >> 1] : 80;
+  stepCache.set(key, len);
+  return len;
+}
+
+/** Dragon Fire's circular reach: its radius in artwork pixels on `node`'s map (range × one typical step). */
+export function fireRadius(boardId: string, node: string, range: number): number {
+  return range * mapStepLength(boardId, mapOf(boardId, node));
+}
+
+/**
+ * Straight-line distance between two spaces, measured in typical steps of their map ("as the dragon
+ * flies": roads, walls and closed paths do not matter). Infinity when they are on different maps.
+ */
+export function flyingSteps(boardId: string, from: string, to: string): number {
+  const { nodes } = getBoard(boardId);
+  const a = nodes[from], b = nodes[to];
+  if (!a || !b || a.map !== b.map) return Infinity;
+  return Math.hypot(a.xy[0] - b.xy[0], a.xy[1] - b.xy[1]) / mapStepLength(boardId, a.map);
+}
 export const nodeName = (boardId: string, node: string) => getBoard(boardId).nodes[node]?.name ?? node;
 
 export { mapMarkers, type MapMarker, type MapMarkerKind } from './markers';

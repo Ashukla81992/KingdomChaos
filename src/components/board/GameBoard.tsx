@@ -123,6 +123,8 @@ export interface GameBoardProps {
   onCancelEdge?: () => void;
   /** The dragon companion's chosen Dragon Fire target (before the attack die). */
   fireTarget?: string | null;
+  /** Dragon Fire's reach, drawn as a circle around the dragon while the viewer aims it. */
+  fireCircle?: { node: string; radius: number } | null;
   /** Spaces where one of the viewer's pieces can take an Adventure action right now (landmarks glow green). */
   actionNodes?: Set<string>;
   /** Landmark look: small icons with names on hover (default), framed icons, or framed icons with names. */
@@ -1457,6 +1459,14 @@ export function GameBoard(props: GameBoardProps) {
                   ✕
                 </text>
               </g>
+            </g>
+          )}
+
+          {/* Dragon Fire reach: a circle around the dragon (straight-line, not by road) while aiming. */}
+          {props.fireCircle && nodes[props.fireCircle.node]?.map === map && (
+            <g pointerEvents="none" data-fire-circle>
+              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={props.fireCircle.radius} fill="rgba(242,110,26,0.2)" stroke="#fffaf0" strokeWidth={9} />
+              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={props.fireCircle.radius} fill="none" stroke="#e8590c" strokeWidth={5} strokeDasharray="14 8" />
             </g>
           )}
 

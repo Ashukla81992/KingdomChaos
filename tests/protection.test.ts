@@ -174,7 +174,7 @@ describe('Dragon Fire defenses', () => {
     place(s, 'b-queen', 'c4');
     expect(dragonFireBlock(s, 'a', 'b-witch')).toMatch(/permanently immune/);
     expect(dragonFireBlock(s, 'a', 'b-king')).toMatch(/Shield \(Protection · 1 enemy move left\)/);
-    expect(dragonFireBlock(s, 'a', 'b-knight')).toMatch(/Out of range: \d+ steps/);
+    expect(dragonFireBlock(s, 'a', 'b-knight')).toMatch(/Out of range: about [\d.]+ spaces away/);
     expect(dragonFireBlock(s, 'a', 'b-queen')).toBeNull();
   });
 

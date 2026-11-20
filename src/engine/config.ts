@@ -19,6 +19,7 @@ export interface GameConfig {
   slayThreshold: number;
   /** Monster defeated on this total or higher. */
   monsterThreshold: number;
+  /** Dragon Fire reaches a circle this many typical steps in radius around the dragon (straight line, not by road). */
   dragonFireRange: number;
   /** Dragon Fire (an Adventure action) rolls its own attack die: this or more hits. */
   dragonFireHit: number;

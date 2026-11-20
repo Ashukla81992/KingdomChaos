@@ -1,6 +1,6 @@
 import { getBoard } from './board';
 import { DEFAULT_CONFIG } from './config';
-import { walkingDistances } from './graph';
+import { flyingSteps, walkingDistances } from './graph';
 import { randomInt } from './rng';
 import { canArrive, charLabel, drawCard, log, retreat, relocate, roll, type Ctx } from './rules';
 import { dropWard } from './protection';
@@ -434,13 +434,12 @@ export function attackableMonsters(s: BoardState, characterId: string): MonsterS
   return monstersOf(s).filter((m) => monsterActive(s, m) && dist[m.home] !== undefined && m.home !== ch.node);
 }
 
-/** Monsters a dragon companion can burn: active, within Dragon Fire range of its rider in the dungeon. */
+/** Monsters a dragon companion can burn: active, within Dragon Fire's circle around its rider in the dungeon. */
 export function fireableMonsters(s: BoardState, riderId: string): MonsterState[] {
   const ch = s.characters[riderId];
   const { nodes } = getBoard(s.boardId);
   if (!ch || nodes[ch.node]?.map !== 'dungeon') return [];
-  const dist = walkingDistances(s, ch.node, s.config.dragonFireRange);
-  return monstersOf(s).filter((m) => monsterActive(s, m) && dist[m.home] !== undefined);
+  return monstersOf(s).filter((m) => monsterActive(s, m) && flyingSteps(s.boardId, ch.node, m.home) <= s.config.dragonFireRange);
 }
 
 /**

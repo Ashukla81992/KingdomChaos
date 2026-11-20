@@ -1,7 +1,7 @@
 import { getBoard } from './board';
 import { CARDS, canTameHere } from './cards';
 import { attackableMonsters, fireableMonsters, monsterHp } from './dungeon';
-import { mapOf, walkingDistances } from './graph';
+import { flyingSteps, mapOf, walkingDistances } from './graph';
 import { CARD_INFO } from './rulesText';
 import {
   CHAR_NAMES,
@@ -116,8 +116,8 @@ export function noMoveReason(s: QueryState, playerId: string): string {
 }
 
 /**
- * Why `targetId` cannot be hit by `playerId`'s Dragon Fire right now (null = it can). Range is three
- * connected open steps from the dragon's rider, on the same map. The Witch's immunity is a permanent
+ * Why `targetId` cannot be hit by `playerId`'s Dragon Fire right now (null = it can). Range is a circle
+ * around the dragon's rider, `dragonFireRange` typical steps in radius, on the same map. The Witch's immunity is a permanent
  * trait; Shield, Immunity and Royal Guard are timed wards and say how long they last.
  */
 export function dragonFireBlock(s: BoardState, playerId: string, targetId: string): string | null {
@@ -137,10 +137,9 @@ export function dragonFireBlock(s: BoardState, playerId: string, targetId: strin
   // The dragon's fire reaches onto the Royal Paths: they are safe from captures, not from dragons.
   if (n.safe && n.lane !== 'final') return `${n.name} is a safe space: no attacks there.`;
   if (mapOf(s.boardId, c.node) !== mapOf(s.boardId, comp.node)) return 'That piece is on the other map.';
-  const dist = walkingDistances(s, comp.node);
-  const d = dist[c.node];
-  if (d === undefined) return 'No open road connects your dragon to that piece.';
-  if (d > s.config.dragonFireRange) return `Out of range: ${d} steps away (Dragon Fire reaches ${s.config.dragonFireRange}).`;
+  // The fire reaches in a circle around the dragon, as the dragon flies: roads and their bends do not matter.
+  const d = flyingSteps(s.boardId, comp.node, c.node);
+  if (d > s.config.dragonFireRange) return `Out of range: about ${Math.round(d * 10) / 10} spaces away as the dragon flies (its fire reaches ${s.config.dragonFireRange}).`;
   return null;
 }
 
@@ -263,7 +262,7 @@ export function adventureOptions(s: QueryState, playerId: string, hand: CardInst
         action: { type: 'dragonFire', targetId: t.id },
         characterId: comp.id,
         label: `Dragon Fire at ${label(s, t)}`,
-        detail: `Uses your Adventure action, no card. Roll the attack die: ${need}–${cfg.dieSides} hits (${odds(cfg.dieSides, need)}), 1–${need - 1} misses. A hit sends them home (not a cut, no bonus roll) and drops their gems where they stood. Range ${cfg.dragonFireRange}.`,
+        detail: `Uses your Adventure action, no card. Roll the attack die: ${need}–${cfg.dieSides} hits (${odds(cfg.dieSides, need)}), 1–${need - 1} misses. A hit sends them home (not a cut, no bonus roll) and drops their gems where they stood. Reaches a circle about ${cfg.dragonFireRange} spaces around your dragon.`,
       });
     }
     for (const m of fireableMonsters(s, comp.id)) {
