@@ -14,7 +14,7 @@ import {
   type MatchPace,
   type PlayerView,
 } from '../engine';
-import { chatTextSchema, ROOM_CODE_ALPHABET, type ChatMessage, type RoomGetResponse, type RoomLobbyView } from './protocol';
+import { chatTextSchema, REPORT_REASONS, ROOM_CODE_ALPHABET, signalPayloadSchema, type ChatMessage, type RoomGetResponse, type RoomLobbyView } from './protocol';
 import {
   defaultExpiresAt,
   getStore,
@@ -289,6 +289,7 @@ export async function progressRoom(room: RoomRecord, store: Store = getStore(), 
   }
   // Compare-and-set so a poll that advances clocks or AI never overwrites a newer move saved meanwhile.
   const saved = await store.updateRoom(room.code, baseVersion, patch);
+  if (saved && saved.status !== 'playing') await closeSession(saved.code, store);
   if (saved) return saved;
   return (await store.getRoom(room.code)) ?? room;
 }
@@ -328,9 +329,101 @@ export async function getRoomForAccount(
     lobby: lobbyView(room, accountId, now),
     view: playerViewFor(room, accountId, now),
   };
-  // Chat rides along with the poll the client already makes, so there is no extra request per tick.
-  if (seat && chatAfter !== null) data.chat = await store.listChat(room.code, Math.max(0, chatAfter));
+  // Chat and voice signals ride along with the poll the client already makes, so there is no extra request per tick.
+  if (seat && !seat.isAI && chatAfter !== null) {
+    if (isOpen(room)) {
+      data.chat = await store.listChat(room.code, Math.max(0, chatAfter));
+      data.signals = await store.takeSignals(room.code, seat.playerId, now);
+    } else {
+      // Chat lasts one session: once the match is over nothing is kept or shown.
+      await closeSession(room.code, store);
+      data.chat = [];
+      data.signals = [];
+    }
+  }
   return { ok: true, data };
+}
+
+function isOpen(room: RoomRecord) {
+  return room.status === 'lobby' || room.status === 'playing';
+}
+
+/** Rooms whose chat and voice messages this server instance already wiped. */
+const closedSessions = new Set<string>();
+
+/** The match is over: delete its chat lines and voice messages. */
+export async function closeSession(code: string, store: Store = getStore()) {
+  const key = code.toUpperCase();
+  if (closedSessions.has(key)) return;
+  await store.clearSession(key);
+  closedSessions.add(key);
+  if (closedSessions.size > 5000) closedSessions.clear();
+}
+
+/** Test helper. */
+export function resetClosedSessions() {
+  closedSessions.clear();
+}
+
+type Fail = { ok: false; status: number; error: string };
+
+/** The caller's seat in an open room, or why they cannot talk there. */
+async function talkingSeat(store: Store, code: string, accountId: string, now: number): Promise<{ ok: true; room: RoomRecord; seat: Seat } | Fail> {
+  const room = await store.getRoom(code);
+  if (!room) return { ok: false, status: 404, error: 'No room with that code.' };
+  if ((await assertRoomFresh(room, store, now)) === 'gone') return { ok: false, status: 410, error: 'That room has expired.' };
+  const seat = seatOf(room, accountId);
+  if (!seat || seat.isAI) return { ok: false, status: 403, error: 'Only players in this room can chat.' };
+  if (!isOpen(room)) return { ok: false, status: 409, error: 'The match is over, so chat has closed.' };
+  return { ok: true, room, seat };
+}
+
+function otherHuman(room: RoomRecord, me: Seat, playerId: string) {
+  const s = room.seats.find((x) => x.playerId === playerId);
+  return s && !s.isAI && s.accountId && s.playerId !== me.playerId ? s : null;
+}
+
+/** Relay a WebRTC connection message (offer/answer with its network candidates, hello, bye) to another player. */
+export async function postSignal(opts: { code: string; accountId: string; payload: unknown; now?: number }): Promise<{ ok: true } | Fail> {
+  const store = getStore();
+  const now = opts.now ?? Date.now();
+  const parsed = signalPayloadSchema.safeParse(opts.payload);
+  if (!parsed.success) return { ok: false, status: 400, error: 'That voice message is not valid.' };
+  const got = await talkingSeat(store, opts.code, opts.accountId, now);
+  if (!got.ok) return got;
+  const target = otherHuman(got.room, got.seat, parsed.data.to);
+  if (!target) return { ok: false, status: 400, error: 'That player is not in this room.' };
+  await store.addSignal(got.room.code, {
+    from: got.seat.playerId,
+    to: target.playerId,
+    kind: parsed.data.kind,
+    data: 'data' in parsed.data ? parsed.data.data : null,
+    at: now,
+  });
+  return { ok: true };
+}
+
+/** Report another player for something they said or did in chat or voice. */
+export async function reportPlayer(opts: { code: string; accountId: string; playerId: string; reason: string; now?: number }): Promise<{ ok: true } | Fail> {
+  const store = getStore();
+  const now = opts.now ?? Date.now();
+  const room = await store.getRoom(opts.code);
+  if (!room) return { ok: false, status: 404, error: 'No room with that code.' };
+  const seat = seatOf(room, opts.accountId);
+  if (!seat || seat.isAI) return { ok: false, status: 403, error: 'Only players in this room can report.' };
+  const target = otherHuman(room, seat, opts.playerId);
+  if (!target?.accountId) return { ok: false, status: 400, error: 'That player is not in this room.' };
+  if (!(REPORT_REASONS as readonly string[]).includes(opts.reason)) return { ok: false, status: 400, error: 'Pick a reason.' };
+  await store.addReport({
+    roomCode: room.code,
+    reporterAccount: opts.accountId,
+    reportedAccount: target.accountId,
+    reportedName: target.username,
+    reason: opts.reason,
+    at: now,
+  });
+  console.warn(`[kingdom-chaos] report: room ${room.code}, ${seat.username} reported ${target.username} (${opts.reason})`);
+  return { ok: true };
 }
 
 /** A player may send this many chat messages in CHAT_WINDOW_MS before being asked to slow down. */
@@ -347,11 +440,9 @@ export async function postChat(opts: {
   const now = opts.now ?? Date.now();
   const parsed = chatTextSchema.safeParse(opts.text);
   if (!parsed.success) return { ok: false, status: 400, error: parsed.error.issues[0]?.message ?? 'That message cannot be sent.' };
-  const room = await store.getRoom(opts.code);
-  if (!room) return { ok: false, status: 404, error: 'No room with that code.' };
-  if ((await assertRoomFresh(room, store, now)) === 'gone') return { ok: false, status: 410, error: 'That room has expired.' };
-  const seat = seatOf(room, opts.accountId);
-  if (!seat || seat.isAI) return { ok: false, status: 403, error: 'Only players in this room can chat.' };
+  const got = await talkingSeat(store, opts.code, opts.accountId, now);
+  if (!got.ok) return got;
+  const { room, seat } = got;
   if ((await store.countRecentChat(room.code, opts.accountId, now - CHAT_WINDOW_MS)) >= CHAT_BURST) {
     return { ok: false, status: 429, error: 'You are sending messages quickly. Wait a few seconds.' };
   }
@@ -456,6 +547,7 @@ export async function applyRoomAction(opts: {
     };
   }
 
+  if (saved.status !== 'playing') await closeSession(saved.code, store);
   room = await progressRoom(saved, store, now);
   const result = {
     status: 200,
@@ -503,6 +595,7 @@ export async function endRoom(opts: {
   room.expiresAt = resultExpiresAt(now);
   // Ending is intentional activity for retention, but expiry is ended+24h (not activity+2h).
   await store.saveRoom(room);
+  await closeSession(room.code, store);
   return {
     ok: true,
     data: {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type { GameState, MatchPace } from '../engine';
-import type { ChatMessage } from './protocol';
+import type { ChatMessage, VoiceSignal } from './protocol';
 import { SCHEMA_SQL } from './schema';
 
 export type { ChatMessage };
@@ -47,6 +47,26 @@ export interface NewChatMessage {
   at: number;
 }
 
+export interface NewVoiceSignal {
+  from: string;
+  to: string;
+  kind: VoiceSignal['kind'];
+  data: unknown;
+  at: number;
+}
+
+export interface PlayerReport {
+  roomCode: string;
+  reporterAccount: string;
+  reportedAccount: string;
+  reportedName: string;
+  reason: string;
+  at: number;
+}
+
+/** Voice connection messages that nobody picked up within this long are dropped. */
+export const SIGNAL_TTL_MS = 60_000;
+
 /** How many messages a fetch returns at most (the newest ones when starting from scratch). */
 export const CHAT_PAGE = 50;
 
@@ -81,6 +101,15 @@ export interface Store {
   listChat(roomCode: string, afterId: number): Promise<ChatMessage[]>;
   /** How many messages this account sent in the room since `since` (for rate limiting). */
   countRecentChat(roomCode: string, accountId: string, since: number): Promise<number>;
+  /** Forget every chat line and voice signal of a room (the match is over: chat lasts one session). */
+  clearSession(roomCode: string): Promise<void>;
+
+  /** Queue a voice connection message for one player. */
+  addSignal(roomCode: string, signal: NewVoiceSignal): Promise<void>;
+  /** Hand over (and delete) the fresh voice messages waiting for a player. */
+  takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]>;
+
+  addReport(report: PlayerReport): Promise<void>;
 }
 
 const TWO_H = 2 * 60 * 60 * 1000;
@@ -118,6 +147,9 @@ export class MemoryStore implements Store {
   actions = new Map<string, { accountId: string; result: StoredActionResult }>();
   chat = new Map<string, Array<ChatMessage & { accountId: string }>>();
   private chatSeq = 0;
+  signals = new Map<string, Array<VoiceSignal & { to: string }>>();
+  private signalSeq = 0;
+  reports: PlayerReport[] = [];
 
   async createAccount(username: string, passHash: string): Promise<Account> {
     const key = username.toLowerCase();
@@ -183,6 +215,7 @@ export class MemoryStore implements Store {
     const c = code.toUpperCase();
     this.rooms.delete(c);
     this.chat.delete(c);
+    this.signals.delete(c);
     for (const key of [...this.actions.keys()]) if (key.startsWith(`${c}:`)) this.actions.delete(key);
   }
 
@@ -223,6 +256,34 @@ export class MemoryStore implements Store {
 
   async countRecentChat(roomCode: string, accountId: string, since: number) {
     return (this.chat.get(roomCode.toUpperCase()) ?? []).filter((m) => m.accountId === accountId && m.at >= since).length;
+  }
+
+  async clearSession(roomCode: string) {
+    this.chat.delete(roomCode.toUpperCase());
+    this.signals.delete(roomCode.toUpperCase());
+  }
+
+  async addSignal(roomCode: string, signal: NewVoiceSignal) {
+    const c = roomCode.toUpperCase();
+    const list = this.signals.get(c) ?? [];
+    list.push({ id: ++this.signalSeq, ...signal });
+    this.signals.set(c, list);
+  }
+
+  async takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]> {
+    const c = roomCode.toUpperCase();
+    const list = this.signals.get(c) ?? [];
+    const fresh = list.filter((s) => now - s.at < SIGNAL_TTL_MS);
+    const mine = fresh.filter((s) => s.to === to);
+    this.signals.set(
+      c,
+      fresh.filter((s) => s.to !== to),
+    );
+    return mine.map(({ id, from, kind, data, at }) => ({ id, from, kind, data, at }));
+  }
+
+  async addReport(report: PlayerReport) {
+    this.reports.push({ ...report });
   }
 }
 
@@ -459,6 +520,44 @@ export class PostgresStore implements Store {
       WHERE room_code = ${roomCode.toUpperCase()} AND account_id = ${accountId} AND created_at >= ${new Date(since)}
     `;
     return row?.n ?? 0;
+  }
+
+  async clearSession(roomCode: string) {
+    await this.ensureSchema();
+    const code = roomCode.toUpperCase();
+    await this.sql`DELETE FROM kc_chat WHERE room_code = ${code}`;
+    await this.sql`DELETE FROM kc_signals WHERE room_code = ${code}`;
+  }
+
+  async addSignal(roomCode: string, signal: NewVoiceSignal) {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO kc_signals (room_code, from_player, to_player, kind, payload, created_at)
+      VALUES (${roomCode.toUpperCase()}, ${signal.from}, ${signal.to}, ${signal.kind}, ${this.sql.json((signal.data ?? null) as never)}, ${new Date(signal.at)})
+    `;
+  }
+
+  async takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]> {
+    await this.ensureSchema();
+    const code = roomCode.toUpperCase();
+    const rows = await this.sql<{ id: string | number; from_player: string; kind: VoiceSignal['kind']; payload: unknown; created_at: Date }[]>`
+      DELETE FROM kc_signals WHERE room_code = ${code} AND to_player = ${to}
+      RETURNING id, from_player, kind, payload, created_at
+    `;
+    // Stale ones (nobody polled in time) are simply dropped.
+    await this.sql`DELETE FROM kc_signals WHERE room_code = ${code} AND created_at < ${new Date(now - SIGNAL_TTL_MS)}`;
+    return rows
+      .filter((r) => now - r.created_at.getTime() < SIGNAL_TTL_MS)
+      .map((r) => ({ id: Number(r.id), from: r.from_player, kind: r.kind, data: r.payload, at: r.created_at.getTime() }))
+      .sort((a, b) => a.id - b.id);
+  }
+
+  async addReport(report: PlayerReport) {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO kc_reports (room_code, reporter_account, reported_account, reported_name, reason, created_at)
+      VALUES (${report.roomCode}, ${report.reporterAccount}, ${report.reportedAccount}, ${report.reportedName}, ${report.reason}, ${new Date(report.at)})
+    `;
   }
 }
 

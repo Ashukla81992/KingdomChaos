@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hashPassword } from '@/server/auth';
-import { CHAT_BURST, createRoom, getRoomForAccount, joinRoom, postChat, resetSweepThrottle, startRoom } from '@/server/rooms';
+import { CHAT_BURST, createRoom, endRoom, getRoomForAccount, joinRoom, postChat, postSignal, reportPlayer, resetClosedSessions, resetSweepThrottle, startRoom } from '@/server/rooms';
+import { iceServers } from '@/server/ice';
 import { MemoryStore, PostgresStore, setStore, type Store } from '@/server/store';
 import { POST as chatRoute } from '@/app/api/rooms/[code]/chat/route';
 
@@ -10,6 +11,7 @@ beforeEach(() => {
   store = new MemoryStore();
   setStore(store);
   resetSweepThrottle();
+  resetClosedSessions();
 });
 
 afterEach(() => {
@@ -104,6 +106,64 @@ describe('match chat', () => {
   });
 });
 
+describe('chat lasts one session', () => {
+  it('wipes chat and voice messages when the match ends, and closes chat', async () => {
+    const { host, guest, code } = await twoPlayerRoom();
+    await postChat({ code, accountId: host.id, text: 'gg soon' });
+    await postSignal({ code, accountId: guest.id, payload: { kind: 'hello', to: 'p1' } });
+    const ended = await endRoom({ code, accountId: host.id });
+    expect(ended.ok).toBe(true);
+    expect(await store.listChat(code, 0)).toEqual([]);
+    expect(await store.takeSignals(code, 'p1', Date.now())).toEqual([]);
+    const after = await getRoomForAccount(code, guest.id, Date.now(), 0);
+    expect(after.ok && after.data.chat).toEqual([]);
+    expect(await postChat({ code, accountId: guest.id, text: 'hello?' })).toMatchObject({ ok: false, status: 409 });
+  });
+});
+
+describe('voice signalling', () => {
+  it('relays an offer to the other player once, on their next poll', async () => {
+    const { host, guest, code } = await twoPlayerRoom();
+    const offer = { kind: 'offer', to: 'p2', data: { type: 'offer', sdp: 'v=0 fake' } };
+    expect(await postSignal({ code, accountId: host.id, payload: offer })).toEqual({ ok: true });
+    const g = await getRoomForAccount(code, guest.id, Date.now(), 0);
+    expect(g.ok && g.data.signals).toEqual([expect.objectContaining({ from: 'p1', kind: 'offer', data: { type: 'offer', sdp: 'v=0 fake' } })]);
+    const again = await getRoomForAccount(code, guest.id, Date.now(), 0);
+    expect(again.ok && again.data.signals).toEqual([]);
+    // The host never sees their own message.
+    const h = await getRoomForAccount(code, host.id, Date.now(), 0);
+    expect(h.ok && h.data.signals).toEqual([]);
+  });
+
+  it('refuses strangers, yourself, AI seats and bad payloads, and drops stale messages', async () => {
+    const { host, code } = await twoPlayerRoom();
+    const stranger = await store.createAccount('Lurker', hashPassword('password1'));
+    expect(await postSignal({ code, accountId: stranger.id, payload: { kind: 'hello', to: 'p1' } })).toMatchObject({ ok: false, status: 403 });
+    expect(await postSignal({ code, accountId: host.id, payload: { kind: 'hello', to: 'p1' } })).toMatchObject({ ok: false, status: 400 });
+    expect(await postSignal({ code, accountId: host.id, payload: { kind: 'offer', to: 'p2' } })).toMatchObject({ ok: false, status: 400 });
+    expect(await postSignal({ code, accountId: host.id, payload: { kind: 'shout', to: 'p2' } })).toMatchObject({ ok: false, status: 400 });
+    const old = Date.now() - 120_000;
+    await postSignal({ code, accountId: host.id, payload: { kind: 'hello', to: 'p2' }, now: old });
+    expect(await store.takeSignals(code, 'p2', Date.now())).toEqual([]);
+  });
+
+  it('uses free STUN, plus a TURN relay only when configured', () => {
+    expect(iceServers({})).toHaveLength(1);
+    const withTurn = iceServers({ TURN_URLS: 'turn:relay.example.com:3478, bogus', TURN_USERNAME: 'u', TURN_CREDENTIAL: 'c' });
+    expect(withTurn[1]).toEqual({ urls: ['turn:relay.example.com:3478'], username: 'u', credential: 'c' });
+  });
+});
+
+describe('reporting a player', () => {
+  it('records who reported whom and why', async () => {
+    const { host, guest, code } = await twoPlayerRoom();
+    expect(await reportPlayer({ code, accountId: host.id, playerId: 'p2', reason: 'Spam' })).toEqual({ ok: true });
+    expect(store.reports).toEqual([expect.objectContaining({ roomCode: code, reporterAccount: host.id, reportedAccount: guest.id, reason: 'Spam' })]);
+    expect(await reportPlayer({ code, accountId: host.id, playerId: 'p1', reason: 'Spam' })).toMatchObject({ ok: false });
+    expect(await reportPlayer({ code, accountId: host.id, playerId: 'p2', reason: 'made up' })).toMatchObject({ ok: false });
+  });
+});
+
 describe.skipIf(!process.env.TEST_DATABASE_URL)('match chat on Postgres', () => {
   it('stores, lists after an id, rate-limits and cascades with the room', async () => {
     const pg = new PostgresStore(process.env.TEST_DATABASE_URL!);
@@ -116,7 +176,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('match chat on Postgres', () => 
     expect((await pg.listChat(code, 0)).map((m) => m.text)).toEqual(['one', 'two']);
     expect((await pg.listChat(code, a.message.id)).map((m) => m.text)).toEqual(['two']);
     expect(await pg.countRecentChat(code, host.id, Date.now() - 10_000)).toBe(1);
-    await pg.deleteRoom(code);
+    expect((await postSignal({ code, accountId: host.id, payload: { kind: 'hello', to: 'p2' } })).ok).toBe(true);
+    expect((await pg.takeSignals(code, 'p2', Date.now())).map((x) => x.kind)).toEqual(['hello']);
+    expect(await pg.takeSignals(code, 'p2', Date.now())).toEqual([]);
+    expect((await reportPlayer({ code, accountId: guest.id, playerId: 'p1', reason: 'Spam' })).ok).toBe(true);
+    await pg.clearSession(code);
     expect(await pg.listChat(code, 0)).toEqual([]);
+    await pg.deleteRoom(code);
   });
 });

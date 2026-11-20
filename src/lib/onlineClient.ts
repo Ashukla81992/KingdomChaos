@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameAction, MatchPace, PlayerView } from '@/engine';
-import type { ChatMessage, RoomGetResponse, RoomLobbyView } from '@/server/protocol';
+import type { ChatMessage, RoomGetResponse, RoomLobbyView, VoiceSignal } from '@/server/protocol';
 import type { SendResult } from '@/components/game/GameScreen';
 
 export type AccountInfo = { id: string; username: string };
@@ -55,6 +55,22 @@ export async function getOnlineRoom(code: string, chatAfter?: number) {
   return api<RoomGetResponse>(`/api/rooms/${encodeURIComponent(code)}${q}`);
 }
 
+export type SignalOut =
+  | { kind: 'hello' | 'bye'; to: string }
+  | { kind: 'offer' | 'answer'; to: string; data: { type: 'offer' | 'answer'; sdp: string } };
+
+export async function sendVoiceSignal(code: string, signal: SignalOut) {
+  return api<{ ok: true }>(`/api/rooms/${encodeURIComponent(code)}/signal`, { method: 'POST', body: JSON.stringify(signal), keepalive: true });
+}
+
+export async function reportOnlinePlayer(code: string, playerId: string, reason: string) {
+  return api<{ ok: true }>(`/api/rooms/${encodeURIComponent(code)}/report`, { method: 'POST', body: JSON.stringify({ playerId, reason }) });
+}
+
+export async function fetchIceServers() {
+  return api<{ iceServers: RTCIceServer[] }>('/api/voice/ice');
+}
+
 export async function sendChatMessage(code: string, text: string) {
   return api<{ message: ChatMessage }>(`/api/rooms/${encodeURIComponent(code)}/chat`, { method: 'POST', body: JSON.stringify({ text }) });
 }
@@ -75,6 +91,8 @@ export async function sendOnlineAction(code: string, action: GameAction, version
 }
 
 const POLL_MS = 1500;
+/** Faster polling while a voice call is being set up, so it connects in a couple of seconds. */
+const FAST_POLL_MS = 400;
 /** Chat lines kept on screen; older ones scroll away. */
 const CHAT_KEEP = 200;
 
@@ -89,6 +107,9 @@ export function useOnlineRoom(code: string) {
   const versionRef = useRef(0);
   const pendingIds = useRef(new Map<string, GameAction>());
   const [chat, setChat] = useState<ChatMessage[]>([]);
+  const signalListeners = useRef(new Set<(s: VoiceSignal[]) => void>());
+  /** Poll quickly until this time (while a voice call is connecting). */
+  const fastUntil = useRef(0);
   const chatAfterRef = useRef(0);
 
   const addChat = useCallback((incoming: ChatMessage[] | undefined) => {
@@ -123,7 +144,12 @@ export function useOnlineRoom(code: string) {
       return r;
     }
     applyPayload(r.data);
+    if (r.data.chat?.length === 0 && r.data.lobby.status !== 'lobby' && r.data.lobby.status !== 'playing') {
+      // The match is over: the server wiped this session's chat, so clear it here too.
+      setChat([]);
+    }
     addChat(r.data.chat);
+    if (r.data.signals?.length) for (const fn of signalListeners.current) fn(r.data.signals);
     return r;
   }, [addChat, applyPayload, code]);
 
@@ -144,7 +170,7 @@ export function useOnlineRoom(code: string) {
       if (cancelled) return;
       await refresh();
       if (cancelled) return;
-      timer = setTimeout(loop, POLL_MS);
+      timer = setTimeout(loop, Date.now() < fastUntil.current ? FAST_POLL_MS : POLL_MS);
     };
     void loop();
     return () => {
@@ -200,5 +226,23 @@ export function useOnlineRoom(code: string) {
     return r;
   }, [applyPayload, code]);
 
-  return { lobby, view, connection, error, send, start, endMatch, refresh, clockSkew, chat, sendChat };
+  const onSignals = useCallback((fn: (s: VoiceSignal[]) => void) => {
+    signalListeners.current.add(fn);
+    return () => {
+      signalListeners.current.delete(fn);
+    };
+  }, []);
+  const sendSignal = useCallback(
+    (signal: SignalOut) => {
+      fastUntil.current = Date.now() + 8000;
+      return sendVoiceSignal(code, signal);
+    },
+    [code],
+  );
+  const pollFast = useCallback((ms = 8000) => {
+    fastUntil.current = Math.max(fastUntil.current, Date.now() + ms);
+  }, []);
+  const report = useCallback((playerId: string, reason: string) => reportOnlinePlayer(code, playerId, reason), [code]);
+
+  return { lobby, view, connection, error, send, start, endMatch, refresh, clockSkew, chat, sendChat, onSignals, sendSignal, pollFast, report };
 }

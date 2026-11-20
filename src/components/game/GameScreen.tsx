@@ -66,6 +66,7 @@ import { TurnHowTo } from './TurnHowTo';
 import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
 import { ChatToggle, MatchChatPanel, useMatchChat, type ChatController } from './MatchChat';
+import { MicButton } from './VoiceControls';
 import { ObjectiveStrip } from './ObjectiveStrip';
 import { ResultsOverlay } from './ResultsOverlay';
 import { TradePanel } from './TradePanel';
@@ -999,6 +1000,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
           <button className="btn btn-ghost icon-btn" onClick={() => update({ muted: !settings.muted })} aria-label={settings.muted ? 'Unmute' : 'Mute'} aria-pressed={settings.muted}>
             {settings.muted ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
+          {controller.chat?.voice?.joined && <MicButton voice={controller.chat.voice} compact />}
           {controller.chat && <ChatToggle unread={chatDock.unread} open={chatDock.open} onClick={() => chatDock.setOpen(!chatDock.open)} />}
           <button className="btn btn-ghost px-3! py-1.5! lg:hidden!" onClick={() => setDrawerOpen(true)} data-guide-open>
             <BookOpen size={18} aria-hidden="true" /> Rules &amp; Guide

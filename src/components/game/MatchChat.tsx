@@ -1,17 +1,24 @@
 'use client';
 
 import { AnimatePresence, motion } from 'framer-motion';
-import { MessageCircle, Send, X } from 'lucide-react';
+import { ChevronDown, MessageCircle, Send, Users, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { PlayerView } from '@/engine';
 import { seatTheme } from '@/lib/seats';
 import { useSettings } from '@/lib/settings';
 import { CHAT_MAX_LENGTH, QUICK_CHAT, type ChatMessage } from '@/server/protocol';
+import type { VoiceApi } from '@/lib/voice';
 import type { SendResult } from './GameScreen';
+import { seatsFor, TablePeople, VoiceBar, type TablePlayer } from './VoiceControls';
 
 export interface ChatController {
   messages: ChatMessage[];
   send: (text: string) => Promise<SendResult>;
+  /** Voice chat for this room (online only). */
+  voice?: VoiceApi;
+  /** The other human players at the table (for mute and report). */
+  players?: TablePlayer[];
+  report?: (playerId: string, reason: string) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /** Open/closed state, unread count and the "peek" bubble for a match chat. */
@@ -90,6 +97,9 @@ export function ChatBody({ chat, me, view, autoFocus }: { chat: ChatController; 
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const players = seatsFor(view, chat.players ?? []);
+  const showPeople = peopleOpen || !!chat.voice?.joined;
   const listRef = useRef<HTMLOListElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const count = chat.messages.length;
@@ -117,6 +127,21 @@ export function ChatBody({ chat, me, view, autoFocus }: { chat: ChatController; 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {chat.voice && <VoiceBar voice={chat.voice} />}
+      {players.length > 0 && (
+        <div className="shrink-0">
+          {!chat.voice?.joined && (
+            <button type="button" className="flex items-center gap-1 text-xs font-bold text-[#4a5374]" onClick={() => setPeopleOpen(!peopleOpen)} aria-expanded={showPeople} data-people-toggle>
+              <Users size={14} aria-hidden="true" /> Players ({players.length}) <ChevronDown size={14} className={showPeople ? 'rotate-180' : ''} aria-hidden="true" />
+            </button>
+          )}
+          {showPeople && (
+            <div className="mt-1 max-h-32 overflow-y-auto">
+              <TablePeople players={players} voice={chat.voice} report={chat.report} />
+            </div>
+          )}
+        </div>
+      )}
       <ol ref={listRef} className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain pr-1" aria-label="Chat messages" aria-live="polite" data-chat-list>
         {count === 0 && <li className="py-4 text-center text-sm text-[#4a5374]">No messages yet. Say hello!</li>}
         {chat.messages.map((m) => {
@@ -230,7 +255,7 @@ export function MatchChatPanel({
       </AnimatePresence>
       {open && (
         <div
-          className="fixed inset-x-0 bottom-16 z-40 flex h-[min(55dvh,26rem)] flex-col rounded-t-3xl border-t border-[#e6dcc6] bg-[#fffaf0] p-3 shadow-xl lg:absolute lg:inset-x-auto lg:right-16 lg:bottom-2 lg:h-[min(26rem,calc(100%-4rem))] lg:w-[min(22rem,calc(100%-5rem))] lg:rounded-2xl lg:border lg:bg-[#fffaf0]/95 lg:backdrop-blur"
+          className="fixed inset-x-0 bottom-16 z-40 flex h-[min(62dvh,32rem)] flex-col rounded-t-3xl border-t border-[#e6dcc6] bg-[#fffaf0] p-3 shadow-xl lg:absolute lg:inset-x-auto lg:right-16 lg:bottom-2 lg:h-[min(32rem,calc(100%-4rem))] lg:w-[min(22rem,calc(100%-5rem))] lg:rounded-2xl lg:border lg:bg-[#fffaf0]/95 lg:backdrop-blur"
           role="dialog"
           aria-label="Match chat"
           onKeyDown={(e) => {
