@@ -338,7 +338,7 @@ export const MAP_MARKER_INFO = {
 export const MONSTER_RULE = `Roaming monsters: the Stone Golem and the Cave Spider attack any house. After every full round (bonus rolls do not count) roll the monster die once: 1–${C.monsterQuietMax} nothing happens; ${C.monsterQuietMax + 1}–${C.monsterOutsideRoll - 1} one random active monster attacks a random piece within ${C.monsterRange} connected steps of it in the dungeon; ${C.monsterOutsideRoll} one climbs out of the Dragon Gate and attacks a piece on the road within ${C.monsterRange} steps of the gate, then goes back inside. Stone Golem: pushes the piece back ${C.golemPush} legal spaces. Cave Spider: webs it, so its next move is ${C.webPenalty} shorter (minimum 1, webs do not stack). Safe spaces, castles, Royal Paths, the temple, Immunity and Royal Guard are never attacked; a Shield blocks one attack and breaks. With nobody in reach the monster stays idle: no attack, no notice. Blocked or unbuilt roads stop a monster’s reach.`;
 
 /** How to beat the roaming monsters for good. */
-export const MONSTER_KILL_RULE = `Killing monsters: each monster has ${C.monsterHearts} hearts. Three ways to strike one: win its fight by ending your move on its space; use the Attack action from within ${C.monsterAttackRange} step of it (roll ${C.encounterThreshold}+, Knight +${C.knightBonus}; a miss and it strikes back at once unless you stand on a safe space or are protected); or breathe Dragon Fire at it from up to ${C.dragonFireRange} steps (${C.dragonFireHit}+ on the attack die, no strike back). Each hit takes a heart and knocks it out until the end of the next round. At 0 hearts it is slain for the rest of the match: no more attacks, no fight on its space. A slain Golem leaves its shortcut open to every kingdom; whoever slays the Spider takes a power card from its hoard.`;
+export const MONSTER_KILL_RULE = `Killing monsters: each monster has ${C.monsterHearts} hearts. Three ways to strike one: win its fight by ending your move on its space; use the Attack action from within ${C.monsterAttackRange} step of it (roll ${C.encounterThreshold}+, Knight +${C.knightBonus}; a miss and it strikes back at once unless you stand on a safe space or are protected); or breathe Dragon Fire at it from inside the fire circle (about ${C.dragonFireRange} spaces) (${C.dragonFireHit}+ on the attack die, no strike back). Each hit takes a heart and knocks it out until the end of the next round. At 0 hearts it is slain for the rest of the match: no more attacks, no fight on its space. A slain Golem leaves its shortcut open to every kingdom; whoever slays the Spider takes a power card from its hoard.`;
 
 export interface DungeonGuideEntry {
   /** Board node the entry describes (for labels and tooltips). */
@@ -442,7 +442,7 @@ export const RULE_SECTIONS: RuleSection[] = [
     id: 'dungeon-battle',
     title: 'Dungeon: Dragon Fire and the Golem battle',
     paragraphs: [
-      `Dragon Fire needs no card. Tap your dragon (or its Fire button): rivals within ${C.dragonFireRange} connected steps glow. Tap one to preview, confirm, and the attack die rolls at once: ${C.dragonFireHit}–6 hits, 1–${C.dragonFireHit - 1} misses. Tap a piece that does not glow to see why it cannot be burned.`,
+      `Dragon Fire needs no card. Tap your dragon (or its Fire button): rivals inside the fire circle (about ${C.dragonFireRange} spaces around your dragon, as the crow flies) glow. Tap one to preview, confirm, and the attack die rolls at once: ${C.dragonFireHit}–6 hits, 1–${C.dragonFireHit - 1} misses. Tap a piece that does not glow to see why it cannot be burned.`,
       `Prototype: the Stone Golem fights a short battle. It has ${C.battleMonsterHp} health and you get ${C.battleStamina} stamina for the fight. Above it you see its next attack: a light swipe (1) or a telegraphed heavy slam (2), alternating.`,
     ],
     bullets: [
@@ -551,7 +551,7 @@ export const RULE_SECTIONS: RuleSection[] = [
       `Tame: stand with it and roll ${C.tameThreshold}–6. Fail: retreat to the nearest safe space.`,
       `A companion moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}), shown as “Roll 5 − Dragon 2 = Move 3”.`,
       `Dragon Fire is the dragon’s own power: no card. It uses your Adventure action: choose an eligible target, then roll a separate attack die. ${C.dragonFireHit}–6 hits; 1–${C.dragonFireHit - 1} misses and the action is still spent. The attack die never earns a bonus roll.`,
-      `Dragon Fire hits an eligible rival within ${C.dragonFireRange} open, connected spaces. Gems drop on that space. No capture credit and no bonus roll. Shield, Immunity and Royal Guard block it. The Witch is immune.`,
+      `Dragon Fire reaches a circle about ${C.dragonFireRange} spaces around the dragon, straight through the air: roads, bends and closed paths do not matter, but it stays on the dragon's map. Gems drop on that space. No capture credit and no bonus roll. Shield, Immunity and Royal Guard block it. The Witch is immune.`,
       'Release at the start of your turn leaves a wild dragon blocking that space. The Witch may pass through.',
       `Dragon Slayer: only the Queen holding it may end on the wild dragon’s space, then rolls ${C.slayThreshold}+. Success clears the block and returns the dragon to recover for one round.`,
     ],
@@ -639,7 +639,7 @@ export const DUNGEON_LANDMARKS: LandmarkInfo[] = [
     node: 'd-lair',
     purpose: 'Where the dragon sleeps on its eggs and treasure, and recovers after a defeat.',
     action: `End your move here, then use your Adventure action to tame it: roll ${C.tameThreshold}+.`,
-    reward: `A companion: Dragon Fire as an Adventure action, no card (${C.dragonFireHit}–6 hits a rival within ${C.dragonFireRange} steps).`,
+    reward: `A companion: Dragon Fire as an Adventure action, no card (${C.dragonFireHit}–6 hits a rival inside a circle about ${C.dragonFireRange} spaces around it).`,
     risk: `A companion slows its rider: moves max(${C.dragonMinMove}, roll − ${C.dragonMovePenalty}). A failed tame retreats you to a safe room.`,
     needs: 'The dragon must be home and guarding (not someone’s companion or recovering).',
   },

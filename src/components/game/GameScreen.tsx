@@ -14,6 +14,7 @@ import {
   protectionLabel,
   companionOf,
   dragonFireBlock,
+  fireRadius,
   DUNGEON_GUIDE,
   monstersOf,
   templeBlockers,
@@ -61,6 +62,7 @@ import { Die } from './Die';
 import { EventCard } from './EventCard';
 import { BattlePanel } from './BattlePanel';
 import { GuidePanel, PlateDots, RulesRail, plateLine } from './GuidePanel';
+import { TurnHowTo } from './TurnHowTo';
 import { KingdomProgress } from './KingdomProgress';
 import { MapGuide } from './MapGuide';
 import { ObjectiveStrip } from './ObjectiveStrip';
@@ -103,6 +105,9 @@ interface Props {
   /** [A5] Host-only control to end an online match early (confirmed by the caller). */
   hostEndMatch?: { label: string; onClick: () => void; busy?: boolean };
 }
+
+/** The current player gets a "what to do next" hint after this long with nothing happening on their turn. */
+const IDLE_HINT_MS = 2 * 60 * 1000;
 
 const STALE = /out of date/i;
 
@@ -283,6 +288,8 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const options = useMemo(() => (me && myTurn ? adventureOptions(view, me, handCards) : []), [view, me, myTurn, handCards]);
   const cards = useMemo(() => (me ? playableCards(view, me, handCards) : []), [view, me, handCards]);
   const fireOptions = useMemo(() => options.filter((o) => o.action.type === 'dragonFire'), [options]);
+  const fireRider = me && (fireMode || fireTarget) ? companionOf(view, me) : undefined;
+  const fireRing = fireRider ? { node: fireRider.node, radius: fireRadius(view.boardId, fireRider.node, view.config.dragonFireRange) } : null;
   const fireChoice = fireTarget ? (fireOptions.find((o) => o.action.type === 'dragonFire' && o.action.targetId === fireTarget) ?? null) : null;
   /** Spaces where one of my pieces can act right now: those landmarks glow green. */
   const actionNodes = useMemo(() => new Set(options.filter((o) => o.action.type !== 'dragonFire').map((o) => view.characters[o.characterId]?.node).filter(Boolean) as string[]), [options, view.characters]);
@@ -598,7 +605,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
     setFireTarget(null);
     setFireMode(true);
     const n = fireOptions.filter((o) => o.action.type === 'dragonFire' && o.action.targetId).length;
-    if (n) return say(`Dragon Fire: ${n === 1 ? 'one rival glows' : `${n} rivals glow`} within ${view.config.dragonFireRange} steps. Tap one to preview the attack.`);
+    if (n) return say(`Dragon Fire: ${n === 1 ? 'one rival glows' : `${n} rivals glow`} inside the fire circle. Tap one to preview the attack.`);
     const blocked = fireBlocks().filter((b) => b.why);
     say(`No rival can be burned right now. ${blocked.slice(0, 3).map((b) => `${label(b.c)}: ${b.why}`).join(' ')}`);
   };
@@ -921,6 +928,20 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   } else headline = 'Finishing the turn…';
   const feed = !myTurn && playing ? view.log.slice(-4).reverse() : [];
 
+  // Idle hint: when the player whose turn it is has done nothing for a while, tell them what they can do.
+  const idleStage = !myTurn || view.battle ? null : canRoll ? 'roll' : canPlan ? 'move' : !view.turn.adventureDone ? 'adventure' : null;
+  const idleKey = `${view.turn.playerId}|${view.turn.round}|${view.log.length}|${idleStage}|${!!rolled}|${cardId ?? ''}|${plan?.characterId ?? ''}`;
+  const [idle, setIdle] = useState<{ key: string; since: number; dismissed: boolean }>({ key: '', since: now, dismissed: false });
+  if (idle.key !== idleKey) setIdle({ key: idleKey, since: now, dismissed: false });
+  const idleHint =
+    idleStage && !idle.dismissed && idle.key === idleKey && now - idle.since >= IDLE_HINT_MS
+      ? idleStage === 'roll'
+        ? 'Still there? Tap Roll the die to start your turn. You can also play a card first.'
+        : idleStage === 'move'
+          ? 'Still there? Tap a piece with a dashed gold ring, then a glowing space, to move it.'
+          : 'Not sure what to do next? Play a card or use a place, or tap End turn to finish your turn.'
+      : null;
+
   const inspectedChar = inspect?.kind === 'character' ? view.characters[inspect.id] : null;
   const inspectedNode = inspect?.kind === 'node' ? nodes[inspect.id] : null;
   const focusChar = planChar ?? inspectedChar;
@@ -1065,11 +1086,26 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             onConfirmEdge={confirmEdge}
             onCancelEdge={() => setEdgePick(null)}
             fireTarget={fireChoice ? fireTarget : null}
+            fireCircle={fireRing}
             actionNodes={actionNodes}
             platesDone={focusChar?.plates ?? null}
           />
           {dragging && <div className="sr-only">Dragging</div>}
           <EventCard view={view} reduced={reducedMotion} />
+          {idleHint && !recap && (
+            <div className="absolute top-2 left-1/2 z-20 flex w-[min(92%,26rem)] -translate-x-1/2 items-start gap-2 rounded-2xl border-2 border-[#f2a11a] bg-[#fffaf0]/95 p-2.5 text-[#1d2440] shadow-lg" role="status" data-idle-hint={idleStage ?? ''}>
+              <Hourglass size={16} className="mt-0.5 shrink-0 text-[#c27a0e]" aria-hidden="true" />
+              <p className="min-w-0 flex-1 text-sm leading-snug font-semibold">{idleHint}</p>
+              {idleStage === 'adventure' && (
+                <button className="btn btn-primary min-h-9 shrink-0 text-xs" disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-idle-end-turn>
+                  End turn
+                </button>
+              )}
+              <button type="button" className="btn btn-ghost icon-btn min-h-8! min-w-8! shrink-0" aria-label="Dismiss hint" onClick={() => setIdle((x) => ({ ...x, dismissed: true }))}>
+                <X size={14} />
+              </button>
+            </div>
+          )}
           {recap && (
             <div className="absolute top-2 left-1/2 z-20 w-[min(92%,26rem)] -translate-x-1/2 rounded-2xl border border-white/30 bg-[#1d2440]/88 p-2.5 text-white shadow-lg" role="status" data-recap>
               <div className="mb-1 flex items-center justify-between gap-2">
@@ -1354,7 +1390,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
               <div className="mt-2.5 rounded-xl bg-[#fff1e6] p-2" data-dragon-fire="aiming">
                 <div className="mb-1 text-xs font-bold text-[#a3300b]">Dragon Fire · tap a glowing rival</div>
                 {fireOptions.some((o) => o.action.type === 'dragonFire' && o.action.targetId) ? (
-                  <p className="text-xs text-[#4a5374]">Rivals within {view.config.dragonFireRange} connected steps of your dragon glow. Tap any other piece to see why it cannot be burned.</p>
+                  <p className="text-xs text-[#4a5374]">Rivals inside the orange fire circle (about {view.config.dragonFireRange} spaces around your dragon) glow. Tap any other piece to see why it cannot be burned.</p>
                 ) : (
                   <p className="text-xs text-[#4a5374]" data-fire-empty>
                     No rival can be burned right now.{' '}
@@ -1402,7 +1438,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                       aria-pressed={fireMode}
                       data-adventure-option="dragonFire"
                       data-fire-mode={fireMode ? 'on' : 'off'}
-                      title={`No card needed. Uses your Adventure action. Targets within ${view.config.dragonFireRange} connected steps; ${view.config.dragonFireHit ?? 4}–${view.config.dieSides} on the attack die hits.`}
+                      title={`No card needed. Uses your Adventure action. Reaches a circle about ${view.config.dragonFireRange} spaces around your dragon; ${view.config.dragonFireHit ?? 4}–${view.config.dieSides} on the attack die hits.`}
                       onClick={() => (fireMode ? (setFireMode(false), setFireTarget(null)) : startFire())}
                     >
                       🔥 {fireMode ? 'Cancel Dragon Fire' : 'Dragon Fire'}
@@ -1446,7 +1482,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             {myTurn && (
               <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {view.turn.moveDone && !view.turn.adventureDone && !view.battle && (
-                  <button className="btn btn-primary min-h-11 text-sm" disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-end-turn>
+                  <button className={`btn btn-primary min-h-11 text-sm ${idleStage === 'adventure' && idleHint ? 'ring-4 ring-[#f2a11a]' : ''}`} disabled={busy} onClick={() => void run({ type: 'skipAdventure' })} data-end-turn>
                     <SkipForward size={15} aria-hidden="true" /> End turn
                   </button>
                 )}
@@ -1555,6 +1591,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
       </div>
       <AnimateToast text={toast} />
       {finished && view.result && <ResultsOverlay view={view} primary={results?.primary} secondary={results?.secondary} />}
+      {mode !== 'tutorial' && <TurnHowTo matchKey={matchKey} starting={playing && view.turn.round <= 1} />}
       <RulesPanel open={rulesOpen} onClose={() => setRulesOpen(false)} activeMatch={mode === 'tutorial' ? null : mode === 'online' ? 'online' : 'local'} onLeaveMatch={onExit} />
       <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <Modal open={drawerOpen} onClose={() => setDrawerOpen(false)} title="Rules & Guide">

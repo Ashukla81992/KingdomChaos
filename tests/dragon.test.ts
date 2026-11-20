@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adventureOptions, dragonFireTargets, legalMoves, type GameState } from '@/engine';
+import { adventureOptions, dragonFireBlock, dragonFireTargets, legalMoves, type GameState } from '@/engine';
 import { dragonSpaceRule } from '@/engine/dungeon';
 import { act, carry, endsFor, freshTurn, game, hand, noCards, place, reject, rollWith, routeTo } from './helpers';
 
@@ -55,13 +55,17 @@ describe('dragon', () => {
     expect(routeTo(s, 'a-king', 'c11')).toHaveLength(4);
   });
 
-  it('Dragon Fire hits within range 3, not castles, plates or Royal Paths, blocked by Shield, and is not a cut', () => {
+  it('Dragon Fire hits inside its circle (not by road steps), not castles or far pieces, blocked by Shield, and is not a cut', () => {
     let s = noCards(companion(place(game(), 'a-king', 'c8'), 'a-king'));
     place(s, 'b-king', 'c9');
+    // c12 is 4 road steps away but only ~2.2 spaces as the dragon flies: inside the circle.
     place(s, 'b-queen', 'c12');
     place(s, 'b-witch', 'f-purple-1');
     place(s, 'b-knight', 'c11', { shield: true });
-    expect(dragonFireTargets(s, 'a').map((c) => c.id)).toEqual(['b-king']);
+    expect(dragonFireTargets(s, 'a').map((c) => c.id).sort()).toEqual(['b-king', 'b-queen']);
+    // c5 is only 3 road steps away, but ~4.9 spaces in a straight line: outside the circle.
+    place(s, 'b-queen', 'c5');
+    expect(dragonFireBlock(s, 'a', 'b-queen')).toMatch(/Out of range: about [\d.]+ spaces away/);
     s.forcedRolls = [4];
     s = act(s, 'a', { type: 'dragonFire', targetId: 'b-king' });
     expect(s.characters['b-king'].node).toBe('home-purple');
@@ -120,13 +124,13 @@ describe('dragon', () => {
     expect(dragonSpaceRule(s, 'a-king')).toBe('block');
   });
 
-  it('Dragon Fire does not cross a blocked edge', () => {
+  it('Dragon Fire flies over a broken bridge: the circle ignores roads', () => {
     const s = noCards(game());
     s.bridges['broken-bridge'] = false;
     place(s, 'a-king', 'rope-west');
     companion(s, 'a-king');
     place(s, 'b-king', 'rope-1');
-    expect(dragonFireTargets(s, 'a')).toEqual([]);
+    expect(dragonFireTargets(s, 'a').map((c) => c.id)).toEqual(['b-king']);
   });
 
   it('release is free, but only at the start of your turn', () => {
