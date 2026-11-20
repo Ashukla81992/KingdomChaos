@@ -3,19 +3,43 @@
 import { Check, Copy, Crown, Link2, LogOut, Play } from 'lucide-react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GameScreen, type Presence } from '@/components/game/GameScreen';
+import { ChatBody } from '@/components/game/MatchChat';
 import { MenuShell } from '@/components/MenuShell';
 import { TimerChoice } from '@/components/TimerChoice';
 import type { MatchPace } from '@/engine';
 import { useOnlineRoom } from '@/lib/onlineClient';
+import { useVoice } from '@/lib/voice';
 import { recordMatch, savedPace, savePace } from '@/lib/storage';
 
 export default function RoomPage() {
   const { code: raw } = useParams<{ code: string }>();
   const code = (raw ?? '').toUpperCase();
   const router = useRouter();
-  const { lobby, view, connection, error, send, start, endMatch, clockSkew } = useOnlineRoom(code);
+  const { lobby, view, connection, error, send, start, endMatch, clockSkew, chat, sendChat, onSignals, sendSignal, pollFast, report } = useOnlineRoom(code);
+  const me = lobby?.youPlayerId ?? null;
+  const seatKey = (lobby?.seats ?? []).map((s) => `${s.playerId}:${s.username}:${s.isAI ? 1 : 0}`).join('|');
+  const others = useMemo(
+    () =>
+      seatKey
+        .split('|')
+        .filter(Boolean)
+        .map((k) => k.split(':'))
+        .filter(([id, , ai]) => ai === '0' && id !== me)
+        .map(([playerId, username]) => ({ playerId, username })),
+    [seatKey, me],
+  );
+  const sessionOpen = !!me && (lobby?.status === 'lobby' || lobby?.status === 'playing');
+  const voice = useVoice({ enabled: sessionOpen, me, others, sendSignal, onSignals, pollFast });
+  const reportPlayer = useCallback(async (playerId: string, reason: string) => {
+    const r = await report(playerId, reason);
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  }, [report]);
+  const chatController = useMemo(
+    () => ({ messages: chat, send: sendChat, voice: sessionOpen ? voice : undefined, players: others, report: reportPlayer }),
+    [chat, sendChat, sessionOpen, voice, others, reportPlayer],
+  );
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [timers, setTimers] = useState<MatchPace>('untimed');
@@ -84,7 +108,7 @@ export default function RoomPage() {
   if (inGame && view) {
     return (
       <GameScreen
-        controller={{ view, send, mode: 'online', connection, presence, clockSkew }}
+        controller={{ view, send, mode: 'online', connection, presence, clockSkew, chat: lobby.youPlayerId ? chatController : undefined }}
         onExit={exit}
         hostEndMatch={
           isHost && lobby.status === 'playing'
@@ -201,6 +225,12 @@ export default function RoomPage() {
             </p>
           )}
         </div>
+        {lobby.youPlayerId && (
+          <div className="panel flex h-[22rem] flex-col p-5" data-lobby-chat>
+            <h3 className="mb-2 text-lg font-semibold">Chat</h3>
+            <ChatBody chat={chatController} me={lobby.youPlayerId} view={null} />
+          </div>
+        )}
       </div>
     </MenuShell>
   );

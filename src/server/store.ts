@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type { GameState, MatchPace } from '../engine';
+import type { ChatMessage, VoiceSignal } from './protocol';
 import { SCHEMA_SQL } from './schema';
+
+export type { ChatMessage };
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished' | 'ended';
 
@@ -36,6 +39,37 @@ export interface RoomRecord {
   createdAt: number;
 }
 
+export interface NewChatMessage {
+  accountId: string;
+  playerId: string;
+  username: string;
+  text: string;
+  at: number;
+}
+
+export interface NewVoiceSignal {
+  from: string;
+  to: string;
+  kind: VoiceSignal['kind'];
+  data: unknown;
+  at: number;
+}
+
+export interface PlayerReport {
+  roomCode: string;
+  reporterAccount: string;
+  reportedAccount: string;
+  reportedName: string;
+  reason: string;
+  at: number;
+}
+
+/** Voice connection messages that nobody picked up within this long are dropped. */
+export const SIGNAL_TTL_MS = 60_000;
+
+/** How many messages a fetch returns at most (the newest ones when starting from scratch). */
+export const CHAT_PAGE = 50;
+
 export interface StoredActionResult {
   status: number;
   body: unknown;
@@ -61,6 +95,21 @@ export interface Store {
 
   getAction(roomCode: string, clientActionId: string): Promise<StoredActionResult | null>;
   saveAction(roomCode: string, clientActionId: string, accountId: string, result: StoredActionResult): Promise<void>;
+
+  addChat(roomCode: string, msg: NewChatMessage): Promise<ChatMessage>;
+  /** Messages with id > afterId, oldest first, at most CHAT_PAGE. afterId 0 returns the newest CHAT_PAGE. */
+  listChat(roomCode: string, afterId: number): Promise<ChatMessage[]>;
+  /** How many messages this account sent in the room since `since` (for rate limiting). */
+  countRecentChat(roomCode: string, accountId: string, since: number): Promise<number>;
+  /** Forget every chat line and voice signal of a room (the match is over: chat lasts one session). */
+  clearSession(roomCode: string): Promise<void>;
+
+  /** Queue a voice connection message for one player. */
+  addSignal(roomCode: string, signal: NewVoiceSignal): Promise<void>;
+  /** Hand over (and delete) the fresh voice messages waiting for a player. */
+  takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]>;
+
+  addReport(report: PlayerReport): Promise<void>;
 }
 
 const TWO_H = 2 * 60 * 60 * 1000;
@@ -96,6 +145,11 @@ export class MemoryStore implements Store {
   accountsByName = new Map<string, string>();
   rooms = new Map<string, RoomRecord>();
   actions = new Map<string, { accountId: string; result: StoredActionResult }>();
+  chat = new Map<string, Array<ChatMessage & { accountId: string }>>();
+  private chatSeq = 0;
+  signals = new Map<string, Array<VoiceSignal & { to: string }>>();
+  private signalSeq = 0;
+  reports: PlayerReport[] = [];
 
   async createAccount(username: string, passHash: string): Promise<Account> {
     const key = username.toLowerCase();
@@ -160,6 +214,8 @@ export class MemoryStore implements Store {
   async deleteRoom(code: string) {
     const c = code.toUpperCase();
     this.rooms.delete(c);
+    this.chat.delete(c);
+    this.signals.delete(c);
     for (const key of [...this.actions.keys()]) if (key.startsWith(`${c}:`)) this.actions.delete(key);
   }
 
@@ -181,6 +237,58 @@ export class MemoryStore implements Store {
   async saveAction(roomCode: string, clientActionId: string, accountId: string, result: StoredActionResult) {
     this.actions.set(`${roomCode.toUpperCase()}:${clientActionId}`, { accountId, result });
   }
+
+  async addChat(roomCode: string, msg: NewChatMessage): Promise<ChatMessage> {
+    const c = roomCode.toUpperCase();
+    const list = this.chat.get(c) ?? [];
+    const row = { id: ++this.chatSeq, ...msg };
+    list.push(row);
+    if (list.length > 500) list.splice(0, list.length - 500);
+    this.chat.set(c, list);
+    return publicChat(row);
+  }
+
+  async listChat(roomCode: string, afterId: number): Promise<ChatMessage[]> {
+    const list = this.chat.get(roomCode.toUpperCase()) ?? [];
+    const rows = afterId > 0 ? list.filter((m) => m.id > afterId).slice(0, CHAT_PAGE) : list.slice(-CHAT_PAGE);
+    return rows.map(publicChat);
+  }
+
+  async countRecentChat(roomCode: string, accountId: string, since: number) {
+    return (this.chat.get(roomCode.toUpperCase()) ?? []).filter((m) => m.accountId === accountId && m.at >= since).length;
+  }
+
+  async clearSession(roomCode: string) {
+    this.chat.delete(roomCode.toUpperCase());
+    this.signals.delete(roomCode.toUpperCase());
+  }
+
+  async addSignal(roomCode: string, signal: NewVoiceSignal) {
+    const c = roomCode.toUpperCase();
+    const list = this.signals.get(c) ?? [];
+    list.push({ id: ++this.signalSeq, ...signal });
+    this.signals.set(c, list);
+  }
+
+  async takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]> {
+    const c = roomCode.toUpperCase();
+    const list = this.signals.get(c) ?? [];
+    const fresh = list.filter((s) => now - s.at < SIGNAL_TTL_MS);
+    const mine = fresh.filter((s) => s.to === to);
+    this.signals.set(
+      c,
+      fresh.filter((s) => s.to !== to),
+    );
+    return mine.map(({ id, from, kind, data, at }) => ({ id, from, kind, data, at }));
+  }
+
+  async addReport(report: PlayerReport) {
+    this.reports.push({ ...report });
+  }
+}
+
+function publicChat(m: ChatMessage): ChatMessage {
+  return { id: m.id, playerId: m.playerId, username: m.username, text: m.text, at: m.at };
 }
 
 function cloneRoom(r: RoomRecord): RoomRecord {
@@ -376,6 +484,93 @@ export class PostgresStore implements Store {
       ON CONFLICT (room_code, client_action_id) DO NOTHING
     `;
   }
+
+  async addChat(roomCode: string, msg: NewChatMessage): Promise<ChatMessage> {
+    await this.ensureSchema();
+    const [row] = await this.sql<PgChat[]>`
+      INSERT INTO kc_chat (room_code, account_id, player_id, username, body, created_at)
+      VALUES (${roomCode.toUpperCase()}, ${msg.accountId}, ${msg.playerId}, ${msg.username}, ${msg.text}, ${new Date(msg.at)})
+      RETURNING id, player_id, username, body, created_at
+    `;
+    return fromPgChat(row);
+  }
+
+  async listChat(roomCode: string, afterId: number): Promise<ChatMessage[]> {
+    await this.ensureSchema();
+    const code = roomCode.toUpperCase();
+    const rows =
+      afterId > 0
+        ? await this.sql<PgChat[]>`
+            SELECT id, player_id, username, body, created_at FROM kc_chat
+            WHERE room_code = ${code} AND id > ${afterId} ORDER BY id ASC LIMIT ${CHAT_PAGE}
+          `
+        : (
+            await this.sql<PgChat[]>`
+              SELECT id, player_id, username, body, created_at FROM kc_chat
+              WHERE room_code = ${code} ORDER BY id DESC LIMIT ${CHAT_PAGE}
+            `
+          ).reverse();
+    return rows.map(fromPgChat);
+  }
+
+  async countRecentChat(roomCode: string, accountId: string, since: number) {
+    await this.ensureSchema();
+    const [row] = await this.sql<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM kc_chat
+      WHERE room_code = ${roomCode.toUpperCase()} AND account_id = ${accountId} AND created_at >= ${new Date(since)}
+    `;
+    return row?.n ?? 0;
+  }
+
+  async clearSession(roomCode: string) {
+    await this.ensureSchema();
+    const code = roomCode.toUpperCase();
+    await this.sql`DELETE FROM kc_chat WHERE room_code = ${code}`;
+    await this.sql`DELETE FROM kc_signals WHERE room_code = ${code}`;
+  }
+
+  async addSignal(roomCode: string, signal: NewVoiceSignal) {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO kc_signals (room_code, from_player, to_player, kind, payload, created_at)
+      VALUES (${roomCode.toUpperCase()}, ${signal.from}, ${signal.to}, ${signal.kind}, ${this.sql.json((signal.data ?? null) as never)}, ${new Date(signal.at)})
+    `;
+  }
+
+  async takeSignals(roomCode: string, to: string, now: number): Promise<VoiceSignal[]> {
+    await this.ensureSchema();
+    const code = roomCode.toUpperCase();
+    const rows = await this.sql<{ id: string | number; from_player: string; kind: VoiceSignal['kind']; payload: unknown; created_at: Date }[]>`
+      DELETE FROM kc_signals WHERE room_code = ${code} AND to_player = ${to}
+      RETURNING id, from_player, kind, payload, created_at
+    `;
+    // Stale ones (nobody polled in time) are simply dropped.
+    await this.sql`DELETE FROM kc_signals WHERE room_code = ${code} AND created_at < ${new Date(now - SIGNAL_TTL_MS)}`;
+    return rows
+      .filter((r) => now - r.created_at.getTime() < SIGNAL_TTL_MS)
+      .map((r) => ({ id: Number(r.id), from: r.from_player, kind: r.kind, data: r.payload, at: r.created_at.getTime() }))
+      .sort((a, b) => a.id - b.id);
+  }
+
+  async addReport(report: PlayerReport) {
+    await this.ensureSchema();
+    await this.sql`
+      INSERT INTO kc_reports (room_code, reporter_account, reported_account, reported_name, reason, created_at)
+      VALUES (${report.roomCode}, ${report.reporterAccount}, ${report.reportedAccount}, ${report.reportedName}, ${report.reason}, ${new Date(report.at)})
+    `;
+  }
+}
+
+interface PgChat {
+  id: string | number;
+  player_id: string;
+  username: string;
+  body: string;
+  created_at: Date;
+}
+
+function fromPgChat(row: PgChat): ChatMessage {
+  return { id: Number(row.id), playerId: row.player_id, username: row.username, text: row.body, at: row.created_at.getTime() };
 }
 
 interface PgRoom {

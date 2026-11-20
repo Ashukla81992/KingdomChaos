@@ -32,10 +32,61 @@ export interface RoomLobbyView {
   serverNow: number;
 }
 
+/** One line of in-match chat. `id` grows with every message, so clients fetch "everything after id N". */
+export interface ChatMessage {
+  id: number;
+  playerId: string;
+  username: string;
+  text: string;
+  at: number;
+}
+
+/** A WebRTC connection message relayed between two players' browsers. Audio never goes through the server. */
+export interface VoiceSignal {
+  id: number;
+  from: string;
+  kind: 'hello' | 'offer' | 'answer' | 'bye';
+  data: unknown;
+  at: number;
+}
+
 export interface RoomGetResponse {
   lobby: RoomLobbyView;
   view: (PlayerView & { serverNow: number }) | null;
+  /** New chat lines since the `chatAfter` the client sent (seated players only). */
+  chat?: ChatMessage[];
+  /** Voice connection messages waiting for you (seated players only, delivered once). */
+  signals?: VoiceSignal[];
 }
+
+export const CHAT_MAX_LENGTH = 200;
+
+/** Ready-made lines for a quick tap (handy on phones and TVs). */
+export const QUICK_CHAT = ['Good luck!', 'Nice move!', 'Your turn!', 'Oops!', 'Want to trade?', 'Good game!'] as const;
+
+export const chatTextSchema = z
+  .string()
+  // Control characters out, runs of spaces and new lines down to one space.
+  .transform((s) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(1, 'Type a message first.').max(CHAT_MAX_LENGTH, `Messages can be at most ${CHAT_MAX_LENGTH} characters.`));
+
+export const chatPayloadSchema = z.object({ text: z.string().max(2000) });
+
+const sdp = z.object({ type: z.enum(['offer', 'answer']), sdp: z.string().min(1).max(20_000) });
+
+export const signalPayloadSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('hello'), to: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal('bye'), to: z.string().min(1).max(64) }),
+  z.object({ kind: z.literal('offer'), to: z.string().min(1).max(64), data: sdp }),
+  z.object({ kind: z.literal('answer'), to: z.string().min(1).max(64), data: sdp }),
+]);
+
+export const REPORT_REASONS = ['Abusive or hateful', 'Harassment or bullying', 'Sexual content', 'Spam', 'Seems underage', 'Something else'] as const;
+
+export const reportPayloadSchema = z.object({
+  playerId: z.string().min(1).max(64),
+  reason: z.enum(REPORT_REASONS),
+});
 
 export const nameSchema = z
   .string()
