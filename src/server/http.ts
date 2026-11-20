@@ -15,3 +15,15 @@ export async function readJson<T = unknown>(req: Request): Promise<T | null> {
     return null;
   }
 }
+
+/** Wrap a route so an unexpected failure (say, the database is unreachable) returns a JSON error and is logged. */
+export function withServerErrors<A extends unknown[]>(handler: (...args: A) => Promise<Response>) {
+  return async (...args: A): Promise<Response> => {
+    try {
+      return await handler(...args);
+    } catch (err) {
+      console.error('[kingdom-chaos] request failed:', err);
+      return error('The game server hit a problem. Please try again in a moment.', 500);
+    }
+  };
+}

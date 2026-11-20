@@ -16,6 +16,8 @@ npm run db:migrate
 
 Migrations live in `db/migrations/` and are applied idempotently via `kc_schema_migrations`.
 
+Running the migration is optional: the server also runs the same idempotent schema (`src/server/schema.ts`) once per instance before its first query, so a fresh Neon database works on the first request. Keep `src/server/schema.ts` in sync when you add a migration.
+
 ## 2. Vercel environment
 
 Set these on the Vercel project:
@@ -25,6 +27,16 @@ Set these on the Vercel project:
 | `DATABASE_URL` | Neon connection string |
 | `SESSION_SECRET` | Signs the `kc_session` cookie |
 | `CRON_SECRET` | Authorizes `/api/cron/cleanup` |
+| `GOOGLE_CLIENT_ID` | Optional: turns on "Continue with Google" |
+| `GOOGLE_CLIENT_SECRET` | Optional: the matching OAuth client secret |
+
+### Google sign-in (optional)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), configure the OAuth consent screen (External, app name, support email), then create an **OAuth client ID** of type *Web application*.
+2. Add the authorized redirect URI `https://YOUR_DOMAIN/api/auth/google/callback` (for example `https://kingdom-chaos.vercel.app/api/auth/google/callback`).
+3. Put the client ID and secret into `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` on Vercel and redeploy. The button appears only when both are set.
+
+A Google user gets an account with a username taken from their first name (a number is added if it is taken). They cannot sign in with a password.
 
 Redeploy after setting secrets.
 

@@ -1,8 +1,8 @@
 import { attachSessionCookie, hashPassword, makeSessionToken, normalizeUsername, validatePassword } from '@/server/auth';
-import { error, json, readJson } from '@/server/http';
+import { error, json, readJson, withServerErrors } from '@/server/http';
 import { getStore } from '@/server/store';
 
-export async function POST(req: Request) {
+export const POST = withServerErrors(async (req: Request) => {
   const body = await readJson<{ username?: string; password?: string }>(req);
   if (!body) return error('Send a JSON body with username and password.', 400);
   const username = normalizeUsername(body.username ?? '');
@@ -17,4 +17,4 @@ export async function POST(req: Request) {
     if ((e as { code?: string }).code === 'USERNAME_TAKEN') return error('That username is taken.', 409);
     throw e;
   }
-}
+});

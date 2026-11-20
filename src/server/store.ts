@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import type { GameState, MatchPace } from '../engine';
+import { SCHEMA_SQL } from './schema';
 
 export type RoomStatus = 'lobby' | 'playing' | 'finished' | 'ended';
 
@@ -44,6 +45,8 @@ export interface Store {
   createAccount(username: string, passHash: string): Promise<Account>;
   findAccountByUsername(username: string): Promise<Account | null>;
   findAccountById(id: string): Promise<Account | null>;
+  /** Find the account linked to this Google user, or create one with a free username based on `preferredName`. */
+  findOrCreateGoogleAccount(googleSub: string, preferredName: string): Promise<Account>;
 
   createRoom(room: RoomRecord): Promise<RoomRecord>;
   getRoom(code: string): Promise<RoomRecord | null>;
@@ -75,7 +78,20 @@ export function resultExpiresAt(endedAt: number) {
 
 // ---------------------------------------------------------------- memory
 
+/** Google-only accounts have no password; this marker never verifies (see verifyPassword). */
+export const GOOGLE_ONLY_PASS_HASH = 'google$';
+
+/** Usernames to try for a new Google account: the name itself, then with a short number. */
+export function googleUsernameCandidates(preferredName: string): string[] {
+  let base = preferredName.normalize('NFKD').replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 20);
+  if (base.length < 3) base = `player${base}`.slice(0, 20);
+  const out = [base];
+  for (let i = 0; i < 20; i++) out.push(`${base}${Math.floor(1000 + Math.random() * 9000)}`);
+  return out;
+}
+
 export class MemoryStore implements Store {
+  private googleLinks = new Map<string, string>();
   accounts = new Map<string, Account>();
   accountsByName = new Map<string, string>();
   rooms = new Map<string, RoomRecord>();
@@ -93,6 +109,18 @@ export class MemoryStore implements Store {
   async findAccountByUsername(username: string) {
     const id = this.accountsByName.get(username.toLowerCase());
     return id ? (this.accounts.get(id) ?? null) : null;
+  }
+
+  async findOrCreateGoogleAccount(googleSub: string, preferredName: string): Promise<Account> {
+    const linked = this.googleLinks.get(googleSub);
+    if (linked) return { ...this.accounts.get(linked)! };
+    for (const username of googleUsernameCandidates(preferredName)) {
+      if (await this.findAccountByUsername(username)) continue;
+      const account = await this.createAccount(username, GOOGLE_ONLY_PASS_HASH);
+      this.googleLinks.set(googleSub, account.id);
+      return account;
+    }
+    throw new Error('Could not find a free username for this Google account.');
   }
 
   async findAccountById(id: string) {
@@ -169,10 +197,29 @@ export class PostgresStore implements Store {
   private sql: postgres.Sql;
 
   constructor(databaseUrl: string) {
-    this.sql = postgres(databaseUrl, { max: 5, idle_timeout: 20 });
+    // prepare: false keeps queries working through Neon's / pgbouncer's transaction pooler.
+    this.sql = postgres(databaseUrl, { max: 5, idle_timeout: 20, prepare: false });
+  }
+
+  private schemaReady: Promise<void> | null = null;
+
+  /** Create the kc_ tables on first use (idempotent), so a fresh database never 500s on "relation does not exist". */
+  private ensureSchema(): Promise<void> {
+    if (!this.schemaReady) {
+      this.schemaReady = this.sql
+        .unsafe(SCHEMA_SQL)
+        .simple()
+        .then(() => undefined)
+        .catch((err) => {
+          this.schemaReady = null; // retry on the next request
+          throw err;
+        });
+    }
+    return this.schemaReady;
   }
 
   async createAccount(username: string, passHash: string): Promise<Account> {
+    await this.ensureSchema();
     const id = `a_${randomUUID().slice(0, 12)}`;
     try {
       const [row] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
@@ -189,13 +236,39 @@ export class PostgresStore implements Store {
   }
 
   async findAccountByUsername(username: string) {
+    await this.ensureSchema();
     const [row] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
       SELECT id, username, pass_hash, created_at FROM kc_accounts WHERE lower(username) = lower(${username}) LIMIT 1
     `;
     return row ? { id: row.id, username: row.username, passHash: row.pass_hash, createdAt: row.created_at.getTime() } : null;
   }
 
+  async findOrCreateGoogleAccount(googleSub: string, preferredName: string): Promise<Account> {
+    await this.ensureSchema();
+    const [linked] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
+      SELECT id, username, pass_hash, created_at FROM kc_accounts WHERE google_sub = ${googleSub} LIMIT 1
+    `;
+    if (linked) return { id: linked.id, username: linked.username, passHash: linked.pass_hash, createdAt: linked.created_at.getTime() };
+    for (const username of googleUsernameCandidates(preferredName)) {
+      const id = `a_${randomUUID().slice(0, 12)}`;
+      const [row] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
+        INSERT INTO kc_accounts (id, username, pass_hash, google_sub)
+        VALUES (${id}, ${username}, ${GOOGLE_ONLY_PASS_HASH}, ${googleSub})
+        ON CONFLICT DO NOTHING
+        RETURNING id, username, pass_hash, created_at
+      `;
+      if (row) return { id: row.id, username: row.username, passHash: row.pass_hash, createdAt: row.created_at.getTime() };
+      // Either the username was taken or a parallel request just linked this Google user: check again.
+      const [again] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
+        SELECT id, username, pass_hash, created_at FROM kc_accounts WHERE google_sub = ${googleSub} LIMIT 1
+      `;
+      if (again) return { id: again.id, username: again.username, passHash: again.pass_hash, createdAt: again.created_at.getTime() };
+    }
+    throw new Error('Could not find a free username for this Google account.');
+  }
+
   async findAccountById(id: string) {
+    await this.ensureSchema();
     const [row] = await this.sql<{ id: string; username: string; pass_hash: string; created_at: Date }[]>`
       SELECT id, username, pass_hash, created_at FROM kc_accounts WHERE id = ${id} LIMIT 1
     `;
@@ -203,6 +276,7 @@ export class PostgresStore implements Store {
   }
 
   async createRoom(room: RoomRecord) {
+    await this.ensureSchema();
     await this.sql`
       INSERT INTO kc_rooms (code, host_account, status, state, version, seats, activity_at, ended_at, expires_at, created_at)
       VALUES (
@@ -222,11 +296,13 @@ export class PostgresStore implements Store {
   }
 
   async getRoom(code: string) {
+    await this.ensureSchema();
     const [row] = await this.sql<PgRoom[]>`SELECT * FROM kc_rooms WHERE code = ${code.toUpperCase()} LIMIT 1`;
     return row ? fromPg(row) : null;
   }
 
   async updateRoom(code: string, expectedVersion: number, patch: Partial<RoomRecord>) {
+    await this.ensureSchema();
     const cur = await this.getRoom(code);
     if (!cur || cur.version !== expectedVersion) return null;
     const next = { ...cur, ...patch, seats: patch.seats ?? cur.seats };
@@ -247,6 +323,7 @@ export class PostgresStore implements Store {
   }
 
   async saveRoom(room: RoomRecord) {
+    await this.ensureSchema();
     await this.sql`
       UPDATE kc_rooms SET
         host_account = ${room.hostAccount},
@@ -263,6 +340,7 @@ export class PostgresStore implements Store {
   }
 
   async touchRoom(code: string, expiresAt: number) {
+    await this.ensureSchema();
     await this.sql`
       UPDATE kc_rooms SET expires_at = ${new Date(expiresAt)}
       WHERE code = ${code.toUpperCase()} AND expires_at < ${new Date(expiresAt)}
@@ -270,10 +348,12 @@ export class PostgresStore implements Store {
   }
 
   async deleteRoom(code: string) {
+    await this.ensureSchema();
     await this.sql`DELETE FROM kc_rooms WHERE code = ${code.toUpperCase()}`;
   }
 
   async deleteExpired(now: number) {
+    await this.ensureSchema();
     const rows = await this.sql<{ code: string }[]>`
       DELETE FROM kc_rooms WHERE expires_at <= ${new Date(now)} RETURNING code
     `;
@@ -281,6 +361,7 @@ export class PostgresStore implements Store {
   }
 
   async getAction(roomCode: string, clientActionId: string) {
+    await this.ensureSchema();
     const [row] = await this.sql<{ result: StoredActionResult }[]>`
       SELECT result FROM kc_actions WHERE room_code = ${roomCode.toUpperCase()} AND client_action_id = ${clientActionId} LIMIT 1
     `;
@@ -288,6 +369,7 @@ export class PostgresStore implements Store {
   }
 
   async saveAction(roomCode: string, clientActionId: string, accountId: string, result: StoredActionResult) {
+    await this.ensureSchema();
     await this.sql`
       INSERT INTO kc_actions (room_code, client_action_id, account_id, result)
       VALUES (${roomCode.toUpperCase()}, ${clientActionId}, ${accountId}, ${this.sql.json(result as never)})
