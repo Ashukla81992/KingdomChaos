@@ -14,7 +14,7 @@ import {
   type MatchPace,
   type PlayerView,
 } from '../engine';
-import { ROOM_CODE_ALPHABET, type RoomGetResponse, type RoomLobbyView } from './protocol';
+import { chatTextSchema, ROOM_CODE_ALPHABET, type ChatMessage, type RoomGetResponse, type RoomLobbyView } from './protocol';
 import {
   defaultExpiresAt,
   getStore,
@@ -310,6 +310,7 @@ export async function getRoomForAccount(
   code: string,
   accountId: string | null,
   now = Date.now(),
+  chatAfter: number | null = null,
 ): Promise<{ ok: true; data: RoomGetResponse } | { ok: false; status: number; error: string }> {
   const store = getStore();
   let room = await store.getRoom(code);
@@ -322,13 +323,48 @@ export async function getRoomForAccount(
   // Re-check expiry after progress (finished rooms get a new expiry)
   if ((await assertRoomFresh(room, store, now)) === 'gone') return { ok: false, status: 410, error: 'That room has expired.' };
   await heartbeat(room, accountId, store, now);
-  return {
-    ok: true,
-    data: {
-      lobby: lobbyView(room, accountId, now),
-      view: playerViewFor(room, accountId, now),
-    },
+  const seat = accountId ? seatOf(room, accountId) : null;
+  const data: RoomGetResponse = {
+    lobby: lobbyView(room, accountId, now),
+    view: playerViewFor(room, accountId, now),
   };
+  // Chat rides along with the poll the client already makes, so there is no extra request per tick.
+  if (seat && chatAfter !== null) data.chat = await store.listChat(room.code, Math.max(0, chatAfter));
+  return { ok: true, data };
+}
+
+/** A player may send this many chat messages in CHAT_WINDOW_MS before being asked to slow down. */
+export const CHAT_BURST = 5;
+export const CHAT_WINDOW_MS = 10_000;
+
+export async function postChat(opts: {
+  code: string;
+  accountId: string;
+  text: unknown;
+  now?: number;
+}): Promise<{ ok: true; message: ChatMessage } | { ok: false; status: number; error: string }> {
+  const store = getStore();
+  const now = opts.now ?? Date.now();
+  const parsed = chatTextSchema.safeParse(opts.text);
+  if (!parsed.success) return { ok: false, status: 400, error: parsed.error.issues[0]?.message ?? 'That message cannot be sent.' };
+  const room = await store.getRoom(opts.code);
+  if (!room) return { ok: false, status: 404, error: 'No room with that code.' };
+  if ((await assertRoomFresh(room, store, now)) === 'gone') return { ok: false, status: 410, error: 'That room has expired.' };
+  const seat = seatOf(room, opts.accountId);
+  if (!seat || seat.isAI) return { ok: false, status: 403, error: 'Only players in this room can chat.' };
+  if ((await store.countRecentChat(room.code, opts.accountId, now - CHAT_WINDOW_MS)) >= CHAT_BURST) {
+    return { ok: false, status: 429, error: 'You are sending messages quickly. Wait a few seconds.' };
+  }
+  const message = await store.addChat(room.code, {
+    accountId: opts.accountId,
+    playerId: seat.playerId,
+    username: seat.username,
+    text: parsed.data,
+    at: now,
+  });
+  // Talking counts as being here, so chat keeps an open room from expiring.
+  await heartbeat(room, opts.accountId, store, now);
+  return { ok: true, message };
 }
 
 export async function applyRoomAction(opts: {

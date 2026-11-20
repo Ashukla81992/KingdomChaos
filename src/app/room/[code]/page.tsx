@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { GameScreen, type Presence } from '@/components/game/GameScreen';
+import { ChatBody } from '@/components/game/MatchChat';
 import { MenuShell } from '@/components/MenuShell';
 import { TimerChoice } from '@/components/TimerChoice';
 import type { MatchPace } from '@/engine';
@@ -15,7 +16,8 @@ export default function RoomPage() {
   const { code: raw } = useParams<{ code: string }>();
   const code = (raw ?? '').toUpperCase();
   const router = useRouter();
-  const { lobby, view, connection, error, send, start, endMatch, clockSkew } = useOnlineRoom(code);
+  const { lobby, view, connection, error, send, start, endMatch, clockSkew, chat, sendChat } = useOnlineRoom(code);
+  const chatController = useMemo(() => ({ messages: chat, send: sendChat }), [chat, sendChat]);
   const [copied, setCopied] = useState<'code' | 'link' | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
   const [timers, setTimers] = useState<MatchPace>('untimed');
@@ -84,7 +86,7 @@ export default function RoomPage() {
   if (inGame && view) {
     return (
       <GameScreen
-        controller={{ view, send, mode: 'online', connection, presence, clockSkew }}
+        controller={{ view, send, mode: 'online', connection, presence, clockSkew, chat: lobby.youPlayerId ? chatController : undefined }}
         onExit={exit}
         hostEndMatch={
           isHost && lobby.status === 'playing'
@@ -201,6 +203,12 @@ export default function RoomPage() {
             </p>
           )}
         </div>
+        {lobby.youPlayerId && (
+          <div className="panel flex h-[22rem] flex-col p-5" data-lobby-chat>
+            <h3 className="mb-2 text-lg font-semibold">Chat</h3>
+            <ChatBody chat={chatController} me={lobby.youPlayerId} view={null} />
+          </div>
+        )}
       </div>
     </MenuShell>
   );

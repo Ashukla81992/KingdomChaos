@@ -32,10 +32,34 @@ export interface RoomLobbyView {
   serverNow: number;
 }
 
+/** One line of in-match chat. `id` grows with every message, so clients fetch "everything after id N". */
+export interface ChatMessage {
+  id: number;
+  playerId: string;
+  username: string;
+  text: string;
+  at: number;
+}
+
 export interface RoomGetResponse {
   lobby: RoomLobbyView;
   view: (PlayerView & { serverNow: number }) | null;
+  /** New chat lines since the `chatAfter` the client sent (seated players only). */
+  chat?: ChatMessage[];
 }
+
+export const CHAT_MAX_LENGTH = 200;
+
+/** Ready-made lines for a quick tap (handy on phones and TVs). */
+export const QUICK_CHAT = ['Good luck!', 'Nice move!', 'Your turn!', 'Oops!', 'Want to trade?', 'Good game!'] as const;
+
+export const chatTextSchema = z
+  .string()
+  // Control characters out, runs of spaces and new lines down to one space.
+  .transform((s) => s.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim())
+  .pipe(z.string().min(1, 'Type a message first.').max(CHAT_MAX_LENGTH, `Messages can be at most ${CHAT_MAX_LENGTH} characters.`));
+
+export const chatPayloadSchema = z.object({ text: z.string().max(2000) });
 
 export const nameSchema = z
   .string()

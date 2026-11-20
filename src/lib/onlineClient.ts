@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { GameAction, MatchPace, PlayerView } from '@/engine';
-import type { RoomGetResponse, RoomLobbyView } from '@/server/protocol';
+import type { ChatMessage, RoomGetResponse, RoomLobbyView } from '@/server/protocol';
 import type { SendResult } from '@/components/game/GameScreen';
 
 export type AccountInfo = { id: string; username: string };
@@ -50,8 +50,13 @@ export async function joinOnlineRoom(code: string) {
   return api<RoomGetResponse>(`/api/rooms/${encodeURIComponent(code)}/join`, { method: 'POST', body: '{}' });
 }
 
-export async function getOnlineRoom(code: string) {
-  return api<RoomGetResponse>(`/api/rooms/${encodeURIComponent(code)}`);
+export async function getOnlineRoom(code: string, chatAfter?: number) {
+  const q = chatAfter === undefined ? '' : `?chatAfter=${chatAfter}`;
+  return api<RoomGetResponse>(`/api/rooms/${encodeURIComponent(code)}${q}`);
+}
+
+export async function sendChatMessage(code: string, text: string) {
+  return api<{ message: ChatMessage }>(`/api/rooms/${encodeURIComponent(code)}/chat`, { method: 'POST', body: JSON.stringify({ text }) });
 }
 
 export async function startOnlineRoom(code: string, pace?: MatchPace) {
@@ -70,6 +75,8 @@ export async function sendOnlineAction(code: string, action: GameAction, version
 }
 
 const POLL_MS = 1500;
+/** Chat lines kept on screen; older ones scroll away. */
+const CHAT_KEEP = 200;
 
 export type OnlineConnection = 'connected' | 'reconnecting' | 'offline';
 
@@ -81,6 +88,19 @@ export function useOnlineRoom(code: string) {
   const [clockSkew, setClockSkew] = useState(0);
   const versionRef = useRef(0);
   const pendingIds = useRef(new Map<string, GameAction>());
+  const [chat, setChat] = useState<ChatMessage[]>([]);
+  const chatAfterRef = useRef(0);
+
+  const addChat = useCallback((incoming: ChatMessage[] | undefined) => {
+    if (!incoming?.length) return;
+    chatAfterRef.current = Math.max(chatAfterRef.current, ...incoming.map((m) => m.id));
+    setChat((cur) => {
+      const seen = new Set(cur.map((m) => m.id));
+      const fresh = incoming.filter((m) => !seen.has(m.id));
+      if (!fresh.length) return cur;
+      return [...cur, ...fresh].sort((a, b) => a.id - b.id).slice(-CHAT_KEEP);
+    });
+  }, []);
 
   const applyPayload = useCallback((data: RoomGetResponse) => {
     setLobby(data.lobby);
@@ -96,15 +116,26 @@ export function useOnlineRoom(code: string) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const r = await getOnlineRoom(code);
+    const r = await getOnlineRoom(code, chatAfterRef.current);
     if (!r.ok) {
       if (r.status === 410 || r.status === 404) setError(r.error);
       setConnection(r.status === 0 ? 'offline' : 'reconnecting');
       return r;
     }
     applyPayload(r.data);
+    addChat(r.data.chat);
     return r;
-  }, [applyPayload, code]);
+  }, [addChat, applyPayload, code]);
+
+  const sendChat = useCallback(
+    async (text: string): Promise<SendResult> => {
+      const r = await sendChatMessage(code, text);
+      if (!r.ok) return { ok: false, error: r.error };
+      addChat([r.data.message]);
+      return { ok: true };
+    },
+    [addChat, code],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -169,5 +200,5 @@ export function useOnlineRoom(code: string) {
     return r;
   }, [applyPayload, code]);
 
-  return { lobby, view, connection, error, send, start, endMatch, refresh, clockSkew };
+  return { lobby, view, connection, error, send, start, endMatch, refresh, clockSkew, chat, sendChat };
 }
