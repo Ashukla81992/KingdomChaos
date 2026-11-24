@@ -1224,7 +1224,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
                 aria-label={canRoll ? 'Roll the die' : rolled ? `Die shows ${rolled.roll}` : 'Die'}
                 data-dice
               >
-                <Die value={rolled?.roll ?? null} rollId={view.version} size={Math.round(52 * uiScale)} reducedMotion={reducedMotion} fast={fast} />
+                <Die value={rolled?.roll ?? null} rollId={view.version} rollKey={rolled ? `${view.turn.number}:${view.turn.rolls}` : null} size={Math.round(52 * uiScale)} reducedMotion={reducedMotion} fast={fast} />
                 {canRoll && <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-[#1d2440] px-2 py-0.5 text-[0.6875rem] font-bold text-white">Roll</span>}
               </button>
               <div className="min-w-0 flex-1">

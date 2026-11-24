@@ -133,11 +133,27 @@ function FlyingDie({ flight, onDone }: { flight: Flight; onDone: () => void }) {
  * On a fresh roll a big copy also tumbles across the whole screen and returns home (purely visual:
  * it ignores the pointer and never touches game state). Reduced motion skips the flight.
  */
-export function Die({ value, rollId, size = 64, reducedMotion, fast }: { value: number | null; rollId: number; size?: number; reducedMotion: boolean; fast?: boolean }) {
+export function Die({
+  value,
+  rollId,
+  rollKey,
+  size = 64,
+  reducedMotion,
+  fast,
+}: {
+  value: number | null;
+  rollId: number;
+  /** Identifies one roll (turn + roll count). A new key flies the die, even when the number repeats. */
+  rollKey?: string | null;
+  size?: number;
+  reducedMotion: boolean;
+  fast?: boolean;
+}) {
   const half = size / 2;
   const spins = useRef(0);
   const anchor = useRef<HTMLDivElement>(null);
-  const lastValue = useRef<number | null>(value);
+  const key = rollKey === undefined ? (value ? String(value) : null) : value ? rollKey : null;
+  const lastKey = useRef<string | null>(key);
   const [rot, setRot] = useState({ x: -18, y: 24 });
   const [flight, setFlight] = useState<Flight | null>(null);
   useEffect(() => {
@@ -147,14 +163,16 @@ export function Die({ value, rollId, size = 64, reducedMotion, fast }: { value: 
     setRot({ x: f.x + 360 * spins.current, y: f.y + 360 * spins.current });
   }, [value, rollId]);
   useEffect(() => {
-    const prev = lastValue.current;
-    lastValue.current = value;
-    // Only a new roll flies: null → number, or a different number. Later board moves keep the same value.
-    if (!value || value === prev || reducedMotion || !anchor.current) return;
+    const prev = lastKey.current;
+    lastKey.current = key;
+    // Only a new roll flies. Keyed by the roll, not the number, so a 6 then a bonus 6 (or the same number
+    // as the last roll, when a poll skipped the empty state between turns) still flies. Later board moves
+    // keep the same key, and a die that mounts mid-turn (reload, rejoin) stays home.
+    if (!value || !key || key === prev || reducedMotion || !anchor.current) return;
     const rect = anchor.current.getBoundingClientRect();
     if (!rect.width) return;
     setFlight(planFlight(rect, value, Date.now(), !!fast));
-  }, [value, reducedMotion, fast]);
+  }, [key, value, reducedMotion, fast]);
   return (
     <div ref={anchor} className="relative" style={{ width: size, height: size, perspective: 400 }} aria-label={value ? `Die shows ${value}` : 'Die not rolled yet'} role="img">
       <motion.div
