@@ -8,6 +8,7 @@ import { GameScreen, type Presence } from '@/components/game/GameScreen';
 import { ChatBody } from '@/components/game/MatchChat';
 import { MenuShell } from '@/components/MenuShell';
 import { TimerChoice } from '@/components/TimerChoice';
+import { MapModeChoice } from '@/components/MapModeChoice';
 import type { MatchPace } from '@/engine';
 import { useOnlineRoom } from '@/lib/onlineClient';
 import { useVoice } from '@/lib/voice';
@@ -206,6 +207,9 @@ export default function RoomPage() {
               <TimerChoice value={timers} onChange={setTimers} />
             </div>
           )}
+          <div className="mt-4">
+            <MapModeChoice />
+          </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {isHost ? (
               <button className="btn btn-primary flex-1" onClick={doStart} disabled={!canStart}>

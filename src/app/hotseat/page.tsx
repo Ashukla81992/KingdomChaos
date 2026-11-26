@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmblemBadge } from '@/components/art/art';
 import { GameScreen } from '@/components/game/GameScreen';
 import { TimerChoice } from '@/components/TimerChoice';
+import { MapModeChoice } from '@/components/MapModeChoice';
 import { MenuShell } from '@/components/MenuShell';
 import { CROWN_QUEST, ROOM_CONFIG, type GameState } from '@/engine';
 import { seatTheme } from '@/lib/seats';
@@ -191,6 +192,7 @@ export default function HotseatPage() {
           </button>
         </div>
         <TimerChoice value={timers} onChange={setTimers} />
+        <MapModeChoice />
         <button className="btn btn-primary w-full text-lg" type="submit">
           <Play size={20} aria-hidden="true" /> Start game
         </button>

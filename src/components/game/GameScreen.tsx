@@ -1,7 +1,7 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglass, LogOut, Map as MapIcon, Maximize, Minimize, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
+import { BookOpen, ChevronDown, PanelLeftClose, PanelLeftOpen, Compass, Hourglass, Layers, LogOut, Map as MapIcon, Maximize, Minimize, Repeat, Settings, SkipForward, Timer, Volume2, VolumeX, WifiOff, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CARD_INFO,
@@ -53,6 +53,7 @@ import { markBatch, recapLines, seenBatch, soundsFor, strikesFor, type Strike } 
 import { EmblemBadge } from '../art/art';
 import { GEM_NAMES, GemIcon } from '../art/gems';
 import { TokenIcon } from '../art/token';
+import { DEFAULT_MAP_MODE } from '@/lib/mapMode';
 import { GameBoard, type BoardEffect, type BoardPlan, type BoardTargets } from '../board/GameBoard';
 import { RulesPanel } from '../RulesPanel';
 import { SettingsPanel } from '../SettingsPanel';
@@ -238,6 +239,7 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [crowd, setCrowd] = useState<string | null>(null);
+  const mapMode = settings.mapMode ?? DEFAULT_MAP_MODE;
   const [map, setMap] = useState<MapId>('island');
   const [sel, setSel] = useState<{ characterId: string; path: string[] | null } | null>(null);
   /** Card given up if a draw lands in a full hand (null: keep the hand and decline the new card). */
@@ -1057,10 +1059,20 @@ export function GameScreen({ controller, onExit, results, tutorial, hostEndMatch
             <button className="btn btn-ghost bg-white/90! px-3! py-1! text-sm" onClick={() => setGuideOpen(true)}>
               <Compass size={14} aria-hidden="true" /> Legend
             </button>
+            <button
+              className="btn btn-ghost bg-white/90! px-3! py-1! text-sm"
+              onClick={() => update({ mapMode: mapMode === 'simple' ? 'complex' : 'simple' })}
+              title={mapMode === 'simple' ? 'Switch to the detailed map (same board, same rules)' : 'Switch to the simple map (same board, same rules)'}
+              aria-label={mapMode === 'simple' ? 'Map style: Simple. Switch to Detailed' : 'Map style: Detailed. Switch to Simple'}
+              data-map-mode-toggle={mapMode}
+            >
+              <Layers size={14} aria-hidden="true" /> {mapMode === 'simple' ? 'Simple' : 'Detailed'}
+            </button>
           </div>
           <GameBoard
             view={view}
             markerStyle={settings.markers ?? 'minimal'}
+            mapMode={mapMode}
             describeNode={(id) => {
               const n = getBoard(view.boardId).nodes[id];
               return n ? locationTip(n, view) : '';

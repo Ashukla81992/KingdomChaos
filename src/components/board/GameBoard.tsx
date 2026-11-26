@@ -16,7 +16,6 @@ import {
   dragonNode,
   edgeBlocked,
   edgeOpen,
-  getBoard,
   nodeName,
   other,
   royalPathOpen,
@@ -33,6 +32,7 @@ import type { Strike } from '@/lib/eventFeed';
 import { readMapMarkers } from '@/lib/mapMarkers';
 import { seatTheme } from '@/lib/seats';
 import type { MarkerStyle } from '@/lib/settings';
+import { DEFAULT_MAP_MODE, mapArt, mapContent, viewBoard, viewPoint, viewStepLength, type MapMode } from '@/lib/mapMode';
 import { GEM_NAMES, GEM_STYLE, GemShape } from '../art/gems';
 import { PieceToken } from '../art/token';
 import { GolemArt, SpiderArt } from '../art/monsters';
@@ -131,6 +131,8 @@ export interface GameBoardProps {
   markerStyle?: MarkerStyle;
   /** Hover text for a space (shown in a translucent box when a mouse rests on it). */
   describeNode?: (id: string) => string;
+  /** Which painting to draw: the clean Simple map (default) or the Detailed one. Same spaces and rules. */
+  mapMode?: MapMode;
 }
 
 /** Size and caption rules for each landmark style. Names show on hover or focus unless `labels` is set. */
@@ -169,8 +171,7 @@ type Cam = { k: number; x: number; y: number };
  * never smaller than the whole painting. On a wide screen that is the whole painting; on a phone held
  * upright it trims the open sea at the sides.
  */
-export function homeView(vw: number, vh: number): Cam {
-  const c = BOARD_CONTENT;
+export function homeView(vw: number, vh: number, c: typeof BOARD_CONTENT = BOARD_CONTENT): Cam {
   const k = Math.max(1, Math.min(vw / c.w, vh / c.h));
   if (k === 1) return { k: 1, x: 0, y: 0 };
   const lo = (size: number, frame: number) => (size - frame) / 2;
@@ -233,7 +234,13 @@ export function GameBoard(props: GameBoardProps) {
     const t = setTimeout(() => setFadingSeat(null), 380);
     return () => clearTimeout(t);
   }, [royal.playSeat]);
-  const { board, nodes, adj } = getBoard(view.boardId);
+  const mapMode = props.mapMode ?? DEFAULT_MAP_MODE;
+  const content = mapContent(mapMode);
+  // Positions and road shapes for the chosen painting; ids and rules are the same in both modes.
+  const { board, nodes, adj } = viewBoard(view.boardId, mapMode);
+  // Dragon Fire's reach is measured in steps; draw it at this painting's step length.
+  const fireMap = props.fireCircle ? nodes[props.fireCircle.node]?.map : null;
+  const fireR = props.fireCircle && fireMap ? (props.fireCircle.radius * viewStepLength(view.boardId, mapMode, fireMap)) / viewStepLength(view.boardId, 'complex', fireMap) : 0;
   const svgRef = useRef<SVGSVGElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The translucent hover box: what the thing under the mouse is and does. */
@@ -255,8 +262,8 @@ export function GameBoard(props: GameBoardProps) {
   const px = box.w / VW;
   /** null: the home view, which follows the screen shape (the island framed, the open sea trimmed). */
   const [cam, setCam] = useState<Cam | null>(null);
-  const zoom = cam ?? homeView(VW, VH);
-  const setZoom = useCallback((u: Cam | null | ((z: Cam) => Cam)) => setCam((prev) => (typeof u === 'function' ? u(prev ?? homeView(VW, VH)) : u)), [VW, VH]);
+  const zoom = cam ?? homeView(VW, VH, content);
+  const setZoom = useCallback((u: Cam | null | ((z: Cam) => Cam)) => setCam((prev) => (typeof u === 'function' ? u(prev ?? homeView(VW, VH, mapContent(mapMode))) : u)), [VW, VH, mapMode]);
 
   useLayoutEffect(() => {
     const el = svgRef.current;
@@ -1102,8 +1109,8 @@ export function GameBoard(props: GameBoardProps) {
 
         <g ref={layerRef} transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`} data-layer>
           {/* The painting mirrored and softened past its edges, so any screen shape is filled without empty margins. */}
-          <image href={dungeon ? '/board/dungeon-bleed.jpg' : '/board/island-bleed.jpg'} x={-W} y={-H} width={W * 3} height={H * 3} preserveAspectRatio="none" pointerEvents="none" aria-hidden="true" data-bleed={map} />
-          <image href={dungeon ? '/board/dungeon.jpg' : '/board/island.jpg'} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-art={map} />
+          <image href={mapArt(mapMode, map).bleed} x={-W} y={-H} width={W * 3} height={H * 3} preserveAspectRatio="none" pointerEvents="none" aria-hidden="true" data-bleed={map} />
+          <image href={mapArt(mapMode, map).art} x={0} y={0} width={W} height={H} preserveAspectRatio="none" data-art={map} data-map-mode={mapMode} />
 
           {/* Dungeon landmarks: drawn under the spaces and paths so every dot stays visible. Tap one to learn what it is for. */}
           {dungeon && (
@@ -1465,8 +1472,8 @@ export function GameBoard(props: GameBoardProps) {
           {/* Dragon Fire reach: a circle around the dragon (straight-line, not by road) while aiming. */}
           {props.fireCircle && nodes[props.fireCircle.node]?.map === map && (
             <g pointerEvents="none" data-fire-circle>
-              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={props.fireCircle.radius} fill="rgba(242,110,26,0.2)" stroke="#fffaf0" strokeWidth={9} />
-              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={props.fireCircle.radius} fill="none" stroke="#e8590c" strokeWidth={5} strokeDasharray="14 8" />
+              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={fireR} fill="rgba(242,110,26,0.2)" stroke="#fffaf0" strokeWidth={9} />
+              <circle cx={nodes[props.fireCircle.node].xy[0]} cy={nodes[props.fireCircle.node].xy[1]} r={fireR} fill="none" stroke="#e8590c" strokeWidth={5} strokeDasharray="14 8" />
             </g>
           )}
 
@@ -1531,7 +1538,7 @@ export function GameBoard(props: GameBoardProps) {
           {effects
             .filter((fx) => nodes[fx.node]?.map === map)
             .map((fx) => {
-              const [x, y] = fx.at ?? nodes[fx.node].xy;
+              const [x, y] = fx.at ? viewPoint(view.boardId, mapMode, nodes[fx.node]?.map ?? map, fx.at) : nodes[fx.node].xy;
               const fill = fx.tone === 'cut' ? '#c8281e' : fx.tone === 'blocked' ? '#2f7bf5' : fx.tone === 'good' ? '#2e9e62' : '#5b6676';
               const fw = Math.max(132, fx.text.length * 7 + 20);
               return (
