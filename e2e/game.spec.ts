@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { CROWN_QUEST } from '../src/engine/board';
+import { BOARD_H, BOARD_W, CROWN_QUEST } from '../src/engine/board';
+import { viewBoard } from '../src/lib/mapMode';
 
 function trackErrors(page: Page) {
   const errors: string[] = [];
@@ -243,16 +244,17 @@ test('spaces stay on the painted roads after resizing and zooming', async ({ pag
   const check = async () => {
     const box = (await image.boundingBox())!;
     for (const id of ids) {
-      const n = CROWN_QUEST.nodes.find((x) => x.id === id)!;
+      // The default (Simple) painting's positions: the same spaces as the Detailed map, placed on its roads.
+      const n = viewBoard(CROWN_QUEST.id, 'simple').nodes[id];
       const c = await center(spot(page, id));
-      expect(Math.abs(((c.x - box.x) / box.width) * 1024 - n.xy[0]), `${id} x`).toBeLessThan(8);
-      expect(Math.abs(((c.y - box.y) / box.height) * 1024 - n.xy[1]), `${id} y`).toBeLessThan(8);
+      expect(Math.abs(((c.x - box.x) / box.width) * BOARD_W - n.xy[0]), `${id} x`).toBeLessThan(8);
+      expect(Math.abs(((c.y - box.y) / box.height) * BOARD_H - n.xy[1]), `${id} y`).toBeLessThan(8);
     }
   };
+  // Let the opening camera settle before measuring.
+  await page.waitForTimeout(800);
   await check();
-  await page.getByRole('button', { name: 'Legend' }).click();
-  await page.getByRole('checkbox', { name: /Show Royal Paths/ }).check();
-  await page.getByRole('button', { name: 'Close' }).click();
+  // Royal Paths are always drawn now (muted): their spaces sit on the same painting.
   ids.push('f-blue-3');
   await expect(page.locator('[data-royal-path="inspect"]')).not.toHaveCount(0);
   await expect(page.locator('[data-royal-playable="true"]')).toHaveCount(0);
@@ -440,4 +442,23 @@ test('Diplomacy trade panel opens', async ({ page }) => {
   await expect(page.locator('[data-trade-panel]')).toBeVisible();
   await page.locator('[data-trade-close]').click();
   await expect(page.locator('[data-trade-panel]')).toHaveCount(0);
+});
+
+test('switching between the Simple and Detailed maps mid-game keeps every piece where it is', async ({ page }) => {
+  await page.goto('/tutorial');
+  const art = page.locator('[data-art="island"]');
+  await expect(art).toHaveAttribute('href', '/board/island-simple.jpg');
+  const where = () => page.locator('[data-piece]').evaluateAll((els) => els.map((e) => `${e.getAttribute('data-piece')}@${e.getAttribute('data-node')}`).sort());
+  const before = await where();
+  await page.locator('[data-map-mode-toggle]').click();
+  await expect(art).toHaveAttribute('href', '/board/island.jpg');
+  expect(await where()).toEqual(before);
+  const c0 = CROWN_QUEST.nodes.find((x) => x.id === 'c0')!;
+  await page.waitForTimeout(800);
+  const box = (await art.boundingBox())!;
+  const c = await center(spot(page, 'c0'));
+  expect(Math.abs(((c.x - box.x) / box.width) * BOARD_W - c0.xy[0])).toBeLessThan(8);
+  await page.locator('[data-map-mode-toggle]').click();
+  await expect(art).toHaveAttribute('href', '/board/island-simple.jpg');
+  expect(await where()).toEqual(before);
 });

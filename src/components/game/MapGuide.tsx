@@ -5,6 +5,7 @@ import { SEATS } from '@/lib/seats';
 import { EmblemShape } from '../art/art';
 import { PieceToken } from '../art/token';
 import { MarkerStylePicker } from '../MarkerStylePicker';
+import { MapModeChoice } from '../MapModeChoice';
 import { Modal } from '../ui/Modal';
 
 function Svg({ children, vb = '-14 -14 28 28' }: { children: React.ReactNode; vb?: string }) {
@@ -41,7 +42,8 @@ function Row({ icon, name, children }: { icon: React.ReactNode; name: string; ch
 export function MapGuide({ open, onClose }: { open: boolean; onClose: () => void }) {
   return (
     <Modal open={open} onClose={onClose} title="Legend" wide>
-      <div className="mb-3">
+      <div className="mb-3 flex flex-col gap-3">
+        <MapModeChoice compact />
         <MarkerStylePicker />
       </div>
       <ul className="divide-y divide-[#efe5cf]" data-map-guide>

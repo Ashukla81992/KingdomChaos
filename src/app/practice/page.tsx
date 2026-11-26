@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { GameScreen } from '@/components/game/GameScreen';
 import { TimerChoice } from '@/components/TimerChoice';
+import { MapModeChoice } from '@/components/MapModeChoice';
 import { MenuShell } from '@/components/MenuShell';
 import { ROOM_CONFIG } from '@/engine';
 import { savedName, savedPace, saveName, savePace } from '@/lib/storage';
@@ -69,6 +70,7 @@ export default function PracticePage() {
           </div>
         </fieldset>
         <TimerChoice value={timers} onChange={setTimers} />
+        <MapModeChoice />
         <button className="btn btn-blue w-full text-lg" type="submit">
           <Play size={20} aria-hidden="true" /> Start practice
         </button>

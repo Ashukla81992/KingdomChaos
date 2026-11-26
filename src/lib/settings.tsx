@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { readJSON, writeJSON } from './storage';
 import { playSound, unlockAudio, type SoundName } from './sound';
+import type { MapMode } from './mapMode';
 
 export interface Settings {
   volume: number;
@@ -14,6 +15,8 @@ export interface Settings {
   rulesRail?: 'open' | 'folded';
   /** How landmarks are drawn on the map. Names show on hover in the quieter styles. */
   markers?: MarkerStyle;
+  /** Which painting the board uses: the clean Simple maps (default) or the Detailed ones. Per device. */
+  mapMode?: MapMode;
 }
 
 export type MarkerStyle = 'minimal' | 'medallion' | 'labelled';

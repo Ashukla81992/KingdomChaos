@@ -49,4 +49,4 @@ async function bleed(name: string) {
   console.log(`${name}-bleed.jpg ${3 * w}×${3 * h}`);
 }
 
-for (const name of ['island', 'dungeon']) await bleed(name);
+for (const name of ['island', 'dungeon', 'island-simple', 'dungeon-simple']) await bleed(name);
